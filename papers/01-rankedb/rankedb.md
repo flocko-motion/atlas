@@ -208,9 +208,13 @@ The same property that enables strategy evolution over time also enables **strat
 
 This stance has a concrete consequence for how the rest of the RankeDB papers should be read. Paper 2 (workers) describes *one way* to populate the levels, using the workers we have today. Paper 3 (chat and memory agents) describes *one way* to consume them, using the strategies we understand today. Neither paper claims that its pipeline or its strategy is the final answer — both are first-generation consumers of a base that is designed to outlive them. The database's job is to make sure that when the second, third, and tenth generations arrive, their data is already waiting for them.
 
-## 4. Implementation
+## 4. Reference Implementation
 
-RankeDB is delivered as two components.
+The sections below describe a specific **proof-of-concept implementation** of the RankeDB architecture. The architectural claims in §2 and §3 — three levels networked by provenance, append-only derivation, semantic graph as materialized projection, under-prescription as a design stance — do not depend on this particular choice of storage engines. The reference implementation splits Level 0, Level 1, and Level 2 across three engines (S3-compatible object store, Postgres, FalkorDB) because each engine is well-suited to one level's access pattern, and because off-the-shelf components let us validate the concept quickly with existing operational know-how. The split is not essential to the architecture. A single database capable of content-addressable blob storage, append-only DAG traversal, and property-graph projection could in principle host the entire stack, and we expect such consolidated implementations to emerge if the underlying concept proves valuable.
+
+**RankeDB is a data structure and a set of invariants, not a deployment topology.** The paper's core claims rest on the architectural and philosophical arguments in §2, §3, and §6 — not on properties of this particular stack. The empirical validation of the architecture's usefulness is delivered in the companion papers: Paper 2 demonstrates that the levels can be populated by a worker pipeline, and Paper 3 demonstrates that the levels can be consumed by a chat and memory-agent stack. Readers interested in measured performance should look there. Paper 1's job is to show that the shape is right.
+
+The reference implementation is delivered as two components: a **server** that encapsulates the three storage engines behind a single API, and an **Explorer** that serves as a visual front-end for developing and inspecting the data model. Both are development tools for the current phase of the project; neither is essential to the architecture.
 
 ### 4.1 RankeDB
 
