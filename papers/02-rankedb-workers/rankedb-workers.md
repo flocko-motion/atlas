@@ -50,6 +50,16 @@ Later workers in the pipeline — normalizers, summarizers, extractors — do in
 - Self-healing: crashed workers leave incomplete chains, next run picks up
 - Ordering via dependency: summarizer waits for normalizer output (implicit, not scheduled)
 
+### 2.4 Quality Over Speed: The Inference-Cost Bet
+
+Workers are designed for **extraction quality first, throughput second.** When the two conflict, we prefer the slower pipeline that preserves more structure, more context, and more ambiguity over the faster pipeline that forces early commitments. Concretely, this means: we run the better (larger, slower) model when a choice exists, we keep intermediate representations that a faster pipeline would discard, we tolerate LLM latencies that would be prohibitive in an interactive loop, and we accept redundant work (multiple extractors, multiple summarizers) when it produces a richer provenance record.
+
+This is a deliberate bet on the same trajectory that Paper 1 §7.1 bets on at the data-model level: **LLM inference is getting faster and cheaper by orders of magnitude per year, and will continue to.** A worker pipeline tuned for quality at 2026 inference cost becomes a fast pipeline at 2028 inference cost without any changes to the pipeline itself. A pipeline tuned for speed at 2026 cost by discarding structure can never recover what it threw away, because the raw Records it worked from are still in Level 0 but the structural decisions it made along the way are lost.
+
+The symmetry with Paper 1 is deliberate: RankeDB bets that **context windows will grow**, workers bet that **inference throughput will grow**, and both bets discharge into the same design principle — *accumulate everything, consolidate nothing*. The cost of being wrong on either bet is storage and compute spent on history that cannot be utilized. The cost of being right is that a future model receives the full derivation history and structural richness of a belief rather than a lossy summary.
+
+This bet does not apply to the Level 0 layer (ingest workers are mechanistic and already fast) or to deterministic parsing steps (LiteParse, format conversion, deduplication). It applies specifically to **LLM-assisted extraction, entity resolution, and summarization** — the places where a quality/speed tradeoff exists and where slower models produce meaningfully better output.
+
 ## 3. The Ingestion Pipeline
 
 ### 3.1 Importers (Level 0)
@@ -179,9 +189,45 @@ graph LR
 
 ## 6. Evaluation
 
-- Dataset: [TBD — email archive, ChatGPT export]
-- Metrics: provenance completeness (every L2 node traceable to L0), extraction quality, reprocessing overhead
-- Qualitative: Explorer walkthrough of a single fact from L2 to L0
+### 6.1 Extraction test fixtures: LongMemEval scenarios
+
+The seven question-type scenarios in Figure 1 of LongMemEval (Wu et al., ICLR 2025; arXiv 2410.10813v2) are well-suited as test fixtures for the extraction worker pipeline. Each scenario is a short, self-contained dialogue fragment that exercises a specific aspect of fact extraction and graph construction — together they cover the capabilities a competent extractor must support. We adopt them as qualitative test cases for evaluating the extractor and for visualizing the semantic graph a scenario produces.
+
+Mapping each LongMemEval question type to the extraction capability it exercises:
+
+| LongMemEval question type | Extraction capability under test |
+|---|---|
+| **single-session-user** | Extract user-stated facts as Thoughts with provenance to the utterance. *(Example: "my commute takes 45 minutes each way")* |
+| **single-session-assistant** | Extract assistant-produced facts as Thoughts. *The assistant's own statements are first-class knowledge; a restaurant it recommended yesterday is a fact the user can ask about tomorrow.* |
+| **single-session-preference** | Infer latent attributes (brand affinity, recurring constraints) from multiple signals in one session. Preferences are Thoughts with lower conviction than direct statements and carry provenance to every signal that supports them. |
+| **temporal-reasoning** | Extract facts with explicit timestamps (`valid_from`) and produce L2 edges that can answer span-based queries. Requires that the extractor attach the utterance timestamp to every extracted entity. |
+| **knowledge-update** | Produce a new Thought that supersedes an earlier one without deleting it. The append-only model from Paper 1 §3.2 handles this at the data layer; the extractor's job is to recognize the update and emit the supersession correctly, not to mutate. |
+| **multi-session** | Aggregate facts across multiple independent sessions. Requires that entity resolution (§4) correctly unifies the same entity across sessions without spurious merging. |
+| **abstention** | Produce no false facts. The extractor must not hallucinate entities that were never mentioned — the absence of a Thought is the correct behavior. Evaluated by negative tests: after running the extractor, the graph must not contain claims the dialogue never supported. |
+
+### 6.2 Presenting extraction results as semantic graphs
+
+For each LongMemEval scenario, we intend to present the semantic graph that results from running the raw dialogue through the worker pipeline: importer → normalizer → extractor → L1 Thoughts → L2 projection. The visualization makes the pipeline's behavior concrete and inspectable. A single scenario produces a small enough graph to render fully (~5–30 nodes, ~10–50 edges) while exercising the full chain of provenance from a Level 2 entity back to the raw Record.
+
+This serves three purposes:
+
+- **Qualitative ground truth.** A reader can see directly whether the extractor captured the relevant facts, whether entity resolution unified the right mentions, and whether temporal edges carry the right timestamps.
+- **Provenance-chain walkthrough.** Each extracted entity traces back through the pipeline to the source utterance. This makes Paper 1's "provenance as substrate" claim tangible.
+- **Failure mode visibility.** When the extractor gets something wrong, the graph makes the error obvious — a missing entity, a spurious edge, a mis-resolved alias. These become concrete case studies for §7 Discussion.
+
+The scenario graphs are qualitative; they do not substitute for the end-to-end benchmark evaluation in Paper 3, which measures chat-assistant accuracy on the full LongMemEval question set.
+
+### 6.3 Quantitative metrics
+
+Beyond the qualitative scenario walkthroughs, we report:
+
+- **Provenance completeness.** Fraction of L2 nodes and edges with an unbroken provenance chain to a Level 0 Record. Target: 100%. Any value below 100% indicates a bug in the pipeline.
+- **Extraction recall per question type.** For each of the seven LongMemEval question types, the fraction of relevant facts present in the semantic graph after extraction, computed against hand-annotated ground truth on a held-out subset of scenarios.
+- **Entity resolution correctness.** On scenarios that contain cross-session references to the same entity, the fraction of mentions correctly unified. Errors split into *missed merges* (same entity, not unified) and *spurious merges* (different entities, incorrectly unified — expected to be near zero due to the contextual resolution of §4).
+- **Reprocessing cost.** Time to rerun the full extractor over an existing L0 corpus and produce a second generation of Thoughts. Measures the operational cost of the "reprocessing is an append operation" property from §5.
+- **Hallucination rate.** For abstention-type scenarios, fraction of extracted entities that are not supported by the source dialogue. Target: zero.
+
+We deliberately do not optimize for extraction latency in this paper. Per §2.4, the worker design is a bet on falling LLM inference costs; throughput will be reported for context but is not a primary metric.
 
 ## 7. Discussion
 
