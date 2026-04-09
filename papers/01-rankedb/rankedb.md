@@ -522,6 +522,24 @@ An add-only monotonic DAG is provably a Conflict-Free Replicated Data Type (CRDT
 > - **DefraDB.** Content-addressable immutable blob store with knowledge graph aspirations. `read_2.pdf §5 table`. **Priority: L.**
 > - **Arweave.** Strictly append-only, no destructive operations, permanent storage. dolthub.com/blog/2022-03-21-immutable-database. `read_2.pdf §5 table`. **Priority: L.**
 
+### 7.4 Design Rationale: What the Architecture Makes Possible
+
+Wu et al. (2025, *LongMemEval*) identify five core long-term memory abilities — **information extraction**, **multi-session reasoning**, **knowledge updates**, **temporal reasoning**, and **abstention** — as the coverage axes for long-term memory systems. Papers 2 and 3 describe how a worker pipeline and a chat-assistant stack actually deliver these abilities (§1.1 in each). This section answers the complementary question: *why does the database look the way it does?*
+
+RankeDB does not guarantee any of the five. They are delivered by the consumers built on top. What the database does is **refuse to foreclose** on them: each architectural choice in §2 and §3 was made to keep each of the abilities **possible** — reachable by *some* consumer strategy — without committing to any particular one. A system that commits to one granularity, one retrieval path, one indexing scheme, or one consolidation policy makes some subset of the abilities cheap and the rest expensive or impossible. RankeDB leaves all of them reachable, and leaves the strategy to the consumer.
+
+- **Multiple levels of detail in parallel (§3.6).** *Keeps information extraction and multi-session reasoning possible from the same data.* Raw dialogue, intermediate derivations, and semantic triplets all exist at once, so a consumer can descend to the exact utterance for specific recall *or* aggregate at the entity level for cross-session synthesis — without one undermining the other.
+
+- **Provenance as substrate (§3.3).** *Keeps abstention and knowledge updates possible.* A consumer can check whether a claim has a provenance chain and refuse to answer if it does not — an architectural precondition for any abstention policy above. And because a superseding Thought links to what it supersedes, current-vs-historical selection is a queryable property, not something lost in a consolidation pass.
+
+- **Timestamps on every node and edge (§2.2, §2.3).** *Keeps temporal reasoning possible as a first-class query primitive.* Two temporal dimensions are carried at all times: when the underlying event occurred (from source metadata or explicit in-content mentions) and when the Thought entered the database (transaction time from the L1 DAG). Questions about *when* have direct answers; a consumer does not have to reconstruct temporal order from implicit cues.
+
+- **Temporal validity on L2 edges (§2.3).** *Keeps knowledge updates possible without losing history.* Every L2 edge carries `valid_from` and `valid_until`, not just a creation timestamp. A fact true from February to April coexists with a fact true from April onward; both remain retrievable, and which one answers a given query is a view-configuration choice left to the consumer.
+
+- **Append-only over content-addressable source (§3.2, §2.1).** *Keeps knowledge updates and abstention possible at the infrastructure level.* Nothing is ever mutated or overwritten, and the raw source is byte-identical to what was ingested. History cannot be corrupted by "updating" a fact, and a claim that cannot be verified today can be re-verified tomorrow against the unchanged source.
+
+This rationale is a *reading* of the architecture, not a derivation of it. RankeDB was not designed by starting from the five abilities and working backward — it was designed from the provenance-as-substrate inversion (§3.3) and the under-prescription principle (§3.6), and the five abilities fall out as consequences. But the mapping is clean enough to use as an explanation: when a reader asks *why does the database look the way it does?*, one useful answer is *because each choice keeps one or more of the abilities reachable, without committing to how a consumer reaches them.*
+
 ## 8. Conclusion
 
 RankeDB proposes a structural inversion in knowledge system design: provenance as substrate rather than metadata, knowledge graph as view rather than source of truth. The architecture — immutable source archive, append-only provenance DAG, semantic graph as materialized view — is a composition of individually well-understood components whose integration has not been previously proposed.
