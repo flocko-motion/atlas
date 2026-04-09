@@ -21,6 +21,14 @@ We demonstrate how a pipeline of independent workers — both mechanistic and LL
 
 ## 2. Worker Architecture
 
+### 2.0 The Contract: S3 as Decoupling Point
+
+Before discussing individual workers, one design principle shapes the entire pipeline: **ingest workers and Atlas are decoupled through Level 0 and know nothing about each other.** Ingest workers know how to talk to S3; they do not know what Atlas is, where Postgres lives, or what happens to their outputs downstream. Atlas knows how to read from S3; it does not know which worker produced any particular Record or how that worker was scheduled. The only contract between them is the Level 0 storage format: a SHA-256 content hash as the object key, and the metadata header schema defined in Paper 1 §4.1.1.
+
+This decoupling is what makes the ingest fleet extensible. A new source of data (a new chat provider, a new device, a new document export format) requires writing a new ingest worker against the S3 contract — nothing in Atlas itself changes. Conversely, replacing the Atlas backend (schema changes, storage engine swaps) does not require touching any ingest worker, because none of them knows it exists. Level 0 is a dumb, stable collection point by design.
+
+Later workers in the pipeline — normalizers, summarizers, extractors — do interact with the Atlas API directly, because their job is to produce Thoughts with provenance. But even they are clients of a stable contract, not components of Atlas itself.
+
 ### 2.1 Worker Anatomy
 
 - Stateless: no internal memory between runs
@@ -46,16 +54,43 @@ We demonstrate how a pipeline of independent workers — both mechanistic and LL
 
 ### 3.1 Importers (Level 0)
 
-- **Email importer**: MBOX/EML → Records in S3, one per message, metadata (sender, date, subject) in frontmatter
-- **Chat importer**: ChatGPT/Claude export → Records in S3, one per conversation
-- Mechanistic workers — no LLM needed
-- Content-addressed: duplicate detection via SHA-256
+Importers are the workers that populate Level 0. Each one targets a single source and produces raw Records in the object store, content-addressed by SHA-256 with routing metadata (see Paper 1 §4.1.1). They are mechanistic — no LLM in the loop — and idempotent: re-running an importer over the same input is a no-op because the content-addressed `PUT` will either hit an existing key or write a new one. No duplicate detection logic is needed above the storage layer.
+
+The reference deployment runs the following importers:
+
+| Importer | Source | Mechanism |
+|---|---|---|
+| **Zoho Mail** | Zoho IMAP | Polls a dedicated `atlas` folder; writes each message as an `.eml` Record |
+| **Google Photos** | Google Photos API | Export / sync of original assets into Level 0 |
+| **Android Share** | Android app | Direct upload via share intent from any app on the device |
+| **Paperless** | Paperless-ngx export | Scanned and OCR-processed documents |
+| **Chat exports** | ChatGPT / Claude export | One Record per conversation |
+
+Further importers can be added without touching Atlas or the existing fleet — they are independent processes that share only the Level 0 contract. Importers hold write-only S3 credentials (`s3:PutObject` + `s3:ListBucket`) and have no read access to the archive they are feeding. This enforces the decoupling from §2.0 at the credential level: a compromised importer cannot exfiltrate anything, and an importer cannot accidentally grow into an Atlas-aware component.
 
 ### 3.2 Normalizer (Level 0 → Level 1)
 
-- Extracts clean text from format-specific containers (HTML email → plain text, JSON export → conversation text)
-- Mechanistic worker
-- Produces Thoughts of type "normalization" with provenance to source Record
+The normalizer's job is to turn a raw Record into clean structured content: HTML email into plain text, a JSON chat export into a conversation transcript, a PDF into paginated text with layout preserved. It is a mechanistic worker and produces Thoughts of type `normalization` with provenance to the source Record.
+
+For documents, the reference implementation delegates parsing to **LiteParse** (LlamaIndex), which fits the design constraints well: it is TypeScript/Node.js (same runtime as the rest of the worker fleet), it runs locally without a cloud dependency, and it handles PDF natively plus Office formats via LibreOffice conversion and images via ImageMagick. LiteParse performs spatial text parsing — preserving layout rather than collapsing to error-prone Markdown — has built-in OCR (Tesseract.js), and can optionally produce per-page screenshots for multimodal reasoning downstream.
+
+LiteParse is deployed as a **stateless API service** on Hetzner/Coolify. It is pure compute with no persistent state: the Atlas backend sends it a blob and receives extracted text plus metadata in response. LiteParse never sees where the data lives or where the results go.
+
+```
+Atlas backend
+  │
+  │  POST /parse (blob + bearer token)
+  ▼
+LiteParse API
+  │
+  │  Response: extracted text + metadata
+  ▼
+Atlas backend → Postgres (normalization Thought)
+```
+
+Because LiteParse holds no state, losing or replacing it is a cosmetic event — the parsing is deterministic and can be re-run at any time from the source Record. It is an implementation choice, not part of the Atlas data model.
+
+- **References:** [LiteParse announcement](https://www.llamaindex.ai/blog/liteparse-local-document-parsing-for-ai-agents) · [github.com/run-llama/liteparse](https://github.com/run-llama/liteparse)
 
 ### 3.3 Summarizer (Level 1 → Level 1)
 

@@ -75,10 +75,13 @@ Level 0 is an immutable, content-addressable object store. Every external artifa
 
 Level 0 is the only level that contains ground truth in the absolute sense. It is the archive — the fixpoint against which all derived knowledge can be validated.
 
+Because the content hash is the storage key, writes are idempotent: uploading the same blob twice is a no-op, and producers need not coordinate to avoid duplicates. Metadata attached to a Record at write time is strictly for *routing and identification* — source attribution, original filename, creation timestamp, ingestion timestamp, content type — and never for semantic modeling. Anything that could be derived from the bytes belongs in Level 1, not Level 0.
+
 **Invariants:**
 - Records are immutable. Once written, a Record is never modified or deleted.
 - Records are content-addressed. The SHA-256 hash serves as the canonical identifier.
 - Records are self-describing. Metadata is sufficient for full reconstruction.
+- Writes are idempotent. A duplicate `PUT` has no effect.
 
 ### 2.2 Level 1: Provenance DAG (Provenienz)
 
@@ -87,6 +90,8 @@ Level 1 is an append-only directed acyclic graph stored in Postgres. Its nodes a
 Level 1 is the core of Atlas. It stores the complete history of how knowledge was produced — not just what is believed, but *how it came to be believed*. This history is itself knowledge: queryable, traversable, and available as context for downstream consumers.
 
 Provenance edges carry metadata: which tool produced the derivation, its configuration, the model version (if an LLM), and timestamps. This metadata is not auxiliary — it is part of the knowledge graph. A derivation produced by a 2024 language model and one produced by a 2028 model from the same source Record are both preserved as competing interpretations with full provenance.
+
+Level 1 is also the **node authority** for the system: it holds the full content of every Thought (extracted text, structured fields), the full derivation record, and any downstream indices that require fast content access (full-text search, vector embeddings). Embeddings are maintained in a separate table with a foreign key to the content — they are a derived index, regenerable at any time with a different model or chunking strategy, without touching the content itself. A `parent_id` per Thought records the primary input as a denormalized shortcut for plausibility checks and quick traversal; the full provenance is always the edge set, not this field.
 
 **Invariants:**
 - The graph is append-only. Thoughts are never modified or deleted.
@@ -103,10 +108,31 @@ Relations in Level 2 are natural-language labels, not formal ontology predicates
 
 Level 2 is, strictly speaking, an index. It exists because the full Level 1 DAG is too large and too deep for efficient associative retrieval. Consumers — whether LLM agents, dashboards, or analytical tools — typically enter through Level 2 and descend into Level 1 only when provenance or derivation history is needed.
 
+Where Level 1 is the **node authority** (content, provenance, indices over content), Level 2 is the **edge authority** (semantic relations, cross-domain links, traversal paths). Nodes appear in both levels but in different forms: Level 1 stores the full content; Level 2 stores a lightweight projection sufficient for graph traversal. Provenance itself is never stored in Level 2 — it is strictly acyclic and therefore lives in Level 1, where the DAG invariant can be enforced. The two storage engines are complementary, not redundant: each holds the class of relations it is best suited to.
+
 **Invariants:**
 - Every node and edge in Level 2 has a provenance reference to Level 1.
 - Level 2 can be fully reconstructed from Level 1.
 - Relations use natural-language labels. No formal ontology is required.
+- Level 2 stores no provenance edges. Provenance is acyclic and lives in Level 1.
+
+### 2.4 Data Flow
+
+The three levels form a strictly unidirectional pipeline:
+
+```
+Level 0 (Sources / S3)
+  │
+  │  Ingestion: content extraction, node creation, provenance
+  ▼
+Level 1 (Provenance DAG / Postgres)
+  │
+  │  Projection: semantic enrichment of processed content
+  ▼
+Level 2 (Semantic Index / FalkorDB)
+```
+
+Writes propagate downward only. Level 1 is written first and stamps provenance; Level 2 projects from Level 1 once the upstream Thought is committed. There is no backward flow, no two-way synchronization, and no synchronization problem: a downstream level cannot get out of sync with an upstream one, because the downstream level is by definition a projection of the upstream one and can always be rebuilt from it.
 
 ## 3. Core Properties
 
@@ -180,6 +206,12 @@ Visibility propagates through the provenance graph: a Thought derived from one p
 
 The classification of Records into visibility groups is itself a Thought with provenance — produced by a worker, subject to revision, queryable like any other knowledge.
 
+### 3.5 The Rebuild Guarantee
+
+A consequence of the unidirectional data flow and the immutability of Level 0 is that everything above Level 0 is fully rebuildable. As long as the source archive is intact, the provenance DAG can be regenerated by re-running the workers, and the semantic graph can be regenerated by re-projecting from the DAG. No derived state is load-bearing on its own; losing Postgres or FalkorDB entirely would be a performance event, not a data loss event.
+
+This property has concrete operational consequences. Backups at Level 0 are the only backups that matter in the strong sense — everything else is an optimization to avoid rebuild cost. Schema changes in Level 1 or Level 2 do not require online migrations: they can be applied by rebuilding the affected level from its upstream source. Experimental changes to workers are safe because their output can be discarded and reprocessed without risking source data. The rebuild guarantee is what makes the "append-only knowledge, mutable infrastructure" position from §3.2 actually workable.
+
 ## 4. Implementation
 
 Atlas is delivered as two components.
@@ -189,6 +221,53 @@ Atlas is delivered as two components.
 Atlas DB is a self-contained server deployed as a Docker Compose stack. It encapsulates the three storage engines (S3-compatible object store, Postgres, FalkorDB) behind a single REST API. The storage engines are hidden implementation details — consumers interact exclusively with the API, which enforces all invariants: immutability, acyclicity of the provenance DAG, mandatory provenance on every Thought, and content-addressability of Records.
 
 The API is the sole interface to the system. There is no query language in the traditional sense — the API *is* the query language, imperative rather than declarative. All operations — ingesting Records, creating Thoughts, traversing provenance chains, querying the semantic graph — are API calls. Workers, the Explorer, and any future application consume the same interface.
+
+Atlas DB is the data platform, not an application. What runs on top — chat interfaces, memory agents, research tools — is delivered by clients that consume the API. The stack is designed to run on a single host in the reference deployment, but the API contract is the same regardless of topology.
+
+#### 4.1.1 Level 0: S3-compatible object store
+
+The reference deployment uses Hetzner Object Storage, but any S3-compatible provider will do — S3 is a de-facto standard whose API surface is stable since 2006, and migration to another provider is a single `rclone sync` away (Backblaze B2, Cloudflare R2, AWS, others). Buckets are configured with versioning enabled (as a guard against accidental deletion during development) and with Object Lock (WORM) for production operation, to make immutability enforceable at the storage layer rather than only at the API layer.
+
+Records are stored with the SHA-256 content hash as the object key and the following routing metadata as S3 headers:
+
+| Header | Purpose | Example |
+|---|---|---|
+| `x-amz-meta-source` | Origin / ingest worker | `zoho`, `android`, `google-photos` |
+| `x-amz-meta-content-type` | Semantic type | `email`, `photo`, `chat`, `document` |
+| `x-amz-meta-original-name` | Original filename | `invoice-2026-03.pdf` |
+| `x-amz-meta-created-at` | Creation time of the original | `2026-03-26T14:30:00Z` |
+| `x-amz-meta-ingested-at` | Time of ingest into Atlas | `2026-03-26T15:01:12Z` |
+
+Access to the bucket is split along least-privilege lines: ingest workers hold a key pair with `s3:PutObject` and `s3:ListBucket` only — enough to write new records and check for duplicates, but not to read existing content — while the Atlas backend holds a full read/write key pair. This makes ingest workers blind to the archive they feed, which is useful both as a security property (a compromised worker cannot exfiltrate the archive) and as an architectural discipline (workers cannot accidentally become Atlas-aware).
+
+#### 4.1.2 Level 1: Postgres
+
+Level 1 runs in Postgres. Postgres is the **node authority** for the system: it holds the full content of every Thought, the provenance DAG as a table of edges, full-text search indices (via `tsvector`), vector embeddings (via pgvector, in a separate table with a foreign key to the content), user accounts, auth, and configuration. Backups are taken with `pg_dump` and shipped to Level 0 storage — Postgres itself is therefore rebuildable from the combination of its source Records and its schema.
+
+#### 4.1.3 Level 2: FalkorDB
+
+Level 2 runs in FalkorDB. It holds a lightweight projection of Level 1 nodes (without full content) together with the semantic edges that are its primary purpose: associative, cross-domain, potentially cyclic, and suitable for traversal. FalkorDB is the **edge authority**. Because Level 2 is a materialized view of Level 1, it is rebuildable at any time from Postgres alone, and backups are optional — a dropped FalkorDB instance is a rebuild event, not a data loss event.
+
+#### 4.1.4 The API contract
+
+The API is the only way into Atlas, and it makes three guarantees on behalf of every caller:
+
+- **Immutability.** Once written, a Record or Thought is never modified. Corrections are new Thoughts with provenance that refers to the thing they correct.
+- **Provenance.** Every derivation carries the source(s) it was produced from and the tool that produced it. The API refuses to create a Thought without these.
+- **Access control.** Visibility is derived from the provenance graph (§3.4). The API enforces it on every read.
+
+What lies beneath the API — which object store, which relational database, which graph engine — is implementation detail and can change without affecting consumers.
+
+#### 4.1.5 Implementation sequence
+
+Each level is independently useful before the next one exists, which makes the rollout incrementally valuable rather than all-or-nothing:
+
+1. **Level 0 and a first ingest worker.** Full capture: stop losing data. A single source (for example, an email archive) is enough to start.
+2. **Postgres and the ingestion pipeline.** Content extraction, Thought creation, full-text search, provenance. Atlas is a searchable archive with derivation history at this point, even without a semantic graph.
+3. **Vector embeddings.** pgvector, semantic similarity search over the content.
+4. **FalkorDB and semantic projection.** The knowledge graph layer. Atlas becomes a navigable semantic graph with full provenance back to source.
+
+The design and implementation of the workers that drive this pipeline are the subject of the companion paper on Atlas Workers.
 
 ### 4.2 Atlas Explorer
 
