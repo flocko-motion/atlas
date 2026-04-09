@@ -21,6 +21,27 @@ We explore the application layer built on the RankeDB provenance database: a cha
 - Primary application: conversational interface with provenance-grounded memory
 - This is an idea sketch, not a finished architecture
 
+### 1.1 Design Goals
+
+The memory agent and the surrounding chat stack are designed to deliver the **five core long-term memory abilities** identified by Wu et al. (2025, *LongMemEval*, ICLR 2025, arXiv 2410.10813v2). We adopt their definitions verbatim as design goals for the application layer:
+
+- **Information Extraction (IE).** *"Ability to recall specific information from extensive interactive histories, including the details mentioned by either the user or the assistant."*
+  → **Agent requirement:** the memory agent must be able to retrieve specific facts from the semantic graph, including facts the *assistant* produced in past turns. Assistant utterances are first-class memory, not transient scaffolding — a restaurant the assistant recommended yesterday is a fact the user can ask about tomorrow. The agent must query with enough specificity to return the particular fact asked for, not a summary of the surrounding conversation.
+
+- **Multi-Session Reasoning (MR).** *"Ability to synthesize information across multiple history sessions to answer complex questions that involve aggregation and comparison."*
+  → **Agent requirement:** the memory agent must aggregate, count, and compare entities across session boundaries. *This is the ability on which the RankeDB stack is expected to have its clearest structural advantage* (see §7.3): because sessions are a container in the data model and not an organizing principle, cross-session synthesis is a direct L2 traversal rather than a reconstruction from summaries. The agent's job is to exploit that advantage by querying at the entity level, not at the session level.
+
+- **Knowledge Updates (KU).** *"Ability to recognize the changes in the user's personal information and update the knowledge of the user dynamically over time."*
+  → **Agent requirement:** when answering a question about a fact that has been superseded, the agent must select the current version, not an earlier version, without losing the ability to return prior versions when the question is about history. The append-only data model keeps both versions available; the agent's view-configuration policy decides which one answers a given question.
+
+- **Temporal Reasoning (TR).** *"Awareness of the temporal aspects of user information, including both explicit time mentions and timestamp metadata in the interactions."*
+  → **Agent requirement:** the agent must answer questions that require arithmetic on time — durations, orderings, most-recent selections — using the `valid_from`/`valid_until` on L2 edges and transaction time from the L1 DAG. Temporal filters must be a first-class query primitive, not a post-hoc filter applied to results.
+
+- **Abstention (ABS).** *"Ability to identify questions seeking unknown information, i.e., information not mentioned by the user in the interaction history, and answer 'I don't know.'"*
+  → **Agent requirement:** the agent must refuse to answer when no provenance chain supports a claim. This is the core of the grounded-responses discussion in §2.3: the agent's willingness to say "I don't know" depends on the provenance DAG being reachable, non-empty, and honest about its own reach. Abstention failures are hallucinations — they mean the agent manufactured evidence that does not exist in the database.
+
+These five goals are the rubric we evaluate the chat stack against in §7 (LongMemEval). They also frame the design decisions throughout this paper: the memory agent's retrieval strategy, the background-agent coordination (§3, §4), and the reading strategy (§2.3) are all shaped by which of the five abilities each choice improves or undermines.
+
 > **TODO — Reading for §1 (framing the application layer against PKG research and tools-for-thought):**
 >
 > *This paper currently has no framing in the PKG academic community or the tools-for-thought lineage. Both are essential context — see PDF1 §4 ("Personal knowledge graphs are an active research field") and §8 ("Epistemology as infrastructure").*

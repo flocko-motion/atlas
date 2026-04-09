@@ -19,6 +19,27 @@ We demonstrate how a pipeline of independent workers — both mechanistic and LL
 - Why workers are not plugins or modules but independent processes against an API
 - Goal: end-to-end demonstration with real data (email, chat exports)
 
+### 1.1 Design Goals
+
+The worker pipeline is designed to produce a populated RankeDB stack that supports the **five core long-term memory abilities** identified by Wu et al. (2025, *LongMemEval*, ICLR 2025, arXiv 2410.10813v2). We adopt their definitions verbatim as design goals for the worker fleet:
+
+- **Information Extraction (IE).** *"Ability to recall specific information from extensive interactive histories, including the details mentioned by either the user or the assistant."*
+  → **Worker requirement:** extractors must capture facts stated by *either* party in a dialogue, with high enough fidelity that the exact content can be reconstructed. Summaries that drop either the user or the assistant side fail this goal.
+
+- **Multi-Session Reasoning (MR).** *"Ability to synthesize information across multiple history sessions to answer complex questions that involve aggregation and comparison."*
+  → **Worker requirement:** extractors must produce Thoughts that survive aggregation across sessions — stable entity IDs, resolvable aliases, and typed relations that a downstream agent can count, compare, and intersect. This is where the RankeDB stack is expected to have its clearest structural advantage (Paper 3 §7.3), and the worker fleet must not undermine it by over-summarizing within a session.
+
+- **Knowledge Updates (KU).** *"Ability to recognize the changes in the user's personal information and update the knowledge of the user dynamically over time."*
+  → **Worker requirement:** when new information contradicts existing Thoughts, the worker must *append* a superseding Thought with correct temporal bounds and provenance — not mutate or overwrite. The append-only property is enforced by the database (Paper 1 §3.2), but the worker must emit the right shape of update.
+
+- **Temporal Reasoning (TR).** *"Awareness of the temporal aspects of user information, including both explicit time mentions and timestamp metadata in the interactions."*
+  → **Worker requirement:** every extracted Thought must carry temporal metadata from two sources: the timestamp of the source Record (always available) and any explicit time expressions in the content (parsed out during extraction). Both kinds of time are propagated to L2 edges as `valid_from`/`valid_until`.
+
+- **Abstention (ABS).** *"Ability to identify questions seeking unknown information, i.e., information not mentioned by the user in the interaction history, and answer 'I don't know.'"*
+  → **Worker requirement:** extractors must not hallucinate. A Thought must only exist if the source material actually supports it. Correct abstention at the agent level (Paper 3) depends on correct non-production at the worker level — if the extractor invents entities, no downstream abstention policy can recover.
+
+These five goals are the rubric we evaluate the worker pipeline against in §6. They are also the lens through which we make design decisions throughout the paper: every choice about normalization granularity, extraction style, entity resolution strategy, and temporal metadata is a choice about which of these abilities the pipeline is better or worse at supporting.
+
 ## 2. Worker Architecture
 
 ### 2.0 The Contract: S3 as Decoupling Point
