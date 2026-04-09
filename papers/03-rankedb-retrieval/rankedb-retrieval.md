@@ -61,7 +61,7 @@ We explore the application layer built on the RankeDB provenance database: a cha
 >
 > - **Obsidian / Logseq.** Create link graphs — flat topologies of **untyped connections** between notes. **No entity resolution, no schema, no automated extraction.** Every link requires manual `[[bracketing]]` or `#tagging`. Obsidian's 2025 "Bases" feature adds database views but remains fundamentally a note-taking tool. `read.pdf`. **Priority: M.**
 > - **Tana supertags.** Closest existing tool to ontology-based approaches — nodes typed with supertags gain structured fields and computed values. But supertags must be **manually assigned**, no entity resolution, relationships aren't typed graph edges. `read.pdf`. **Priority: L.**
-> - **Mem.ai.** **Philosophical counterpart to RankeDB** — shares "no manual organization" philosophy, AI organizes automatically. *Key contrast:* Mem treats AI as the organizer (opaque ML); RankeDB uses explicit worker DAGs producing inspectable graph structures. **Mem: "AI knows best." RankeDB: "the graph is the truth, the LLM translates."** `read.pdf`. **Priority: H — state this dichotomy explicitly in §2.**
+> - **Mem.ai.** **Philosophical counterpart to the RankeDB-based chat stack** — shares "no manual organization" philosophy, AI organizes automatically. *Key contrast:* Mem treats AI as the organizer (opaque ML inside the product); the RankeDB stack separates concerns — the data structure is inspectable and LLM-free (Paper 1), workers that use LLMs operate above it (Paper 2), and the memory agent that translates natural language to graph queries operates above them (this paper). **Mem: "AI knows best." RankeDB stack: "the graph is the truth; inference happens in workers and agents above the database, never inside it."** `read.pdf`. **Priority: H — state this dichotomy explicitly in §2.**
 > - **Solid (Tim Berners-Lee).** Prioritizes data sovereignty through pods using W3C standards. opencommons.org/The_Solid_Protocol. **Leigh Dodds (2024): *"Solid just isn't ready for general adoption"*** — Pod API is essentially a document store without query capabilities. blog.ldodds.com/2024/03/12/baffled-by-solid. **Solid solves storage and access, not intelligence.** `read.pdf`. **Priority: M.**
 > - **PDF1 summary framing:** *"RankeDB leapfrogs all of these by building a true semantic knowledge graph with typed entities, typed relationships, automated extraction via worker DAGs, entity resolution with conviction scoring, and full provenance — while maintaining the personal-scale design and no-manual-tagging philosophy that tools-for-thought users expect."* **Use verbatim as §2 closing framing.**
 
@@ -185,7 +185,69 @@ We explore the application layer built on the RankeDB provenance database: a cha
 - How to handle contradictions between chat statements and existing graph knowledge?
 - When multiple agents disagree, how does the user experience this?
 
-## 7. Conclusion
+## 7. Evaluation
+
+### 7.1 Benchmark: LongMemEval
+
+We evaluate the chat-assistant stack built on RankeDB against **LongMemEval** (Wu et al., ICLR 2025; arXiv 2410.10813v2), a benchmark for long-term memory in chat assistants. LongMemEval consists of 500 manually curated questions embedded within freely scalable user-assistant chat histories and tests five core memory abilities: **information extraction (IE)**, **multi-session reasoning (MR)**, **knowledge updates (KU)**, **temporal reasoning (TR)**, and **abstention (ABS)**. Two standard settings are provided: **LongMemEval_S** at approximately 115k tokens per problem, and **LongMemEval_M** at 500 sessions and around 1.5 million tokens per problem. Benchmark and code: [`github.com/xiaowu0162/LongMemEval`](https://github.com/xiaowu0162/LongMemEval).
+
+> **Note.** The LongMemEval paper is a primary reference for this work, well beyond the evaluation section. Its unified view of memory-augmented chat assistants across **three execution stages** — indexing, retrieval, reading — and **four control points** — value, key, query, reading strategy — provides vocabulary and decomposition we adopt throughout Paper 3. Wu et al.'s §5.2–§5.5 report four experimental findings that directly inform the memory-agent design in §2 of this paper; we map each one to the RankeDB stack in §7.4 below.
+
+RankeDB itself is a domain-agnostic database with no LLM and no notion of a chat assistant. Running LongMemEval therefore means evaluating the **full chat-assistant stack** built on top of RankeDB — ingest workers that load dialogue history as Records, extraction workers that produce Thoughts with provenance (Paper 2), and the memory agent (this paper) that answers benchmark questions by querying the API. The benchmark measures this entire stack. Pure database-level metrics (throughput, latency, storage, rebuild cost) are the subject of Paper 1 §7 and are not evaluated here.
+
+### 7.2 Why LongMemEval alone is sufficient
+
+LongMemEval strictly dominates every prior long-term memory benchmark on capability coverage, and matches or exceeds them on scale. The following comparison is adapted from Table 1 of the LongMemEval paper:
+
+| Benchmark | Domain | Sessions | Context depth | IE | MR | KU | TR | ABS | Covered |
+|---|---|---|---|---|---|---|---|---|---|
+| MSC (Xu et al., 2022a) | Open-domain | 5k | 1k | – | – | – | – | – | 0/5 |
+| DuLeMon (Xu et al., 2022b) | Open-domain | 30k | 1k | – | – | – | – | – | 0/5 |
+| MemoryBank (Zhong et al., 2024) | Personal | 300 | 5k | ✓ | – | – | – | – | 1/5 |
+| PerLTQA (Du et al., 2024) | Personal | 4k | ~1M | ✓ | – | – | – | – | 1/5 |
+| LoCoMo (Maharana et al., 2024) | Personal | – | 10k | ✓ | ✓\* | – | ✓ | – | 3/5 |
+| DialSim (Kim et al., 2024) | TV shows | 1k–2k | 350k | ✓ | ✓ | – | ✓ | – | 3/5 |
+| **LongMemEval** (Wu et al., 2025) | Personal | 50k | 115k / 1.5M | ✓ | ✓ | ✓ | ✓ | ✓ | **5/5** |
+
+\* *At most two sessions tested.*
+
+No earlier benchmark covers more than three of the five core memory abilities, and LongMemEval matches or exceeds all of them on session count and context depth. A system evaluated on LongMemEval is evaluated on a strict superset of the capability axes tested by prior work. We therefore adopt LongMemEval as our single task benchmark without additional long-term memory benchmarks.
+
+### 7.3 Mapping the five memory abilities to the RankeDB stack
+
+Each of LongMemEval's five memory abilities corresponds to a specific part of the chat-assistant stack:
+
+- **Information extraction (IE).** Executed by extraction workers (Paper 2 §3.4) that consume normalized dialogue Thoughts and produce entity/relation Thoughts in Level 1, which are projected into Level 2.
+- **Multi-session reasoning (MR).** Supported by Level 2 semantic edges that link entities and facts across sessions, combined with descent into Level 1 for derivation context when multiple sessions contribute to the same entity.
+- **Knowledge updates (KU).** A direct consequence of the append-only data model (Paper 1 §3.2). Updated facts do not overwrite prior facts; both coexist with temporal validity windows, and the memory agent selects via view configuration (most recent, highest confidence, or explicit provenance policy).
+- **Temporal reasoning (TR).** Supported by `valid_from` / `valid_until` on every L2 edge, plus transaction time provided by the L1 DAG — the "emergent bitemporality" property of the stack.
+- **Abstention (ABS).** Enabled by the provenance DAG: the memory agent can refuse to answer when no provenance chain supports a claim, rather than fabricate. The stack supports this architecturally; the abstention policy itself is a memory-agent concern (§2.3).
+
+### 7.4 LongMemEval design findings and their implications
+
+Wu et al. §5.2–§5.5 report four experimental findings from their unified memory-design framework. Each has a direct analog in how the RankeDB stack is organized.
+
+**§5.2 — Round granularity beats sessions.** LongMemEval finds that "round" (single-turn) granularity is optimal for storing and retrieving history; further compression into individual user facts loses information overall but improves multi-session reasoning. On RankeDB, this tradeoff disappears: the append-only DAG retains *every* granularity simultaneously — the raw dialogue Record at L0, the normalization Thought, the per-round Thought, the per-session summary Thought, the extracted fact Thought, and the L2 projection. The memory agent selects the granularity appropriate to the question via view configuration. No single-granularity commitment is required.
+
+**§5.3 — Key expansion with extracted facts improves retrieval.** LongMemEval reports that expanding memory keys with extracted user facts adds **+9.4% recall@k** and **+5.4% QA accuracy** over a flat memory-values-as-keys baseline. In RankeDB terms, this is what Level 2 already is: the semantic index is built from extracted facts projected from L1, with every L2 node and edge carrying a provenance reference back to the content in L1. Key expansion is the architectural default, not an optimization layer.
+
+**§5.4 — Time-aware indexing improves temporal reasoning.** LongMemEval proposes an indexing and query expansion strategy that explicitly associates timestamps with facts, reporting **+6.8%–11.3% recall improvement** on temporal questions with strong-LLM query expansion. The RankeDB stack has this at the schema level: every L2 edge carries `valid_from` and `valid_until`, and the L1 DAG provides transaction time. The memory agent can narrow search ranges directly from the edge properties without a separate temporal index.
+
+**§5.5 — Reading strategy matters even with perfect recall.** LongMemEval reports up to **+10 absolute points of QA accuracy** from Chain-of-Note (Yu et al., 2023) and structured data format (Yin et al., 2023) on top of the same retrieved items. This is a reader-level finding that motivates §2.3 of this paper: the memory agent should return structured entity-and-relation context (which RankeDB provides by default through the L2 projection) rather than raw dialogue text, and should use Chain-of-Note-style reading to trace provenance chains before answering.
+
+### 7.5 What we report
+
+For each of the five memory abilities, we intend to report:
+
+- Accuracy on LongMemEval_S (115k tokens per problem) and LongMemEval_M (~1.5M tokens per problem)
+- Per-category breakdown (IE / MR / KU / TR / ABS)
+- Comparison against the baselines reported by Wu et al. (2025): long-context LLMs, commercial chat assistants, and open-source memory systems
+- Ablations that remove specific RankeDB properties:
+  - No provenance descent (L2-only retrieval, no L1 derivation traversal) — expected to hurt MR and ABS
+  - No temporal edges — expected to hurt TR
+  - No append-only supersession (consolidated view only) — expected to hurt KU
+
+## 8. Conclusion
 
 - RankeDB + memory agent = a chat system with grounded, provenance-tracked memory
 - Background agents create a richer but harder-to-coordinate system
@@ -194,7 +256,7 @@ We explore the application layer built on the RankeDB provenance database: a cha
 
 ## References
 
-*TBD — will reference Papers 1–2, agent memory literature, MCP specification*
+*TBD — will reference Papers 1–2, agent memory literature, MCP specification, and Wu et al. (2025) "LongMemEval" (ICLR 2025, arXiv:2410.10813v2).*
 
 ---
 
