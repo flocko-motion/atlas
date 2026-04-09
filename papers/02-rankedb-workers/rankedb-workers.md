@@ -202,7 +202,7 @@ Mapping each LongMemEval question type to the extraction capability it exercises
 | **single-session-preference** | Infer latent attributes (brand affinity, recurring constraints) from multiple signals in one session. Preferences are Thoughts with lower conviction than direct statements and carry provenance to every signal that supports them. |
 | **temporal-reasoning** | Extract facts with explicit timestamps (`valid_from`) and produce L2 edges that can answer span-based queries. Requires that the extractor attach the utterance timestamp to every extracted entity. |
 | **knowledge-update** | Produce a new Thought that supersedes an earlier one without deleting it. The append-only model from Paper 1 §3.2 handles this at the data layer; the extractor's job is to recognize the update and emit the supersession correctly, not to mutate. |
-| **multi-session** | Aggregate facts across multiple independent sessions. Requires that entity resolution (§4) correctly unifies the same entity across sessions without spurious merging. |
+| **multi-session** | Aggregate facts across multiple independent sessions. **The scenario on which the RankeDB stack is expected to shine**, because the data model does not privilege sessions as a primary unit: cross-session unification is a direct property of L2 entity resolution (§4), not a post-hoc query pattern. Still requires that resolution correctly avoids spurious merging. |
 | **abstention** | Produce no false facts. The extractor must not hallucinate entities that were never mentioned — the absence of a Thought is the correct behavior. Evaluated by negative tests: after running the extractor, the graph must not contain claims the dialogue never supported. |
 
 ### 6.2 Presenting extraction results as semantic graphs
