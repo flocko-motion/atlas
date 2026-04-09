@@ -35,31 +35,9 @@ Atlas addresses this gap through a structural inversion: the provenance DAG is t
 
 ## 2. Architecture
 
-Atlas is organized into three storage levels. Each level serves a distinct function, but they are not independent layers in a traditional stack — Level 1 carries Level 2, and Level 0 anchors Level 1. The three levels are implementation details behind a single API; external consumers interact with Atlas exclusively through this API.
+Atlas is organized into three storage levels (see Figure 1). Each level serves a distinct function, but they are not independent layers in a traditional stack — Level 1 carries Level 2, and Level 0 anchors Level 1. The three levels are implementation details behind a single API; external consumers interact with Atlas exclusively through this API.
 
-```mermaid
-graph TB
-    subgraph "Level 0 — Raw Sources"
-        S3["Content-Addressable Object Store (S3)"]
-    end
-    subgraph "Level 1 — Provenance DAG"
-        PG["Append-Only DAG (Postgres)"]
-    end
-    subgraph "Level 2 — Semantic Index"
-        FK["Semantic Graph (FalkorDB)"]
-    end
-    API["Atlas API"]
-
-    S3 -->|"anchors"| PG
-    PG -->|"projects into"| FK
-    API --- S3
-    API --- PG
-    API --- FK
-
-    W1["Worker A"] -->|"reads/writes"| API
-    W2["Worker B"] -->|"reads/writes"| API
-    W3["Graph Explorer"] -->|"reads"| API
-```
+![Figure 1: The three storage levels of Atlas.](drawio/layers.svg "Figure 1: The three storage levels of Atlas.")
 
 > **TODO — Reading for §2 (three-layer architecture precedents):**
 >
