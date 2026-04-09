@@ -21,6 +21,24 @@ We explore the application layer built on the Atlas provenance database: a chat 
 - Primary application: conversational interface with provenance-grounded memory
 - This is an idea sketch, not a finished architecture
 
+> **TODO — Reading for §1 (framing the application layer against PKG research and tools-for-thought):**
+>
+> *This paper currently has no framing in the PKG academic community or the tools-for-thought lineage. Both are essential context — see PDF1 §4 ("Personal knowledge graphs are an active research field") and §8 ("Epistemology as infrastructure").*
+>
+> **Personal Knowledge Graph research community (must engage):**
+>
+> - **Balog, K. (University of Stavanger). "Personal Knowledge Graphs: A Research Agenda."** ICTIR 2019. Foundational paper. researchgate.net/publication/367481375. **The academic PKG community has been building toward systems like Atlas since 2019.** `read.pdf`. **Priority: H.**
+> - **"An Ecosystem for Personal Knowledge Graphs"** (ScienceDirect 2024, S2666651024000044). Defines PKGs around data ownership by a single individual and personalized service delivery. `read.pdf`. **Priority: M.**
+> - **PKG API (WWW Companion 2024).** ACM 3589335.3651247 + ACM 3341981.3344241. Proposes an RDF-based PKG vocabulary with provenance and access rights. `read.pdf`. **Priority: M.**
+> - **PDF1 key framing to lift:** *"The academic community primarily targets recommendation and personalization use cases — not the cognitive augmentation Atlas pursues."* **This is Atlas's position relative to Balog's line of work — state it explicitly in §1.** **Priority: H.**
+>
+> **Tools-for-thought lineage (intellectual ancestors):**
+>
+> - **Matuschak, A. & Nielsen, M. (2019). "How Can We Develop Transformative Tools for Thought?"** fluxent.com 2019-10-04. Catalyzed the tools-for-thought movement. Called for tools that *"change and expand the range of thoughts human beings can think."* `read.pdf`. **Priority: M.**
+> - **Engelbart, D. (1962). "Augmenting Human Intellect: A Conceptual Framework."** Foundational augmentation vision. `read.pdf`. **Priority: L.**
+> - **Bush, V. (1945). "As We May Think."** *Atlantic Monthly.* The Memex. Tracing roots. `read.pdf`. **Priority: L.**
+> - **PDF1 framing:** Atlas implements the tools-for-thought vision *"through formal epistemological infrastructure"* rather than bidirectional linking (Obsidian/Roam). `read.pdf`. **Priority: M.**
+
 ## 2. The Memory Agent
 
 ### 2.1 Role
@@ -37,12 +55,35 @@ We explore the application layer built on the Atlas provenance database: a chat 
 - Access to Level 0: original sources when needed for verification or full context
 - The memory agent decides which level to query based on conversational need
 
+> **TODO — Reading for §2 (memory agent landscape — note-taking tools vs semantic KGs):**
+>
+> *PDF1 §4 has a devastating comparison of note-taking tools with graph views vs true knowledge graph systems. Lift this for §2 background.*
+>
+> - **Obsidian / Logseq.** Create link graphs — flat topologies of **untyped connections** between notes. **No entity resolution, no schema, no automated extraction.** Every link requires manual `[[bracketing]]` or `#tagging`. Obsidian's 2025 "Bases" feature adds database views but remains fundamentally a note-taking tool. `read.pdf`. **Priority: M.**
+> - **Tana supertags.** Closest existing tool to ontology-based approaches — nodes typed with supertags gain structured fields and computed values. But supertags must be **manually assigned**, no entity resolution, relationships aren't typed graph edges. `read.pdf`. **Priority: L.**
+> - **Mem.ai.** **Philosophical counterpart to Atlas** — shares "no manual organization" philosophy, AI organizes automatically. *Key contrast:* Mem treats AI as the organizer (opaque ML); Atlas uses explicit worker DAGs producing inspectable graph structures. **Mem: "AI knows best." Atlas: "the graph is the truth, the LLM translates."** `read.pdf`. **Priority: H — state this dichotomy explicitly in §2.**
+> - **Solid (Tim Berners-Lee).** Prioritizes data sovereignty through pods using W3C standards. opencommons.org/The_Solid_Protocol. **Leigh Dodds (2024): *"Solid just isn't ready for general adoption"*** — Pod API is essentially a document store without query capabilities. blog.ldodds.com/2024/03/12/baffled-by-solid. **Solid solves storage and access, not intelligence.** `read.pdf`. **Priority: M.**
+> - **PDF1 summary framing:** *"Atlas leapfrogs all of these by building a true semantic knowledge graph with typed entities, typed relationships, automated extraction via worker DAGs, entity resolution with conviction scoring, and full provenance — while maintaining the personal-scale design and no-manual-tagging philosophy that tools-for-thought users expect."* **Use verbatim as §2 closing framing.**
+
 ### 2.3 Grounded Responses
 
 - **Open question:** Should every claim in a response be traceable to a graph node?
 - If yes: the agent operates like a RAG system where the graph is the corpus
 - If no: the agent can reason freely but must distinguish graph-grounded from inferred
 - **Idea:** Provenance annotations on responses — "I know this because [link to L1 Thought]"
+
+> **TODO — Reading for §2.3 (grounded retrieval strategies — GraphRAG landscape):**
+>
+> *PDF1 §5 "GraphRAG's deterministic retrieval" is the primary source. This is the bridge to Paper 4 — understand GraphRAG selection strategies to position Atlas's Stacker ecology.*
+>
+> - **Microsoft GraphRAG** (Edge et al. April 2024). Entity/relation extraction + Leiden community detection + pre-built community summaries. User selects local/global/DRIFT mode; deterministic pipeline. medium.com/@zilliz_learn/graphrag-explained. `read.pdf`. **Priority: H.**
+> - **Neo4j GraphRAG package.** VectorRetriever, HybridRetriever, Text2CypherRetriever — user configures which to use. analyticsvidhya.com/blog/2024/11/graphrag-with-neo4j. `read.pdf`. **Priority: M.**
+> - **Neo4j ToolsRetriever (August 2025).** **Closest published parallel to Stacker's ecology.** Registers multiple retrievers as "tools" and uses an LLM to dynamically select which to invoke per query. **Key contrast: Neo4j delegates selection to an LLM; Atlas Stacker removes the selector entirely and lets results compete.** neo4j.com/blog/developer/introducing-toolsretriever-graphrag-python-package. `read.pdf`. **Priority: H — the exact comparison point for Paper 4.**
+> - **LlamaIndex Property Graph Index.** LLMSynonymRetriever, VectorContextRetriever, CypherTemplateRetriever — concurrent retrievers but manual configuration. llamaindex.ai/blog/introducing-the-property-graph-index. `read.pdf`. **Priority: M.**
+> - **Adaptive RAG (Jeong et al. 2024).** Classifier-based complexity routing to different strategies. edenai.co/post/the-2025-guide-to-retrieval-augmented-generation-rag. `read.pdf`. **Priority: M.**
+> - **RAG-Fusion (Reciprocal Rank Fusion).** Combines multiple retrieval results via RRF. arxiv.org/html/2506.00054v1. *Closest to execution-competition but at ranking stage, not retrieval stage.* `read.pdf`. **Priority: M.**
+> - **DRIFT Search, LazyGraphRAG (Microsoft, 2024).** DRIFT combines global + local iterative refinement; LazyGraphRAG reduces indexing to 0.1% of full GraphRAG. `read.pdf`. **Priority: L.**
+> - **UaG — Uncertainty-Aware Graph (CIKM 2024).** Conformal prediction incorporated into KG-LLM reasoning; uses uncertainty to guide reasoning paths. *Closest academic work to "provenance as query direction" — directly relevant to grounded-response design.* `read.pdf`. **Priority: M.**
 
 ## 3. Background Agents
 
@@ -70,6 +111,18 @@ We explore the application layer built on the Atlas provenance database: a chat 
 - Catches "fake citations" — agent hallucinating a provenance link
 - **Open question:** how deep does verification go? L2→L1 sufficient? Or L2→L1→L0?
 
+> **TODO — Reading for §3 (AI memory architecture for background agents):**
+>
+> *PDF1 §7 and PDF2 §4 give you the current landscape of AI agent memory — which is the field Paper 3 enters.*
+>
+> - **Graphiti/Zep (arXiv 2501.13956, January 2025).** **Must read.** Bi-temporal KG for AI agent memory; same graph DBs as Atlas (FalkorDB/Neo4j); 94.8% DMR benchmark, 300ms P95. Every entity/relationship traces to source "episodes." getzep.com 2025 report + neo4j.com/blog/developer/graphiti-knowledge-graph-memory. `read_2.pdf`. **Priority: H.**
+> - **Google Always-On Memory Agent (March 2026).** **Anti-Atlas.** ConsolidateAgent every 30 min. LLM as truth arbiter. Read as the design to *not* converge toward. digit.in/features/general/googles-new-ai-agent-remembers-everything; elephaant.com/blog/google-always-on-memory-agent-vector-db-alternative-2026. `read.pdf`. **Priority: H.**
+> - **Amazon Bedrock AgentCore (2025).** Append-only memory patterns — marks outdated memories INVALID instead of deleting. aws.amazon.com/blogs/machine-learning/building-smarter-ai-agents-agentcore-long-term-memory-deep-dive. `read_2.pdf`. **Priority: M — partial alignment with Atlas.**
+> - **Collaborative Memory (arXiv 2505.18279).** Each memory fragment carries immutable provenance attributes. `read.pdf`. **Priority: M.**
+> - **PROV-AGENT (Souza et al., IEEE e-Science 2025, arXiv 2508.02866).** First provenance framework for AI agent workflows; extends W3C PROV with agent-specific metadata. *Within traditional workflow orchestration, not provenance-first.* `read_2.pdf`. **Priority: M.**
+> - **ICLR 2026 Workshop on Memory for LLM-Based Agentic Systems (MemAgents).** Calls for research on *"provenance-aware retrieval"* and *"structured memory access control."* OpenReview U51WxL382H; arXiv 2603.10062. **Positions Paper 3 at the current research frontier.** `read_2.pdf`. **Priority: H — cite to place Paper 3 in 2026 context.**
+> - **"Graph-Native Cognitive Memory for AI Agents" (arXiv 2603.17244, 2025-2026).** Applies AGM belief revision to Neo4j AI memory. **Closest published work to Atlas epistemology.** `read.pdf`. **Priority: H.**
+
 ## 4. The Coordination Problem
 
 ### 4.1 Multiple Agents, One Conversation
@@ -90,6 +143,15 @@ We explore the application layer built on the Atlas provenance database: a chat 
 - Relevant context is abundant, conversational bandwidth is scarce
 - Need a mechanism where agents *compete* for attention based on relevance
 - **This is the bridge to Paper 4** — the coordination problem motivates attention economics
+
+> **TODO — Reading for §4 (the coordination problem as bridge to Paper 4):**
+>
+> *Full detail lives in Paper 4's reading queue. For Paper 3's §4, the key thing is to acknowledge what currently exists so the coordination problem has a clean motivation.*
+>
+> - **Neo4j ToolsRetriever (August 2025).** The closest published analog. LLM-mediated tool selection across multiple retrievers. **Atlas removes the selector.** neo4j.com/blog/developer/introducing-toolsretriever-graphrag-python-package. `read.pdf`. **Priority: H.**
+> - **Adaptive RAG (Jeong et al. 2024).** Classifier-mediated routing. `read.pdf`. **Priority: M.**
+> - **RAG-Fusion with Reciprocal Rank Fusion.** Ensemble at the ranking stage. `read.pdf`. **Priority: M.**
+> - **PDF1 verdict to use as §4 closing:** *"Atlas removes the selector entirely, letting results compete directly. This ecological competition model has no direct precedent in the published literature."* **Priority: H.**
 
 ## 5. Chat Engine Requirements
 

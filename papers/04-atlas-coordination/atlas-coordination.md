@@ -63,6 +63,24 @@ We propose Stacker, an experimental coordination mechanism for multi-agent conve
 - **Gaming resistance**: self-promotion is impossible by design. But agents might learn to trade amplification ("I boost you, you boost me"). Whether this is a problem or a feature is unclear.
 - **Conversational attention**: contributions that enter the shared context become available to all agents and the reasoning model — analogous to Baars' "conscious broadcast". Whether this analogy is useful or misleading will be revealed by experiment.
 
+> **TODO — Reading for §2 (retrieval selection in existing GraphRAG systems):**
+>
+> *PDF1 §5 is essential. It gives the exact positioning for Stacker: every published system uses a selector; Atlas removes it.*
+>
+> **Selector-based systems (each is a different selector model):**
+>
+> - **Microsoft GraphRAG** (Edge et al. April 2024). User selects local / global / DRIFT mode; deterministic pipeline. medium.com/@zilliz_learn/graphrag-explained. `read.pdf`. **Priority: M.**
+> - **Neo4j ToolsRetriever (August 2025).** **Closest published parallel to Stacker.** Registers multiple retrievers as "tools" and uses an LLM to dynamically select which to invoke per query. **Key contrast: Neo4j delegates selection to an LLM; Atlas removes the selector entirely.** neo4j.com/blog/developer/introducing-toolsretriever-graphrag-python-package; medium.com/neo4j/introducing-toolsretriever-in-the-neo4j-graphrag-python-package. `read.pdf`. **Priority: H — this is THE comparison.**
+> - **LlamaIndex Property Graph Index.** Concurrent retrievers (LLMSynonymRetriever, VectorContextRetriever, CypherTemplateRetriever) but **manual configuration, not emergent**. llamaindex.ai/blog/introducing-the-property-graph-index. `read.pdf`. **Priority: M.**
+> - **Adaptive RAG (Jeong et al. 2024).** Uses a **classifier** to route queries to different strategies based on complexity. edenai.co/post/the-2025-guide-to-retrieval-augmented-generation-rag. `read.pdf`. **Priority: M.**
+> - **RAG-Fusion (Reciprocal Rank Fusion).** Combines results via RRF at the ranking stage. arxiv.org/html/2506.00054v1. *Closest to execution-competition but still ranks after the fact.* `read.pdf`. **Priority: M.**
+>
+> **PDF1 core positioning verdict for Paper 4 §2** (copy verbatim into §2.2 or §2.3):
+>
+> > *"Atlas's 'Stacker ecology' — where multiple retrieval strategies execute in parallel and compete through actual performance rather than pre-selection — is architecturally distinct. Neo4j's ToolsRetriever delegates selection to an LLM; Adaptive RAG uses a classifier; RAG-Fusion combines results via Reciprocal Rank Fusion. **Atlas removes the selector entirely, letting results compete directly. This ecological competition model has no direct precedent in the published literature**, though the concept of ensemble retrieval with competitive ranking touches adjacent territory."*
+>
+> **Priority: H — this framing is the whole point of §2.**
+
 ## 3. Inspiration: Global Workspace Theory
 
 Baars (1988) proposed that consciousness is not a central processor but a shared workspace. Specialized unconscious processors compete for broadcast access. Those that succeed become globally available. Selection happens through coalition — coherent signals from multiple processors reinforce each other.
@@ -78,6 +96,15 @@ Structural parallels to Stacker:
 | Conscious access | Entry into context |
 
 **This is an analogy, not a model.** We use it as design inspiration. The experiment will show whether the analogy produces useful behavior or breaks down.
+
+> **TODO — Reading for §3 (Global Workspace Theory and cognitive-architecture crossovers):**
+>
+> - **Baars, B.J. (1988). "A Cognitive Theory of Consciousness."** Cambridge University Press. Already cited. **Read chapters on coalition formation and broadcast selection before finalizing §3.** **Priority: H.**
+> - **"Graph-Native Cognitive Memory for AI Agents: Formal Belief Revision Semantics for Versioned Memory Architectures"** (arXiv 2603.17244, 2025-2026). Applies AGM belief revision to Neo4j AI memory. **Closest published crossover between cognitive architecture and knowledge graph memory — may influence Paper 4's framing.** `read.pdf`. **Priority: H.**
+> - **Carneades argumentation framework.** Implements varying proof standards per statement — analogous to per-agent conviction/weight in Stacker. SAGE 10.1080/19462166.2012.661766. `read.pdf`. **Priority: L.**
+> - **ASPIC+ framework.** Tracks strict and defeasible inference rules with three attack types. homepages.abdn.ac.uk/n.oren/pages/TAFA-17/papers/TAFA-17_paper_15.pdf. `read.pdf`. **Priority: L.**
+> - **AKReF (2025, arXiv 2506.00713).** Argumentation knowledge graphs from text using ASPIC+. Heterogeneous graphs with argument nodes and attack/support edges. **Relevant to modeling agent amplification as an argumentation graph.** `read.pdf`. **Priority: M.**
+> - **ICLR 2026 MemAgents Workshop.** Calls explicitly for research on multi-agent memory coordination. OpenReview U51WxL382H. **Positions Paper 4 at the 2026 research frontier.** `read_2.pdf`. **Priority: M.**
 
 ## 4. What We Don't Know
 

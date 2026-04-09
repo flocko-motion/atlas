@@ -72,6 +72,21 @@ We demonstrate how a pipeline of independent workers — both mechanistic and LL
 - Natural-language relation labels, unique edge IDs, temporal validity, confidence scores
 - Every Level 2 node and edge has provenance reference to Level 1 extraction Thought
 
+> **TODO — Reading for §3.4 (LLM-driven KG construction landscape):**
+>
+> *PDF1's §5 "GraphRAG's deterministic retrieval" and §7 "LLM-driven KG construction" are the primary sources here. The field has exploded since April 2024.*
+>
+> - **Edge et al. (April 2024). "From Local to Global: A Graph RAG Approach to Query-Focused Summarization."** Microsoft Research. Foundational GraphRAG paper. Entity/relation extraction via LLMs + Leiden community detection + community summaries. Enables "global" queries that vector RAG cannot answer. weaviate.io/blog/graph-rag. `read.pdf`. **Priority: H.**
+> - **DRIFT Search (Microsoft, October 2024).** Global + local retrieval with iterative refinement. microsoft.com/en-us/research/blog/introducing-drift-search. `read.pdf`. **Priority: M.**
+> - **LazyGraphRAG (Microsoft, November 2024).** Reduces indexing costs to **0.1% of full GraphRAG** via NLP-based extraction instead of LLM summarization. lianpr.com/en/news/detail/3224. `read.pdf`. **Priority: M.**
+> - **LightRAG (EMNLP 2025).** Entity deduplication merges identical entities with **no history preservation**. lightrag.github.io. *Cite as destructive counter-example.* `read.pdf`. **Priority: M.**
+> - **EDC Framework (Zhang & Soh 2024).** Canonicalization phase consolidates schema components — contrast with Atlas's emergent ontology. `read.pdf`. **Priority: L.**
+> - **iText2KG / ATOM (AuvaLab 2025).** Dual-time modeling preserves temporal metadata but performs entity merging. github.com/AuvaLab/itext2kg. `read.pdf`. **Priority: M.**
+> - **Graphiti (Zep, arXiv 2501.13956, January 2025).** **Must read.** Three-layer architecture paralleling Atlas; achieved **94.8% on DMR benchmark**, **300ms P95** retrieval latency. Uses same graph DBs Atlas specifies (FalkorDB or Neo4j). But performs destructive entity summary updates. `read_2.pdf` + `read.pdf`. **Priority: H — the single closest comparison for Atlas workers.**
+> - **Neo4j GraphRAG Python package.** Aug 2025 **ToolsRetriever** is closest precedent for Stacker-style selection (LLM-mediated). neo4j.com/blog/developer/introducing-toolsretriever-graphrag-python-package. `read.pdf`. **Priority: H — bridges to Paper 4.**
+> - **LlamaIndex Property Graph Index.** Concurrent retrievers (LLMSynonymRetriever, VectorContextRetriever, CypherTemplateRetriever). llamaindex.ai/blog/introducing-the-property-graph-index. `read.pdf`. **Priority: M.**
+> - **Adaptive RAG (Jeong et al. 2024).** Classifier-based complexity routing. `read.pdf`. **Priority: L.**
+
 ### 3.5 The Full Chain
 
 ```mermaid
@@ -95,6 +110,19 @@ graph LR
 - Context-dependent: "Atlas" the project vs. "Atlas" the mythological figure
 - Uncertainty as first-class data: conviction scores on entity identity
 
+> **TODO — Reading for §4 (entity resolution tradition from 1969 to 2025):**
+>
+> *PDF1 §3 is the primary source. Atlas's conviction-scored entity resolution extends a 55-year tradition. Each of these systems contributes one piece — no one combines them as Atlas proposes.*
+>
+> - **Fellegi & Sunter (1969). "A Theory for Record Linkage."** *Journal of the American Statistical Association.* Foundational paper. Established the **three-way classification: automatic link / automatic non-link / clerical review.** The original "manual confirmation threshold." **Direct ancestor of Atlas's conviction thresholds.** `read.pdf`. **Priority: H.**
+> - **Splink (UK Ministry of Justice, open-source).** Reference implementation of Fellegi-Sunter with configurable match-weight thresholds on Spark/DuckDB backends, supports millions of records. robinlinacre.com/introducing_splink. `read.pdf`. **Priority: M.**
+> - **Senzing (Jeff Jonas, $50M+ invested).** **Entity Centric Learning** — as new data arrives, the system revisits previous decisions in real time. Built-in explainability with *"why, why not, and how"* functions. **Closest parallel to Atlas's "case law" concept.** senzing.com/how-entity-resolution-works-with-senzing; senzing.com/explainability. `read.pdf`. **Priority: H — the case-law concept has a direct commercial precedent.**
+> - **Dedupe (Forest Gregg / based on Bilenko PhD work).** Uses active learning where human labels train the model. github.com/dedupeio/dedupe. Requires upfront batch labeling — Atlas's case law is more continuous. `read.pdf`. **Priority: M.**
+> - **Bayesian ER approaches (SMERED line).** MCMC with split-merge updates propagating full posterior uncertainty. **Most principled uncertainty quantification available, but rarely implemented in production.** minimalistinnovation.co/post/why-probabilistic-record-linkage-still-matters. `read.pdf`. **Priority: L.**
+> - **CORE-KG (2025).** Legal document KG system performing contextual entity resolution that **explicitly avoids spurious merging**, preserving distinctions between surface-similar mentions. `read.pdf`. **Priority: L.**
+> - **Terminology note from PDF1:** *The term "conviction" itself appears novel — no other system uses this specific terminology, with alternatives including "match probability," "match weight," and "posterior probability." The epistemic framing ("conviction" implies accumulated evidence) rather than statistical framing ("probability" implies frequency-based estimation) is a meaningful conceptual distinction.* **Make this terminology distinction explicit in §4.** **Priority: M.**
+> - **Where Atlas genuinely innovates (PDF1):** *embedding alias resolution as first-class graph relationships.* Most systems use flat lookup tables for aliases (JIM = JAMES). Atlas's IS_ALIAS semantic edges with conviction levels and full provenance represent a richer model. **Priority: M.**
+
 ## 5. Reprocessing
 
 - New model available → run new extractor over existing Records
@@ -102,6 +130,17 @@ graph LR
 - Level 2 view configurable: prefer latest worker, highest confidence, or specific version
 - No migration, no data loss, no downtime
 - Practical demonstration: same emails processed by two different LLMs, results compared in Explorer
+
+> **TODO — Reading for §5 (reprocessing as append — contrast with destructive systems):**
+>
+> *This section's whole point is the contrast. PDF1 §7 (LLM-driven KG construction) gives you the explicit landscape of what Atlas refuses.*
+>
+> - **Graphiti/Zep (arXiv 2501.13956).** Partial immutability via fact invalidation, but **destructive entity summary updates**. Closest system that still fails the full test. `read_2.pdf`. **Priority: H.**
+> - **Microsoft GraphRAG.** Community summaries are **regenerated**, replacing old versions; extraction is not fully reproducible. weaviate.io/blog/graph-rag; microsoft.com/en-us/research/blog/graphrag-unlocking-llm-discovery. `read.pdf`. **Priority: M.**
+> - **LightRAG (EMNLP 2025).** Entity deduplication with **no history preservation**. lightrag.github.io. `read.pdf`. **Priority: M.**
+> - **EDC Framework (Zhang & Soh 2024).** Canonicalization phase explicitly consolidates schema. `read.pdf`. **Priority: L.**
+> - **Google Always-On Memory Agent (March 2026).** **ConsolidateAgent runs every 30 minutes**, merges duplicates and drops information. digit.in/features/general/googles-new-ai-agent-remembers-everything. *Atlas's explicit opposite — cite as the anti-design.* `read.pdf`. **Priority: H.**
+> - **PDF1 summary quote:** *"No existing system matches Atlas's full specification: add-only storage, content-addressable immutable raw sources, no destructive consolidation, conviction-based entity resolution instead of hard merges, and complete inferential history preservation. Atlas's commitment to immutability is more extreme than any published system."* **Use verbatim as §5 closing.**
 
 ## 6. Evaluation
 
