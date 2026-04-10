@@ -55,9 +55,9 @@ RankeDB is one graph of nodes and edges, organized into three levels (see Figure
 
 ### 2.1 Level 0: Sources (Quellen)
 
-Level 0 is an immutable, content-addressable object store. Every external artifact ingested into RankeDB — a document, an email, a chat transcript, an image — is stored as a Record, addressed by its SHA-256 content hash. Records are self-describing through attached metadata sufficient to reconstruct the full database state from Level 0 alone.
+Level 0 is an immutable, content-addressable object store. Every external artifact ingested into RankeDB — a document, an email, a chat transcript, an image — is stored as a node, addressed by its SHA-256 content hash. Source nodes are self-describing through attached metadata sufficient to reconstruct the full database state from Level 0 alone.
 
-Level 0 is part of the Provenance DAG. A Record may be an original source artifact, a source unpacked from a bundle (e.g. an individual conversation extracted from a bulk chat export), a format conversion (e.g. TIFF to PNG), or a cleaned and normalized version of another Record. All remain sources — they are still artifacts of communicative acts, not knowledge *about* those acts. Each Record has at most one parent Record — Level 0 forms a tree, not a DAG. The combinatorial derivations that merge multiple inputs begin in Level 1.
+Level 0 is part of the Provenance DAG. A source node may be an original artifact, a source unpacked from a bundle (e.g. an individual conversation extracted from a bulk chat export), a format conversion (e.g. TIFF to PNG), or a cleaned and normalized version of another source. All remain sources — they are still artifacts of communicative acts, not knowledge *about* those acts. Each source node has at most one parent — Level 0 forms a tree, not a DAG. The combinatorial derivations that merge multiple inputs begin in Level 1.
 
 Level 0 is the only level that contains ground truth in the absolute sense. It is the archive — the fixpoint against which all derived knowledge can be validated.
 
@@ -74,11 +74,11 @@ Because the content hash is the storage key, writes are idempotent: uploading th
 | `parent` | Parent node (if derived from another source) | `b8e4d1a...` |
 
 **Invariants:**
-- Records are immutable. Once written, a Record is never modified or deleted.
-- Records are content-addressed. The SHA-256 hash serves as the canonical identifier.
-- Records are self-describing. Metadata is sufficient for full reconstruction.
+- Nodes are immutable. Once written, a node is never modified or deleted.
+- Nodes are content-addressed. The SHA-256 hash serves as the canonical identifier.
+- Source nodes are self-describing. Metadata is sufficient for full reconstruction.
 - Writes are idempotent. A duplicate `PUT` has no effect.
-- Each Record has at most one parent Record. Level 0 is a tree.
+- Each source node has at most one parent. Level 0 is a tree.
 
 ### 2.2 Level 1: Derivations (Provenienz)
 
@@ -86,7 +86,7 @@ Level 1 extends the Provenance DAG with derived knowledge, stored in Postgres. I
 
 Together with Level 0, Level 1 forms the complete Provenance DAG. Where Level 0 provides the roots — the sources — Level 1 stores the derivation history: not just what is believed, but *how it came to be believed*. This history is itself knowledge: queryable, traversable, and available as context for downstream consumers.
 
-Provenance edges carry metadata: which tool produced the derivation, its configuration, the model version (if an LLM), and timestamps. This metadata is not auxiliary — it is part of the knowledge graph. A derivation produced by a 2024 language model and one produced by a 2028 model from the same source Record are both preserved as competing interpretations with full provenance.
+Provenance edges carry metadata: which tool produced the derivation, its configuration, the model version (if an LLM), and timestamps. This metadata is not auxiliary — it is part of the knowledge graph. A derivation produced by a 2024 language model and one produced by a 2028 model from the same source are both preserved as competing interpretations with full provenance.
 
 Level 1 is also the **node authority** for the system: it holds the full content of every derived node (extracted text, structured fields), the full derivation record, and any downstream indices that require fast content access (full-text search, vector embeddings). Embeddings are maintained in a separate table with a foreign key to the content — they are a derived index, regenerable at any time with a different model or chunking strategy, without touching the content itself. A `parent_id` per node records the primary input as a denormalized shortcut for plausibility checks and quick traversal; the full provenance is always the edge set, not this field.
 
@@ -249,7 +249,7 @@ Access to the bucket is split along least-privilege lines: ingest workers hold a
 
 #### 4.1.2 Level 1: Postgres
 
-Level 1 runs in Postgres. Postgres is the **node authority** for the system: it holds the full content of every derived node, the provenance DAG as a table of edges, full-text search indices (via `tsvector`), vector embeddings (via pgvector, in a separate table with a foreign key to the content), user accounts, auth, and configuration. Backups are taken with `pg_dump` and shipped to Level 0 storage — Postgres itself is therefore rebuildable from the combination of its source Records and its schema.
+Level 1 runs in Postgres. Postgres is the **node authority** for the system: it holds the full content of every derived node, the provenance DAG as a table of edges, full-text search indices (via `tsvector`), vector embeddings (via pgvector, in a separate table with a foreign key to the content), user accounts, auth, and configuration. Backups are taken with `pg_dump` and shipped to Level 0 storage — Postgres itself is therefore rebuildable from the combination of its source nodes and its schema.
 
 #### 4.1.3 Level 2: FalkorDB
 
@@ -296,7 +296,7 @@ Two broad categories emerge in practice. **Reactive workers** poll for unprocess
 
 Workers may be LLM-based (entity extraction, summarization, synthesis), deterministic (format conversion, deduplication detection), or hybrid. RankeDB is agnostic to the nature of its workers — it tracks only the provenance of their outputs: what inputs they consumed, which tool and configuration they used, and when they ran. Workers are identified by run IDs, enabling administrative operations (such as purging defective runs) without affecting the knowledge model.
 
-The same Record can be processed by multiple workers or by successive versions of the same worker. Old and new results coexist with full provenance. Consumers select between them through view configuration (e.g., preferring the most recent extractor), not through data operations.
+The same node can be processed by multiple workers or by successive versions of the same worker. Old and new results coexist with full provenance. Consumers select between them through view configuration (e.g., preferring the most recent extractor), not through data operations.
 
 The design, implementation, and evaluation of a concrete worker pipeline — from raw data ingestion through normalization, summarization, and entity extraction to a populated semantic graph — is the subject of a companion paper.
 
@@ -351,7 +351,7 @@ Datomic (Hickey, 2012) operationalizes Pat Helland's "Immutability Changes Every
 
 ### 6.4 W3C PROV-DM
 
-The W3C PROV Data Model provides a formal vocabulary for provenance (Entity, Activity, Agent, wasGeneratedBy, wasDerivedFrom, used). RankeDB's internal model is semantically compatible with PROV-DM — Records map to Entities, worker runs to Activities, tools to Agents — but RankeDB does not depend on or implement the W3C stack (RDF, SPARQL, OWL). PROV-DM compatibility exists at the conceptual level, enabling potential export or interoperability without architectural coupling.
+The W3C PROV Data Model provides a formal vocabulary for provenance (Entity, Activity, Agent, wasGeneratedBy, wasDerivedFrom, used). RankeDB's internal model is semantically compatible with PROV-DM — nodes map to Entities, worker runs to Activities, tools to Agents — but RankeDB does not depend on or implement the W3C stack (RDF, SPARQL, OWL). PROV-DM compatibility exists at the conceptual level, enabling potential export or interoperability without architectural coupling.
 
 > **TODO — Reading for §6.4 (PROV-DM expansion):**
 >
@@ -500,7 +500,7 @@ Each of these approaches commits the memory solution *to the language model itse
 
 ### 7.2 Reprocessing Without Migration
 
-A distinctive property of RankeDB's architecture is that improvements in processing tools require no data migration. When a better entity extractor becomes available in 2028, it runs over the same Level 0 Records and produces new nodes in Level 1. Old and new results coexist. Consumers select between them through view configuration — filtering by worker version, recency, or confidence score. The old results remain available as fallback, as training signal, or as historical context.
+A distinctive property of RankeDB's architecture is that improvements in processing tools require no data migration. When a better entity extractor becomes available in 2028, it runs over the same Level 0 sources and produces new nodes in Level 1. Old and new results coexist. Consumers select between them through view configuration — filtering by worker version, recency, or confidence score. The old results remain available as fallback, as training signal, or as historical context.
 
 This property follows directly from immutability and the separation of Level 0 (sources) from Level 1 (derivations). In systems that update in place, reprocessing is a migration — destructive, irreversible, and operationally risky. In RankeDB, reprocessing is an append operation.
 
