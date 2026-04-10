@@ -53,19 +53,22 @@ RankeDB is organized into three storage levels (see Figure 1) that form two logi
 > - **SPADE (SRI International).** Provenance auditing system storing derivation chains in Neo4j OR Postgres, abstracting over both through its QuickGrail query language (ACM Queue 3476885). *The closest direct analog to RankeDB's split-store architecture (FalkorDB for semantics, Postgres for provenance).* `read.pdf`. **Priority: H — must cite in §6, currently missing.**
 > - **dbt Semantic Layer, Cube.dev, AtScale.** Analytics semantic layer tradition — abstraction over warehouse data into business metrics. January 2026 **Open Semantic Interchange (OSI)** spec supported by 40+ companies (Snowflake, Salesforce, Databricks). Shares DNA with transformation lineage but at dataset level, not per-fact. `read.pdf`. **Priority: L.**
 
-### 2.1 Level 0: Raw Sources (Quellen)
+### 2.1 Level 0: Sources (Quellen)
 
-Level 0 is an immutable, content-addressable object store. Every external artifact ingested into RankeDB — a document, an email, a chat transcript, an image — is stored as a Record: a raw, unmodified copy of the original, addressed by its SHA-256 content hash. Records are self-describing through attached metadata sufficient to reconstruct the full database state from Level 0 alone.
+Level 0 is an immutable, content-addressable object store. Every external artifact ingested into RankeDB — a document, an email, a chat transcript, an image — is stored as a Record, addressed by its SHA-256 content hash. Records are self-describing through attached metadata sufficient to reconstruct the full database state from Level 0 alone.
+
+Level 0 is part of the Provenance DAG. A Record may be an original source artifact, a source unpacked from a bundle (e.g. an individual conversation extracted from a bulk chat export), or a format conversion of another Record (e.g. TIFF converted to PNG for downstream processing). Each Record has at most one parent Record — Level 0 forms a tree, not a DAG. The combinatorial derivations that merge multiple inputs begin in Level 1.
 
 Level 0 is the only level that contains ground truth in the absolute sense. It is the archive — the fixpoint against which all derived knowledge can be validated.
 
-Because the content hash is the storage key, writes are idempotent: uploading the same blob twice is a no-op, and producers need not coordinate to avoid duplicates. Metadata attached to a Record at write time is strictly for *routing and identification* — source attribution, original filename, creation timestamp, ingestion timestamp, content type — and never for semantic modeling. Anything that could be derived from the bytes belongs in Level 1, not Level 0.
+Because the content hash is the storage key, writes are idempotent: uploading the same blob twice is a no-op, and producers need not coordinate to avoid duplicates. Metadata attached to a Record at write time is for *routing, identification, and lineage* — source attribution, original filename, creation timestamp, ingestion timestamp, content type, and parent Record (if any) — using the same field names as the corresponding columns in Postgres. The API treats all three levels as a single data structure; the storage boundary between S3 and Postgres is an implementation detail hidden behind it.
 
 **Invariants:**
 - Records are immutable. Once written, a Record is never modified or deleted.
 - Records are content-addressed. The SHA-256 hash serves as the canonical identifier.
 - Records are self-describing. Metadata is sufficient for full reconstruction.
 - Writes are idempotent. A duplicate `PUT` has no effect.
+- Each Record has at most one parent Record. Level 0 is a tree.
 
 ### 2.2 Level 1: Derivations (Provenienz)
 
