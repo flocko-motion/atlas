@@ -278,6 +278,10 @@ Per-source reading notes live alongside this file in `sources/<citekey>.md`.
 
 **[Workshop 2026]** ICLR 2026 MemAgents Workshop. (2026). *ICLR 2026 Workshop on Memory for LLM-Based Agentic Systems*. _OpenReview U51WxL382H; arXiv 2603.10062._ ([notes](sources/iclr2026memagents.md))
 
+### wu2025longmemeval
+
+**[Wu 2025]** Wu, Di and Wang, Hongwei and Yu, Wenhan and Zhang, Yuwei and Chang, Kai-Wei and Yu, Dong. (2025). *LongMemEval: Benchmarking Chat Assistants on Long-Term Interactive Memory*. ICLR 2025. <https://github.com/xiaowu0162/LongMemEval> arXiv:2410.10813v2 _500 manually curated questions; five core memory abilities (IE/MR/KU/TR/ABS); LongMemEval_S ~115k tokens, LongMemEval_M ~1.5M tokens; 30-60% accuracy drop for long-context LLMs._ ([notes](sources/wu2025longmemeval.md))
+
 ### edc2024
 
 **[Zhang 2024]** Zhang and Soh. (2024). *EDC Framework: Extract-Define-Canonicalize*. ([notes](sources/edc2024.md))
