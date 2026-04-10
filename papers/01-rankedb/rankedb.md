@@ -39,7 +39,7 @@ For a rich treatment of what *provenance* has meant across 180 years — from th
 
 ## 2. Architecture
 
-RankeDB is organized into three storage levels (see Figure 1). Each level serves a distinct function, but they are not independent layers in a traditional stack — Level 1 carries Level 2, and Level 0 anchors Level 1. The three levels are implementation details behind a single API; external consumers interact with RankeDB exclusively through this API.
+RankeDB is organized into three storage levels (see Figure 1) that form two logical structures. Levels 0 and 1 together constitute the **Provenance DAG**: Level 0 provides the root nodes (sources), Level 1 provides the interior nodes (derivations). Level 2 is the **Semantic Graph**: a materialized view projected from the DAG, optimized for associative retrieval. The three levels are implementation details behind a single API; external consumers interact with RankeDB exclusively through this API.
 
 ![Figure 1: The three storage levels of RankeDB.](drawio/layers.svg "Figure 1: The three storage levels of RankeDB. Node types such as Email, Conversation, Fact, and Summary are application-defined examples; RankeDB provides type categories (e.g. source, conversation) but leaves concrete types to the application.")
 
@@ -67,11 +67,11 @@ Because the content hash is the storage key, writes are idempotent: uploading th
 - Records are self-describing. Metadata is sufficient for full reconstruction.
 - Writes are idempotent. A duplicate `PUT` has no effect.
 
-### 2.2 Level 1: Provenance DAG (Provenienz)
+### 2.2 Level 1: Derivations (Provenienz)
 
-Level 1 is an append-only directed acyclic graph stored in Postgres. Its nodes are Thoughts — knowledge products derived from Records or other Thoughts through processing by external tools (workers). Every Thought requires at least one input (a Record or another Thought) and one tool attribution. The graph is strictly acyclic because derivations cannot be circular: a Thought cannot be derived from its own output.
+Level 1 extends the Provenance DAG with derived knowledge, stored in Postgres. Its nodes are Thoughts — knowledge products derived from Records or other Thoughts through processing by external tools (workers). Every Thought requires at least one input (a Record or another Thought) and one tool attribution. The graph is strictly acyclic because derivations cannot be circular: a Thought cannot be derived from its own output.
 
-Level 1 is the core of RankeDB. It stores the complete history of how knowledge was produced — not just what is believed, but *how it came to be believed*. This history is itself knowledge: queryable, traversable, and available as context for downstream consumers.
+Together with Level 0, Level 1 forms the complete Provenance DAG. Where Level 0 provides the roots — the sources — Level 1 stores the derivation history: not just what is believed, but *how it came to be believed*. This history is itself knowledge: queryable, traversable, and available as context for downstream consumers.
 
 Provenance edges carry metadata: which tool produced the derivation, its configuration, the model version (if an LLM), and timestamps. This metadata is not auxiliary — it is part of the knowledge graph. A derivation produced by a 2024 language model and one produced by a 2028 model from the same source Record are both preserved as competing interpretations with full provenance.
 
@@ -82,15 +82,15 @@ Level 1 is also the **node authority** for the system: it holds the full content
 - The graph is acyclic. No Thought can transitively depend on itself.
 - Every Thought has provenance. No node exists without at least one input edge and one tool attribution.
 
-### 2.3 Level 2: Semantic Index (Semantik)
+### 2.3 Level 2: Semantic Graph (Semantik)
 
-Level 2 is a semantic graph stored in FalkorDB, optimized for associative traversal and retrieval. It is a **materialized view** projected from Level 1 — specifically, a filtered subset of DAG nodes (entities, facts, relations) represented as a property graph with semantic edges.
+Level 2 is the Semantic Graph, stored in FalkorDB, optimized for associative traversal and retrieval. It is a **materialized view** projected from the Provenance DAG — specifically, a filtered subset of DAG nodes (entities, facts, relations) represented as a property graph with semantic edges.
 
-Every node and every edge in Level 2 has a provenance reference back into the Level 1 DAG. Level 2 contains no independent truth — it is entirely derived from and traceable to Level 1.
+Every node and every edge in Level 2 has a provenance reference back into the DAG. Level 2 contains no independent truth — it is entirely derived from and traceable to Levels 0 and 1.
 
 Relations in Level 2 are natural-language labels, not formal ontology predicates. Each relation is a unique node with its own identity, temporal validity window (`valid_from`, `valid_until`), confidence score, and provenance chain. The ontology is not predefined — it emerges from the data as workers extract and normalize relations over time.
 
-Level 2 is, strictly speaking, an index. It exists because the full Level 1 DAG is too large and too deep for efficient associative retrieval. Consumers — whether LLM agents, dashboards, or analytical tools — typically enter through Level 2 and descend into Level 1 only when provenance or derivation history is needed.
+Level 2 is, strictly speaking, an index. It exists because the full Provenance DAG is too large and too deep for efficient associative retrieval. Consumers — whether LLM agents, dashboards, or analytical tools — typically enter through Level 2 and descend into the DAG only when provenance or derivation history is needed.
 
 Where Level 1 is the **node authority** (content, provenance, indices over content), Level 2 is the **edge authority** (semantic relations, cross-domain links, traversal paths). Nodes appear in both levels but in different forms: Level 1 stores the full content; Level 2 stores a lightweight projection sufficient for graph traversal. Provenance itself is never stored in Level 2 — it is strictly acyclic and therefore lives in Level 1, where the DAG invariant can be enforced. The two storage engines are complementary, not redundant: each holds the class of relations it is best suited to.
 
@@ -109,11 +109,11 @@ Level 0 (Sources / S3)
   │
   │  Ingestion: content extraction, node creation, provenance
   ▼
-Level 1 (Provenance DAG / Postgres)
+Level 1 (Derivations / Postgres)
   │
   │  Projection: semantic enrichment of processed content
   ▼
-Level 2 (Semantic Index / FalkorDB)
+Level 2 (Semantic Graph / FalkorDB)
 ```
 
 Writes propagate downward only. Level 1 is written first and stamps provenance; Level 2 projects from Level 1 once the upstream Thought is committed. There is no backward flow, no two-way synchronization, and no synchronization problem: a downstream level cannot get out of sync with an upstream one, because the downstream level is by definition a projection of the upstream one and can always be rebuilt from it.
