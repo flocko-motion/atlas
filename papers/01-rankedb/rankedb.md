@@ -111,15 +111,15 @@ Level 1 is the cognitive layer. Every node in Level 1 is a thought — the outpu
 
 Level 1 content types follow the same `category/type` pattern as Level 0. Workers in Level 1 operate on normalized sources — by the time an artifact reaches Level 1, source-format diversity is irrelevant. A worker that extracts entities from a conversation works identically whether the original source was an email, a WhatsApp chat, or a scanned letter. RankeDB defines foundational categories in two groups; applications may extend the types within each category and add new categories as needed.
 
-**Resolved forms** are enriched representations of source artifacts. They depend on classification results and produce the resolved, interlinked versions that downstream workers operate on. A resolved `conversation` node has participants identified by entity ID, names resolved (no more "the guy" — instead "Bob Bobson, id:123"), and structure made explicit. A long conversation may yield multiple resolved segments, each a separate node — the splitting strategy is an application-layer decision, but the taxonomy supports it. Similarly, a resolved `image` node carries extracted text (OCR), identified faces, and interpreted metadata.
+**Resolved forms** are enriched representations of source artifacts. They depend on classification results and produce the resolved, interlinked versions that downstream workers operate on. For example, a resolved `conversation` node has participants identified by entity ID, names resolved (no more "the guy" — instead "Bob Bobson, id:123"), and structure made explicit. A long conversation may yield multiple resolved segments, each a separate node.
 
 | Category | Purpose |
 |---|---|
-| `conversation/*` | Resolved, enriched conversation with participants linked to entities. May be split into segments. |
-| `image/*` | Enriched image with extracted text, identified subjects, interpreted metadata. |
-| `video/*` | Enriched video with transcript, identified speakers, segmentation. |
+| `conversation/*` | Resolved conversation with participants linked to entities. |
+| `image/*` | Enriched image with extracted text, identified subjects. |
+| `video/*` | Enriched video with transcript, identified speakers. |
 
-Note that source types and resolved forms are not 1:1. A `source/record` containing bank transactions can resolve into `conversation/transaction` nodes in Level 1 — sender, receiver, amount as message, reference text as body. Money is a language for communicating value; a bank transfer has the same structure as any conversation: participants, timestamp, content. The source type captures how an artifact entered the world; the Level 1 type captures what it means.
+Source types and resolved forms are not 1:1. A `source/record` containing bank transactions can resolve into `conversation/transaction` nodes — sender, receiver, amount as message. The source type captures how an artifact entered the world; the Level 1 type captures what it means.
 
 **Cognitive derivations** are thoughts about the graph: what a node contains, how nodes relate, what facts they support.
 
