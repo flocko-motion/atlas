@@ -61,7 +61,17 @@ Level 0 is part of the Provenance DAG. A Record may be an original source artifa
 
 Level 0 is the only level that contains ground truth in the absolute sense. It is the archive — the fixpoint against which all derived knowledge can be validated.
 
-Because the content hash is the storage key, writes are idempotent: uploading the same blob twice is a no-op, and producers need not coordinate to avoid duplicates. Metadata attached to a Record at write time is for *routing, identification, and lineage* — source attribution, original filename, creation timestamp, ingestion timestamp, content type, and parent Record (if any) — using the same field names as the corresponding columns in Postgres. The API treats all three levels as a single data structure; the storage boundary between S3 and Postgres is an implementation detail hidden behind it.
+Because the content hash is the storage key, writes are idempotent: uploading the same blob twice is a no-op, and producers need not coordinate to avoid duplicates. Every node carries metadata for routing, identification, and lineage. The field names are the same across all three levels — the API treats the graph as a single data structure, and the storage boundary between engines is an implementation detail hidden behind it.
+
+| Field | Purpose | Example |
+|---|---|---|
+| `hash` | Content hash (SHA-256), canonical identifier | `a3f2b7c...` |
+| `content_type` | Semantic type (application-defined, within RankeDB categories) | `source/email`, `source/chat` |
+| `source` | Origin / ingest pathway | `zoho`, `android`, `google-photos` |
+| `original_name` | Original filename | `invoice-2026-03.pdf` |
+| `created_at` | Creation time of the original artifact | `2026-03-26T14:30:00Z` |
+| `ingested_at` | Time of ingest into RankeDB | `2026-03-26T15:01:12Z` |
+| `parent` | Parent node (if derived from another source) | `b8e4d1a...` |
 
 **Invariants:**
 - Records are immutable. Once written, a Record is never modified or deleted.
@@ -233,15 +243,7 @@ RankeDB is the data platform, not an application. What runs on top — chat inte
 
 The reference deployment uses Hetzner Object Storage, but any S3-compatible provider will do — S3 is a de-facto standard whose API surface is stable since 2006, and migration to another provider is a single `rclone sync` away (Backblaze B2, Cloudflare R2, AWS, others). Buckets are configured with versioning enabled (as a guard against accidental deletion during development) and with Object Lock (WORM) for production operation, to make immutability enforceable at the storage layer rather than only at the API layer.
 
-Records are stored with the SHA-256 content hash as the object key and the following routing metadata as S3 headers:
-
-| Header | Purpose | Example |
-|---|---|---|
-| `x-amz-meta-source` | Origin / ingest worker | `zoho`, `android`, `google-photos` |
-| `x-amz-meta-content-type` | Semantic type | `email`, `photo`, `chat`, `document` |
-| `x-amz-meta-original-name` | Original filename | `invoice-2026-03.pdf` |
-| `x-amz-meta-created-at` | Creation time of the original | `2026-03-26T14:30:00Z` |
-| `x-amz-meta-ingested-at` | Time of ingest into RankeDB | `2026-03-26T15:01:12Z` |
+Source nodes are stored with the SHA-256 content hash as the object key. The API-level metadata fields defined in §2.1 are mapped to S3 user-metadata headers (prefixed `x-amz-meta-`) — this mapping is internal to the storage layer and invisible to API consumers.
 
 Access to the bucket is split along least-privilege lines: ingest workers hold a key pair with `s3:PutObject` and `s3:ListBucket` only — enough to write new records and check for duplicates, but not to read existing content — while the RankeDB backend holds a full read/write key pair. This makes ingest workers blind to the archive they feed, which is useful both as a security property (a compromised worker cannot exfiltrate the archive) and as an architectural discipline (workers cannot accidentally become RankeDB-aware).
 
