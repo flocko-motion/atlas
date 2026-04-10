@@ -43,7 +43,7 @@ RankeDB is one graph of nodes and edges, organized into three levels (see Figure
 
 ![Figure 1: The three storage levels of RankeDB.](drawio/layers.svg "Figure 1: The three storage levels of RankeDB. Node types such as Email, Conversation, Fact, and Summary are application-defined examples; RankeDB provides type categories (e.g. source, conversation) but leaves concrete types to the application.")
 
-*Figure 1: The three storage levels of RankeDB. Node types such as Email, Conversation, Fact, and Summary are application-defined examples; RankeDB provides type categories (e.g. source, conversation) but leaves concrete types to the application.*
+*Figure 1: The three storage levels of RankeDB. Concrete node labels such as Email, Conversation, Fact, and Summary are illustrative examples. RankeDB defines content type categories (e.g. `source/conversation`, `classification/entity`) and leaves encodings and application-specific types to the application layer.*
 
 > **TODO — Reading for §2 (three-layer architecture precedents):**
 >
@@ -66,12 +66,27 @@ Because the content hash is the storage key, writes are idempotent: uploading th
 | Field | Purpose | Example |
 |---|---|---|
 | `hash` | Content hash (SHA-256), canonical identifier | `a3f2b7c...` |
-| `content_type` | Semantic type (application-defined, within RankeDB categories) | `source/email`, `source/chat` |
-| `source` | Origin / ingest pathway | `zoho`, `android`, `google-photos` |
+| `content_type` | Category and type (see below) | `source/conversation` |
+| `encoding` | Format-specific encoding (application-defined) | `eml`, `chatgpt`, `whatsapp` |
+| `origin` | Ingest pathway | `zoho`, `android`, `google-photos` |
 | `original_name` | Original filename | `invoice-2026-03.pdf` |
 | `created_at` | Creation time of the original artifact | `2026-03-26T14:30:00Z` |
 | `ingested_at` | Time of ingest into RankeDB | `2026-03-26T15:01:12Z` |
 | `parent` | Parent node (if derived from another source) | `b8e4d1a...` |
+
+The `content_type` field follows a two-part pattern: `category/type`. RankeDB defines the categories and a set of foundational types; applications may extend the types within each category. The `encoding` field captures the format-specific representation — application-defined, and the primary dispatch key for reactive workers. Each encoding is a micro-project: a parser, quickly written, easily tested. Sources can wait patiently until a parser for their encoding becomes available.
+
+#### Source types
+
+RankeDB defines four source types and one container type. The design principle is *few types, many encodings*: the diversity of the world lives in encodings, not in the type system.
+
+| Content type | What it captures | Examples |
+|---|---|---|
+| `source/conversation` | Communicative act with sender and receiver, even if implicit. An invoice is a conversation (sender → receiver). An article is a conversation (author → readers). What *kind* of conversation it is — invoice, contract, smalltalk — is determined by a classification worker in Level 1, not at import. | email, chat, letter, voicemail transcript, article |
+| `source/media` | Audio, visual, or audiovisual capture. Content is opaque until a worker processes it — could be a voicemail, art, a surveillance recording, or a meeting. | photo, video, audio recording, screen capture |
+| `source/record` | Objective, machine-generated observation of world-state. Not human expression — structured readings from sensors, APIs, instruments. | GPS positions, weather readings, stock prices, bank transactions |
+| `source/data` | Structured information that does not fit the above categories. Defined by exclusion: not a communicative act, not a perceptual capture, not a machine observation. Application layer decides boundary cases. | spreadsheets, configuration files, database exports |
+| `source/bulk` | Container of other sources. Unpacked by workers into individual source nodes. The bulk node serves deduplication across repeated exports — if a contained source already exists (same hash), it is skipped. | ChatGPT export, WhatsApp backup, Gmail archive, photo library export |
 
 **Invariants:**
 - Nodes are immutable. Once written, a node is never modified or deleted.
@@ -89,6 +104,19 @@ Together with Level 0, Level 1 forms the complete Provenance DAG. Where Level 0 
 Provenance edges carry metadata: which tool produced the derivation, its configuration, the model version (if an LLM), and timestamps. This metadata is not auxiliary — it is part of the knowledge graph. A derivation produced by a 2024 language model and one produced by a 2028 model from the same source are both preserved as competing interpretations with full provenance.
 
 Level 1 is also the **node authority** for the system: it holds the full content of every derived node (extracted text, structured fields), the full derivation record, and any downstream indices that require fast content access (full-text search, vector embeddings). Embeddings are maintained in a separate table with a foreign key to the content — they are a derived index, regenerable at any time with a different model or chunking strategy, without touching the content itself. A `parent_id` per node records the primary input as a denormalized shortcut for plausibility checks and quick traversal; the full provenance is always the edge set, not this field.
+
+#### Derivation types
+
+Level 1 content types follow the same `category/type` pattern as Level 0. RankeDB defines four foundational categories; applications may extend the types within each category and add new categories as needed.
+
+| Category | Purpose | Foundational types |
+|---|---|---|
+| `normalized/*` | Canonical, format-free representation of a source. Many source encodings converge into a small number of normalized forms. Everything above operates on these — source-format diversity becomes irrelevant after normalization. | `normalized/conversation`, `normalized/image`, `normalized/video`, `normalized/data` |
+| `classification/*` | A worker's statement about a node: what it is, who appears in it, what it concerns. Classification nodes are the bridge between the Provenance DAG and the Semantic Graph — they live in Level 1 with full provenance and their edges project into Level 2. | `classification/content` (what kind of thing is this: invoice, voicemail, memo?), `classification/entity` (who/what was identified: a person, an organization, a place), `classification/topic` (what is this about) |
+| `summary/*` | Condensed representation of one or more source nodes. | Application-defined (e.g. by length, audience, purpose) |
+| `fact/*` | Extracted factual claim with provenance to the source that supports it. | Application-defined (e.g. by domain, confidence threshold) |
+
+The convergence pattern is central to the architecture: a dozen source encodings collapse into four normalized forms, and all downstream processing — classification, summarization, fact extraction — operates on these canonical representations rather than on raw sources. A worker that extracts entities from a `normalized/conversation` works identically whether the original source was an email, a WhatsApp chat, or a scanned letter.
 
 **Invariants:**
 - The graph is append-only. Nodes are never modified or deleted.
