@@ -109,14 +109,26 @@ Level 1 is also the **node authority** for the system: it holds the full content
 
 Level 1 is the cognitive layer. Every node in Level 1 is a thought — the output of a worker interpreting, classifying, extracting, summarizing, or reasoning about the graph. The content type categories distinguish *what kind* of thought, not whether interpretation was involved.
 
-Level 1 content types follow the same `category/type` pattern as Level 0. Workers in Level 1 operate on normalized sources — by the time an artifact reaches Level 1, source-format diversity is irrelevant. A worker that extracts entities from a conversation works identically whether the original source was an email, a WhatsApp chat, or a scanned letter. RankeDB defines four foundational categories; applications may extend the types within each category and add new categories as needed.
+Level 1 content types follow the same `category/type` pattern as Level 0. Workers in Level 1 operate on normalized sources — by the time an artifact reaches Level 1, source-format diversity is irrelevant. A worker that extracts entities from a conversation works identically whether the original source was an email, a WhatsApp chat, or a scanned letter. RankeDB defines foundational categories in two groups; applications may extend the types within each category and add new categories as needed.
+
+**Resolved forms** are enriched representations of source artifacts. They depend on classification results and produce the resolved, interlinked versions that downstream workers operate on. A resolved `conversation` node has participants identified by entity ID, names resolved (no more "the guy" — instead "Bob Bobson, id:123"), and structure made explicit. A long conversation may yield multiple resolved segments, each a separate node — the splitting strategy is an application-layer decision, but the taxonomy supports it. Similarly, a resolved `image` node carries extracted text (OCR), identified faces, and interpreted metadata.
+
+| Category | Purpose |
+|---|---|
+| `conversation/*` | Resolved, enriched conversation with participants linked to entities. May be split into segments. |
+| `image/*` | Enriched image with extracted text, identified subjects, interpreted metadata. |
+| `video/*` | Enriched video with transcript, identified speakers, segmentation. |
+
+**Cognitive derivations** are thoughts about the graph: what a node contains, how nodes relate, what facts they support.
 
 | Category | Purpose | Foundational types |
 |---|---|---|
-| `classification/*` | A worker's statement about a node: what it is, who appears in it, what it concerns. Classification nodes are the bridge between the Provenance DAG and the Semantic Graph — they live in Level 1 with full provenance and their edges project into Level 2. | `classification/entity` (who/what was identified: a person, an organization, a place), `classification/content` (what kind of thing is this: invoice, voicemail, memo?), `classification/topic` (what is this about) |
+| `classification/*` | A worker's statement about a node: what it is, who appears in it, what it concerns. Classification nodes are the bridge between the Provenance DAG and the Semantic Graph — they live in Level 1 with full provenance and their edges project into Level 2. | `classification/entity` (who/what was identified), `classification/content` (what kind of thing is this: invoice, voicemail, memo?), `classification/topic` (what is this about) |
 | `observation/*` | A worker's statement about relationships between nodes — grouping, contradiction, correlation, sequence, gaps. The natural output of analytical workers that traverse the graph rather than processing individual nodes. | Application-defined (e.g. `observation/contradiction`, `observation/alias`, `observation/grouping`) |
 | `summary/*` | Condensed representation of one or more nodes. | Application-defined (e.g. by length, audience, purpose) |
 | `fact/*` | Extracted factual claim with provenance to the node that supports it. | Application-defined (e.g. by domain, confidence threshold) |
+
+Note that resolved forms depend on classifications: a `conversation` worker waits for `classification/entity` results before it can resolve participants. This creates a natural ordering within Level 1 — classification first, then resolved forms, then downstream extraction — but the ordering is emergent from the dependency graph, not prescribed by the architecture.
 
 **Invariants:**
 - The graph is append-only. Nodes are never modified or deleted.
