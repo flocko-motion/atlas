@@ -119,6 +119,8 @@ Level 1 content types follow the same `category/type` pattern as Level 0. Worker
 | `image/*` | Enriched image with extracted text, identified subjects, interpreted metadata. |
 | `video/*` | Enriched video with transcript, identified speakers, segmentation. |
 
+Note that source types and resolved forms are not 1:1. A `source/record` containing bank transactions can resolve into `conversation/transaction` nodes in Level 1 — sender, receiver, amount as message, reference text as body. Money is a language for communicating value; a bank transfer has the same structure as any conversation: participants, timestamp, content. The source type captures how an artifact entered the world; the Level 1 type captures what it means.
+
 **Cognitive derivations** are thoughts about the graph: what a node contains, how nodes relate, what facts they support.
 
 | Category | Purpose | Foundational types |
