@@ -78,7 +78,7 @@ The `content_type` field follows a two-part pattern: `category/type`. RankeDB de
 
 #### Source types
 
-RankeDB defines four source types and one container type. The design principle is *few types, many encodings*: the diversity of the world lives in encodings, not in the type system.
+RankeDB defines four source types and one container type. The design principle is *few types, many encodings*: the diversity of the world lives in encodings, not in the type system. Among the encodings, `normalized` has a special role: it is the canonical, format-free representation of a source type. Many format-specific encodings converge into a single normalized form per type (e.g. `source/conversation/eml`, `source/conversation/whatsapp`, `source/conversation/telegram` all converge to `source/conversation/normalized`). The normalized encoding is still a source — it preserves what was said faithfully — but it is the form that Level 1 workers operate on. The convergence happens in Level 0; by the time a node enters Level 1, source-format diversity is irrelevant.
 
 | Content type | What it captures | Examples |
 |---|---|---|
@@ -107,16 +107,16 @@ Level 1 is also the **node authority** for the system: it holds the full content
 
 #### Derivation types
 
-Level 1 content types follow the same `category/type` pattern as Level 0. RankeDB defines four foundational categories; applications may extend the types within each category and add new categories as needed.
+Level 1 is the cognitive layer. Every node in Level 1 is a thought — the output of a worker interpreting, classifying, extracting, summarizing, or reasoning about the graph. The content type categories distinguish *what kind* of thought, not whether interpretation was involved.
+
+Level 1 content types follow the same `category/type` pattern as Level 0. Workers in Level 1 operate on normalized sources — by the time an artifact reaches Level 1, source-format diversity is irrelevant. A worker that extracts entities from a conversation works identically whether the original source was an email, a WhatsApp chat, or a scanned letter. RankeDB defines four foundational categories; applications may extend the types within each category and add new categories as needed.
 
 | Category | Purpose | Foundational types |
 |---|---|---|
-| `normalized/*` | Canonical, format-free representation of a source. Many source encodings converge into a small number of normalized forms. Everything above operates on these — source-format diversity becomes irrelevant after normalization. | `normalized/conversation`, `normalized/image`, `normalized/video`, `normalized/data` |
-| `classification/*` | A worker's statement about a node: what it is, who appears in it, what it concerns. Classification nodes are the bridge between the Provenance DAG and the Semantic Graph — they live in Level 1 with full provenance and their edges project into Level 2. | `classification/content` (what kind of thing is this: invoice, voicemail, memo?), `classification/entity` (who/what was identified: a person, an organization, a place), `classification/topic` (what is this about) |
-| `summary/*` | Condensed representation of one or more source nodes. | Application-defined (e.g. by length, audience, purpose) |
-| `fact/*` | Extracted factual claim with provenance to the source that supports it. | Application-defined (e.g. by domain, confidence threshold) |
-
-The convergence pattern is central to the architecture: a dozen source encodings collapse into four normalized forms, and all downstream processing — classification, summarization, fact extraction — operates on these canonical representations rather than on raw sources. A worker that extracts entities from a `normalized/conversation` works identically whether the original source was an email, a WhatsApp chat, or a scanned letter.
+| `classification/*` | A worker's statement about a node: what it is, who appears in it, what it concerns. Classification nodes are the bridge between the Provenance DAG and the Semantic Graph — they live in Level 1 with full provenance and their edges project into Level 2. | `classification/entity` (who/what was identified: a person, an organization, a place), `classification/content` (what kind of thing is this: invoice, voicemail, memo?), `classification/topic` (what is this about) |
+| `observation/*` | A worker's statement about relationships between nodes — grouping, contradiction, correlation, sequence, gaps. The natural output of analytical workers that traverse the graph rather than processing individual nodes. | Application-defined (e.g. `observation/contradiction`, `observation/alias`, `observation/grouping`) |
+| `summary/*` | Condensed representation of one or more nodes. | Application-defined (e.g. by length, audience, purpose) |
+| `fact/*` | Extracted factual claim with provenance to the node that supports it. | Application-defined (e.g. by domain, confidence threshold) |
 
 **Invariants:**
 - The graph is append-only. Nodes are never modified or deleted.
