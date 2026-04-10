@@ -57,7 +57,7 @@ RankeDB is organized into three storage levels (see Figure 1) that form two logi
 
 Level 0 is an immutable, content-addressable object store. Every external artifact ingested into RankeDB — a document, an email, a chat transcript, an image — is stored as a Record, addressed by its SHA-256 content hash. Records are self-describing through attached metadata sufficient to reconstruct the full database state from Level 0 alone.
 
-Level 0 is part of the Provenance DAG. A Record may be an original source artifact, a source unpacked from a bundle (e.g. an individual conversation extracted from a bulk chat export), or a format conversion of another Record (e.g. TIFF converted to PNG for downstream processing). Each Record has at most one parent Record — Level 0 forms a tree, not a DAG. The combinatorial derivations that merge multiple inputs begin in Level 1.
+Level 0 is part of the Provenance DAG. A Record may be an original source artifact, a source unpacked from a bundle (e.g. an individual conversation extracted from a bulk chat export), a format conversion (e.g. TIFF to PNG), or a cleaned and normalized version of another Record. All remain sources — they are still artifacts of communicative acts, not knowledge *about* those acts. Each Record has at most one parent Record — Level 0 forms a tree, not a DAG. The combinatorial derivations that merge multiple inputs begin in Level 1.
 
 Level 0 is the only level that contains ground truth in the absolute sense. It is the archive — the fixpoint against which all derived knowledge can be validated.
 
