@@ -290,6 +290,8 @@ The Explorer is not part of RankeDB's core architecture. It is an application. B
 
 RankeDB is a database. It does not contain application logic, AI models, or processing pipelines. External processes — **workers** — interact with RankeDB exclusively through the API, reading existing Records and Thoughts and writing new Thoughts.
 
+The primary dispatch mechanism is **content type**. A large class of workers operates reactively: polling for unprocessed nodes whose content type matches their profile, producing new nodes of a different content type. A format converter watches for TIFF Records and produces PNG Records. A bulk-archive unpacker watches for WhatsApp exports and produces individual message Records. A fact extractor watches for normalized conversations and produces Fact Thoughts. The system grows by adding workers that handle new content types, not by modifying the core.
+
 Workers may be LLM-based (entity extraction, summarization, synthesis), deterministic (format conversion, deduplication detection), or hybrid. RankeDB is agnostic to the nature of its workers — it tracks only the provenance of their outputs: what inputs they consumed, which tool and configuration they used, and when they ran. Workers are identified by run IDs, enabling administrative operations (such as purging defective runs) without affecting the knowledge model.
 
 The same Record can be processed by multiple workers or by successive versions of the same worker. Old and new results coexist with full provenance. Consumers select between them through view configuration (e.g., preferring the most recent extractor), not through data operations.
