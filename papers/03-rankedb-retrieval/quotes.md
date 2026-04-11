@@ -12,4 +12,21 @@
 
 *Design note (Talisman paraphrase, not a direct quote): the word "hallucination" misframes the problem. It suggests an occasional error mode — something that goes wrong sometimes — when in fact it is the normal operation of the model. Every LLM output is structurally the same thing: a plausible continuation of tokens. The model has no internal state that distinguishes "recalling a fact" from "inventing a fact." Some continuations happen to correspond to reality; others don't; the model cannot tell. This reframes RankeDB's verification stage from "catching occasional errors" to "the architecture assumes every LLM output is unverified by default." Verification is not defensive — it is baseline. The strong stance: you are not protecting against edge cases, you are protecting against the default behavior of the tool.*
 
+*Design note — bounded verification + conviction + user confirmation:*
+
+*Automatic verification has bounded reach. It works only within the domain of the graph — claims whose sources the DAG can already resolve (a DOI that exists as a source node, a fact extracted from a conversation that's actually in the graph, an entity merge pointing to existing classification/entity nodes). Claims about the outside world that the graph has no source for cannot be auto-verified.*
+
+*For the unverifiable case, RankeDB has two fallbacks:*
+
+*1. Conviction scoring — the claim enters the graph as a low-conviction node, marked as an uncorroborated LLM output. Not promoted to high-trust fact, but not discarded either.*
+
+*2. User confirmation — for low-conviction thoughts that matter, the system asks the user to confirm. The confirmation becomes a new node with its own provenance ("User X confirmed this on date Y"). The user lends their cognitive authority, turning an uncorroborated claim into a user-verified one.*
+
+*The hierarchy:*
+*- Auto-verified (source exists in graph) → high conviction*
+*- User-confirmed (low conviction + user authority) → high conviction with user provenance*
+*- Unconfirmed → stays as low-conviction, queryable but explicitly marked*
+
+*Invariant: nothing is silently promoted from low conviction to high.*
+
 *Note: RankeDB's answer — citation verification agents as a mandatory stage in the worker chain. Every claim produced by an LLM worker must be counter-checked by a follow-up verifier before it becomes a fact node with full provenance. This is slower than trusting the LLM's output directly. RankeDB accepts the latency cost under the bet that (a) model latency will keep improving and (b) correctness will win the race against speed-first architectures that skip verification.*
