@@ -4,4 +4,6 @@
 
 *Note: "Vibe citing" — a fabricated citation that feels right without being right — is worse than no citation at all, because it hijacks cognitive authority without earning it. RankeDB's verification stage exists precisely to catch this: a claim without a verifiable source node in the Provenance DAG is not a fact, regardless of how plausibly the LLM presents it.*
 
+*One-liner for §1: Vibe coding works because tests gate it. Vibe citing needs the same: an architectural verification gate between LLM output and the knowledge graph. RankeDB is that gate.*
+
 *Note: RankeDB's answer — citation verification agents as a mandatory stage in the worker chain. Every claim produced by an LLM worker must be counter-checked by a follow-up verifier before it becomes a fact node with full provenance. This is slower than trusting the LLM's output directly. RankeDB accepts the latency cost under the bet that (a) model latency will keep improving and (b) correctness will win the race against speed-first architectures that skip verification.*
