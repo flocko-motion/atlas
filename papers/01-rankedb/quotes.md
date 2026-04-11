@@ -26,5 +26,55 @@
 
 *Why this matters architecturally: at personal/project scale, the auto-verifiable domain is usually close to the whole domain, and the bounded-verification model works. At global scale the unverifiable case dominates, and a different architecture is needed. RankeDB is tuned for the former and honest about it.*
 
+---
+
+## Design notes for paper 1, Part 1: two principles, one stance
+
+### Postmodern epistemology: claims, not truths
+
+RankeDB captures *what people said*, not *what is*. Every node in the graph is a communicative act by someone, at some time, in some context. "Napoleon was born in 1769" isn't a fact in RankeDB — it's Wikipedia's claim, or your history textbook's claim, or your grandfather's claim. The graph stores the claim, the claimer, the context, and the provenance. It does *not* store "the truth" about Napoleon.
+
+This separates RankeDB from every knowledge graph that came before it. Wikidata, Google Knowledge Vault, DBpedia, Wikipedia — all try to capture *what is true about the world*. They treat statements as converging on ground truth. Disagreement is a bug to resolve. Consensus is the goal.
+
+RankeDB rejects that goal entirely. This is postmodern in a specific sense: knowledge is perspectival, meaning is constructed through communicative acts, and the job of a knowledge system is not to arbitrate between competing claims but to preserve them faithfully with full attribution. The consumer decides which perspective to trust for which purpose.
+
+Consequences:
+
+- **Contradiction is normal, not a bug.** Two nodes can claim opposite things; both stay in the graph; both carry their provenance.
+- **Conviction replaces certainty.** A claim is not "true" or "false" — it has a conviction score based on corroborating sources, their authority, and who is asking.
+- **The same claim can mean different things** depending on who said it, when, and to whom. Context is preserved, not abstracted away.
+- **There is no "ground truth" layer.** Level 0 is the archive of communicative acts, not an archive of how the world is.
+- **Ontology emerges per-perspective**, not globally. My understanding of who "Bob" is may differ from yours, and that's fine — the graph holds both.
+
+Philosophical lineage: closer to oral history than to Wikipedia. Closer to phenomenology than to Description Logic. Closer to Ranke's attribution-first history than to Comte's positivism.
+
+### Bounded scope: personal to small-enterprise
+
+What is hard at global scale is tractable at subjective scale. The global problem is not hard because people are stupid — it is hard because there is no shared ground to stand on. At global scale you need consensus across billions, adversarial resistance, formal ontology coordination, jurisdictional compatibility. All of that collapses because the goal itself — a single truth layer — is philosophically incoherent when applied to the whole world.
+
+At subjective scale, the problem evaporates:
+
+- **Consensus is not needed.** I don't need to agree with anyone else about what my mother said in her email. I just need to preserve what she said.
+- **Adversarial resistance shrinks.** My archive is mine. The threat model is "don't lose it, don't corrupt it," not "prevent millions of attackers from poisoning consensus."
+- **Ontology is bounded.** The entities that matter in my life are finite. Resolving "who is Bob" across 200 conversations is tractable. Resolving "who is Bob" across all humans named Bob on Earth is not.
+- **Trust is pre-established.** I already trust my own sources. The question isn't "is this source trustworthy?" but "did I capture what it said faithfully?"
+- **Context is preserved by proximity.** All the documents that matter to me are about me, my work, my circle. Context stays intact because the scope stays intact.
+
+Flipping the objection: "RankeDB doesn't scale to Wikipedia" isn't a weakness — it is a feature. Wikipedia-scale is the wrong target. The right target is the scale where the problem is solvable, *and* where the solution is actually useful to an individual. A knowledge graph about my life and work is more valuable to me than Wikipedia, because it is mine, it is complete, and it preserves context that global systems strip.
+
+### The two principles enable each other
+
+Postmodern epistemology and bounded scope are not two separate design decisions — they are one coherent stance.
+
+- You can only afford to be postmodern (store claims, not truths) if you have bounded the scale to one where preserving all claims with attribution is feasible. At global scale you would drown in contradictions.
+- You cannot justify bounded scope without postmodern epistemology — if you believed ground truth was the goal, you would have to aim for global, because partial truth is incoherent.
+
+Each enables the other. Together they define what RankeDB is:
+
+**A personal-to-project provenance database for a world where absolute truth is not available, but attributed claims are.**
+
+This is paper 1's thesis in one sentence. The rest of the paper — the three levels, the taxonomy, the invariants, the rebuild guarantee, the under-prescription principle — all fall out as the structural consequences of these two commitments.
+
+
 *Note: RankeDB aligns with Wilson's cognitive authority framing and Briet's documentation thesis: the database does not care about the antelope itself, only about who said what about the antelope, when, and on what basis. This is a deliberate departure from Berners-Lee's Semantic Web vision, which tried to ground meaning in global concept definitions. RankeDB treats the communicative act as primary.*
 
