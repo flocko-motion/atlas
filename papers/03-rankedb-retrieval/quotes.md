@@ -29,4 +29,23 @@
 
 *Invariant: nothing is silently promoted from low conviction to high.*
 
+*Design note — auth scoping (mention but defer):*
+
+*Auth scoping is natively expressible in the RankeDB architecture: every node inherits its visibility from the visibility of its inputs, computed by DAG traversal (§3.4 of paper 1). This gives access control for free — no re-tagging, no re-indexing, no policy layer bolted on. Change visibility at a source, and the change propagates through every derivation automatically.*
+
+*That covers the structural primitive. The policy layer is a much deeper problem:*
+
+*- Multi-user access models: groups, roles, hierarchies, delegation*
+*- Project-level sharing: slicing the DAG without sharing the whole archive*
+*- Temporal access: granted yesterday, revoked today — immutability + revocation is a hard combination*
+*- Adversarial leakage: what can a denied user reconstruct from derived children?*
+*- Compliance regimes: GDPR right-to-deletion vs. append-only; legal holds, retention, jurisdictional boundaries*
+*- Shared-trust groups: when a team shares an archive, whose conviction counts for which facts?*
+
+*For paper 3: state that the mechanism exists, acknowledge the depth, and defer. Suggested framing:*
+
+*> "Auth scoping is natively expressible in the architecture: every node inherits its visibility from the visibility of its inputs, computed by DAG traversal. This gives RankeDB an access-control mechanism for free, without re-tagging or re-indexing. The full treatment — multi-user access models, project-level sharing, temporal revocation, compliance regimes, and adversarial leakage through derivations — is outside the scope of this paper and warrants separate research."*
+
+*The structural primitive is there; the policy layer isn't. Being honest about that is a strength, not a weakness.*
+
 *Note: RankeDB's answer — citation verification agents as a mandatory stage in the worker chain. Every claim produced by an LLM worker must be counter-checked by a follow-up verifier before it becomes a fact node with full provenance. This is slower than trusting the LLM's output directly. RankeDB accepts the latency cost under the bet that (a) model latency will keep improving and (b) correctness will win the race against speed-first architectures that skip verification.*
