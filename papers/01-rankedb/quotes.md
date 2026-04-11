@@ -75,6 +75,22 @@ Each enables the other. Together they define what RankeDB is:
 
 This is paper 1's thesis in one sentence. The rest of the paper — the three levels, the taxonomy, the invariants, the rebuild guarantee, the under-prescription principle — all fall out as the structural consequences of these two commitments.
 
+### Provenance vs. consensus: orthogonal problems
+
+A sharper framing: RankeDB does not refuse truth, it refuses to conflate two orthogonal problems.
+
+- **Provenance** is an *attribution* problem: who said what, when, on what basis, derived from what. Solvable by construction — just don't throw the chain away. RankeDB is a provenance database.
+- **Consensus (common truth)** is a *social* problem: getting multiple observers to agree on what to trust. Requires voting, authority hierarchies, negotiation, peer review, time. Wikipedia solves it at scale with enormous human effort. The Semantic Web tried to pre-solve it via global ontology and failed.
+- **Absolute truth** is philosophically incoherent — no one can have it, so drop it from the design.
+
+RankeDB stores attributed claims. That is the substrate on which consensus can be built, if consumers want it. Consensus workers can be implemented on top: they produce `classification/consensus` or `observation/consensus` nodes that aggregate views. But RankeDB itself makes no consensus decisions — that is application-layer policy.
+
+The stance: *we do not refuse common truth, we defer it to the consumers and provide the substrate that makes it possible.* Consumers who want consensus can build it. Consumers who want to preserve dissent can preserve it. Consumers who want to pick a single perspective (their own, a trusted colleague's, an authority's) can do that too.
+
+This sharpens the under-prescription principle: RankeDB refuses to pre-commit to consensus strategies because **consensus is downstream of provenance, not part of it**. You cannot have meaningful consensus without attribution, but you *can* have meaningful attribution without consensus. One is the foundation; the other is a choice built on top.
+
+Updated one-liner: **RankeDB stores attributed claims; common truth is what consumers build on top when they want it.**
+
 
 *Note: RankeDB aligns with Wilson's cognitive authority framing and Briet's documentation thesis: the database does not care about the antelope itself, only about who said what about the antelope, when, and on what basis. This is a deliberate departure from Berners-Lee's Semantic Web vision, which tried to ground meaning in global concept definitions. RankeDB treats the communicative act as primary.*
 
