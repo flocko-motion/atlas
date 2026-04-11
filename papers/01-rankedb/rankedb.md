@@ -14,6 +14,16 @@ We present RankeDB, a domain-specific database architecture for knowledge system
 
 The system is delivered as two components: **RankeDB**, a self-contained server (Docker Compose stack) exposing the complete data model through a REST API, and **RankeDB Explorer**, a bundled visual interface for navigating provenance chains and the semantic graph. Together they constitute a complete, deployable provenance database with an integrated visualization tool.
 
+> **TODO — Restructure paper 1 into two halves (planned rewrite):**
+>
+> The paper currently front-loads the architecture and treats motivation as setup. A stronger structure splits it in two:
+>
+> **Part 1 — The argument (why this must exist).** Build the case from the 180-year tradition (Ranke, Cencetti, respect des fonds, Briet, Wilson, Burke, CLIR, Berners-Lee as foil); the CS priority that was identified but never operationalized (Cheney 2009 and the research gap); and the LLM rupture (Talisman, vibe citing, knowledge network decay, doom loop). Close with the positioning: rebuild the chain LLMs broke, using LLMs, for LLMs. A provenance-first architecture is not a nice-to-have, it is the minimum response to the severity of the problem.
+>
+> **Part 2 — The proposal (what we built).** Three levels, one graph, one API. Content type taxonomy. Core properties. Reference implementation. Close with pointers to papers 2/3/4 as *evidence* that the proposal can be populated, consumed, and coordinated — not as downstream products, but as validation that the philosophy of Part 1 is operationalizable.
+>
+> Why this matters: (a) current §1 is dense and does too much work; splitting gives each half room to breathe; (b) the paper becomes one coherent argument rather than motivation → architecture → related work; (c) reframes papers 2/3/4 as evidence for a philosophical claim rather than standalone products; (d) the philosophical grounding is the paper's most distinctive contribution and deserves more space than it currently gets. The quotes.md file collects the raw material for Part 1.
+
 ## 1. Introduction
 
 Knowledge management systems face a fundamental tension: they must serve both *current* truth and *historical* understanding. Traditional knowledge graphs optimize for the former — they store what is believed to be true now, updated in place as understanding changes. This design made sense in an era of expensive storage and limited query capacity. It makes less sense in an era of large language models, where the ability to present a model with the full derivation history of a belief — including contradictions, revisions, and competing interpretations — produces qualitatively better reasoning than presenting a single consolidated snapshot.
