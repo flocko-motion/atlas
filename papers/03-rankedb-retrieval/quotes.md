@@ -6,4 +6,8 @@
 
 *One-liner for §1: Vibe coding works because tests gate it. Vibe citing needs the same: an architectural verification gate between LLM output and the knowledge graph. RankeDB is that gate.*
 
+"Ghost references present with apparent legitimacy when indexed by systems like Google Scholar. This creates a feedback loop for LLMs, in which fabricated citations are discovered by other AI tools searching for verification in an already-polluted ecosystem. And without question, other AI systems will assume citations to be fact. When LLMs are trained on content that presents false citations, the lies are adopted wholesale, and continue to proliferate, emerging as false facts in AI-generated output. This is knowledge network decay, in action." — via [talisman2026](../01-rankedb/sources/talisman2026provenance.md)
+
+*Note: The doom loop — fabricated citations propagate through the training-inference cycle, polluting future models — is a policy failure, not a technical one. Automated verification breaks the loop at ingestion: every claim's citation is resolved by a verifier worker before the claim becomes a fact node. Pollution cannot propagate through an architecture that refuses to promote unverified claims into knowledge. RankeDB is that architecture by construction.*
+
 *Note: RankeDB's answer — citation verification agents as a mandatory stage in the worker chain. Every claim produced by an LLM worker must be counter-checked by a follow-up verifier before it becomes a fact node with full provenance. This is slower than trusting the LLM's output directly. RankeDB accepts the latency cost under the bet that (a) model latency will keep improving and (b) correctness will win the race against speed-first architectures that skip verification.*
