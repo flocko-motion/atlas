@@ -103,3 +103,20 @@ Karpathy's LLM Wiki (gist 442a6bf, 5000+ stars) proposes a three-layer pattern: 
 
 **Positioning for paper 1:** Karpathy's LLM Wiki validates the need for the pattern RankeDB proposes while demonstrating exactly the failure modes that RankeDB's invariants prevent. It is the "vibe wiki" — compelling at small scale with an engaged human, but structurally unable to preserve the derivation history that makes knowledge trustworthy. RankeDB is what you get when you take the same insight and refuse to cut corners on provenance.
 
+---
+
+## Design note: buggy workers, blast radius, and purging
+
+When a worker has a bug, the provenance chain gives you the complete blast radius instantly: every node produced by that worker run (identified by run ID), and every node derived from those nodes, all the way down the DAG. No guessing, no auditing, no "which pages did the LLM touch last Tuesday?"
+
+Two responses:
+
+- **Non-destructive invalidation.** Mark the run's outputs as invalidated. They stay in the graph (immutability preserved) but consumers filter them out. Downstream nodes that depended on them are automatically suspect — their provenance chain passes through invalidated nodes. A replacement worker re-runs on the same sources and produces new nodes alongside the old ones.
+- **Destructive purge.** Administrative operation outside the knowledge model. Creates a cropped copy of the graph with the affected branch removed. The original graph should be backed up before purging — the purge is irreversible by design, and the backup preserves the full history for forensic or developmental purposes.
+
+Purging is especially valuable during development: run an experimental worker, inspect the results, purge if they are bad, re-run with improvements. The sources are untouched. The fix is an append on a clean graph, not a migration on a corrupted one.
+
+This is the concrete operational advantage of provenance + immutability + worker run IDs over the "just use git" approach. In a flat-file wiki, a buggy LLM run silently corrupts pages and you have no way to know which pages were touched or what downstream conclusions were built on them. In RankeDB, the DAG *is* the audit trail. The rebuild guarantee (§3.5) means that after purging, the improved worker re-runs on the same L0 sources and the affected branch regenerates cleanly.
+
+Strengthens §3.2 (immutability), §3.5 (rebuild guarantee), §5 (workers), and §7.2 (reprocessing without migration). Also a strong contrast point with Karpathy's LLM Wiki — where the equivalent operation is "revert the whole git repo and hope you find the right commit."
+
