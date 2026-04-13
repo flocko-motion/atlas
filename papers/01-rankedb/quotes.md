@@ -83,3 +83,23 @@ This is paper 1's thesis in one sentence. The rest of the paper — the three le
 
 *Note: RankeDB aligns with Wilson's cognitive authority framing and Briet's documentation thesis: the database does not care about the antelope itself, only about who said what about the antelope, when, and on what basis. This is a deliberate departure from Berners-Lee's Semantic Web vision, which tried to ground meaning in global concept definitions. RankeDB treats the communicative act as primary.*
 
+---
+
+## Comparison: Karpathy's LLM Wiki (April 2026)
+
+Karpathy's LLM Wiki (gist 442a6bf, 5000+ stars) proposes a three-layer pattern: immutable raw sources, an LLM-maintained wiki of markdown files, and a schema document. The LLM incrementally builds and maintains entity pages, summaries, cross-references, and contradiction flags. The core insight — compounding knowledge vs. stateless RAG — is the same as RankeDB's.
+
+**What it validates:** the need for persistent, structured, LLM-maintained knowledge that compounds over time rather than being re-derived on every query. Karpathy's "LLM does bookkeeping, human does thinking" is RankeDB's worker model. His immutable raw sources are L0. His wiki is L1+L2 collapsed into flat markdown.
+
+**What it's missing — and what the comments are already discovering:**
+
+- **No provenance.** Wiki pages are updated in place. You cannot trace a claim back through its derivation chain to the source that produced it. Karpathy's log.md records *when* things were ingested, not *how* a claim was derived.
+- **Destructive consolidation.** Entity pages get overwritten. When the LLM "updates" a page with new information, the old synthesis is silently replaced. The contradiction Karpathy says the system "flags" gets resolved at write time by the LLM, with no record of what was there before. Git history is the only safety net.
+- **No content type taxonomy.** Everything is "a markdown page." No distinction between fact, summary, classification, observation. No way for downstream consumers to filter by derivation type.
+- **Schema as instruction, not architecture.** Karpathy relies on a CLAUDE.md file telling the LLM how to behave. RankeDB's invariants are enforced by the API — the system *refuses* to create a node without provenance, regardless of what the LLM wants to do.
+- **The comments prove the gap.** Within days, users are independently reinventing RankeDB's invariants ad-hoc: access control via capability tokens, contamination firewalls, verify-before-assert hooks, file locking, contradiction callouts with claim types (source/analysis/unverified/gap). One commenter (redmizt) built 13 architectural extensions on top of flat files to solve problems that RankeDB's three invariants (immutability, acyclicity, mandatory provenance) prevent by construction.
+
+**The key failure mode:** Karpathy writes "noting where new data contradicts old claims" — but his wiki overwrites the old claims when it updates entity pages. This is exactly the destructive consolidation §3.2 argues against. The LLM quietly resolves contradictions at write time, with no provenance, no record of the prior belief, and no way to recover if the resolution was wrong.
+
+**Positioning for paper 1:** Karpathy's LLM Wiki validates the need for the pattern RankeDB proposes while demonstrating exactly the failure modes that RankeDB's invariants prevent. It is the "vibe wiki" — compelling at small scale with an engaged human, but structurally unable to preserve the derivation history that makes knowledge trustworthy. RankeDB is what you get when you take the same insight and refuse to cut corners on provenance.
+
