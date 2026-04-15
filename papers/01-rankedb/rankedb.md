@@ -276,7 +276,7 @@ Removal is possible only as an administrative operation, treated as a fork of th
 > - **Enterprise Knowledge consultancy (2024-2025). "Graph Analytics in the Semantic Layer: An Architectural Framework for Knowledge Intelligence."** Documents a "three-graph architecture": metadata graphs (lineage, ownership) / knowledge graphs (ontology-backed entities) / analytics graphs (pattern detection). *Key distinction: operates three graph types in parallel, whereas RankeDB arranges three layers sequentially.* `read.pdf`. **Priority: M.**
 > - **IntuitionLabs (2025) biotech/pharma KG pattern.** Data lake → semantic integration (graph DB) → service layer. Closer to RankeDB's sequential flow. `read.pdf`. **Priority: L.**
 > - **Ant Group OpenSPG/KGFabric (VLDB 2024).** Industrial-scale integration of property graph performance with semantic constraints; **98% storage reduction vs Neo4j** via hybrid compression. `read.pdf`. **Priority: L — cite for scale validation.**
-> - **SPADE (SRI International).** Provenance auditing system storing derivation chains in Neo4j OR Postgres, abstracting over both through its QuickGrail query language (ACM Queue 3476885). *The closest direct analog to RankeDB's split-store architecture (FalkorDB for semantics, Postgres for provenance).* `read.pdf`. **Priority: H — must cite in §6, currently missing.**
+> - **SPADE (SRI International).** Provenance auditing system storing derivation chains in Neo4j OR Postgres, abstracting over both through its QuickGrail query language (ACM Queue 3476885). *The closest direct analog to RankeDB's split-store approach at the implementation level (cf. §4), though RankeDB treats the split as pure implementation detail.* `read.pdf`. **Priority: H — must cite in §6, currently missing.**
 > - **dbt Semantic Layer, Cube.dev, AtScale.** Analytics semantic layer tradition — abstraction over warehouse data into business metrics. January 2026 **Open Semantic Interchange (OSI)** spec supported by 40+ companies (Snowflake, Salesforce, Databricks). Shares DNA with transformation lineage but at dataset level, not per-fact. `read.pdf`. **Priority: L.**
 
 ### 3.1 Nodes
@@ -462,57 +462,52 @@ Three further design decisions follow from treating the graph as a single data s
 
 ## 4. Reference Implementation
 
-The sections below describe a specific **proof-of-concept implementation** of the RankeDB architecture.
-The architectural claims in §2 and §3 — three levels networked by provenance, append-only derivation, Semantic Graph as materialized projection, under-prescription as a design stance — do not depend on this particular choice of storage engines.
-The reference implementation splits Level 0, Level 1, and Level 2 across three engines (S3-compatible object store, Postgres, FalkorDB) because each engine is well-suited to one level's access pattern, and because off-the-shelf components let us validate the concept quickly with existing operational know-how.
-The split is not essential to the architecture.
-A single database capable of content-addressable blob storage, append-only DAG traversal, and property-graph projection could in principle host the entire stack, and we expect such consolidated implementations to emerge if the underlying concept proves valuable.
-
-**RankeDB is a data structure and a set of invariants, not a deployment topology.** The paper's core claims rest on the architectural and philosophical arguments in §2, §3, and §6 — not on properties of this particular stack.
-The empirical validation of the architecture's usefulness will be delivered in the companion papers: one will demonstrate that the levels can be populated by a worker pipeline, another that they can be consumed by a chat and memory-agent stack.
-Readers interested in measured performance should look there.
-This paper's job is to show that the shape is right.
-
-The reference implementation is delivered as two components: a **server** that encapsulates the three storage engines behind a single API, and an **Explorer** that serves as a visual front-end for developing and inspecting the data model.
-Both are development tools for the current phase of the project; neither is essential to the architecture.
-
 ### 4.1 RankeDB
 
-RankeDB is a self-contained server deployed as a Docker Compose stack.
-It encapsulates the three storage engines (S3-compatible object store, Postgres, FalkorDB) behind a single REST API.
-The storage engines are hidden implementation details — consumers interact exclusively with the API, which enforces all invariants: immutability, acyclicity of the Provenance DAG, mandatory provenance on every node, and content-addressability of sources.
+The API exposes RankeDB as a single graph, enforcing the invariants described in §3.
+Beneath the API, the graph lives canonically in Postgres — all nodes, all edges, across all three levels.
+The raw bytes of each node's content live in an S3-compatible object store, keyed by content hash; Postgres stores the hash and, for nodes eligible under a caching policy, a copy of the content inline.
+FalkorDB runs as a secondary index over the Level 2 region of the graph, optimized for associative traversal — it is rebuildable from Postgres and is an optimization, not a source of truth.
+A minimal deployment could be implemented without FalkorDB, losing only traversal speed.
 
-The API is the sole interface to the system.
+The API is the sole interface.
 There is no query language in the traditional sense — the API *is* the query language, imperative rather than declarative.
-All operations — ingesting sources, creating nodes, traversing provenance chains, querying the Semantic Graph — are API calls.
 Workers, the Explorer, and any future application consume the same interface.
+Storage-engine choices and caching policies are invisible to API consumers.
 
-RankeDB is the data platform, not an application.
-What runs on top — chat interfaces, memory agents, research tools — is delivered by clients that consume the API.
-The stack is designed to run on a single host in the reference deployment, but the API contract is the same regardless of topology.
+The reference deployment runs as a Docker Compose stack on a single host.
 
-#### 4.1.1 Level 0: S3-compatible object store
+#### 4.1.1 Postgres: the Provenance DAG
 
-The reference deployment uses Hetzner Object Storage, but any S3-compatible provider will do — S3 is a de-facto standard whose API surface is stable since 2006, and migration to another provider is a single `rclone sync` away (Backblaze B2, Cloudflare R2, AWS, others).
-Buckets are configured with versioning enabled (as a guard against accidental deletion during development) and with Object Lock (WORM) for production operation, to make immutability enforceable at the storage layer rather than only at the API layer.
+Postgres holds the node metadata for Level 0 and Level 1 and the edges between them.
+Every ingested source and every derivation has a row here, keyed by `id`, carrying the fields defined in §3.1 plus its `content_sha256` hash.
 
-Source nodes are stored with the SHA-256 content hash as the object key.
-The API-level metadata fields defined in §3.1 (Nodes) are mapped to S3 user-metadata headers (prefixed `x-amz-meta-`) — this mapping is internal to the storage layer and invisible to API consumers.
+Postgres also holds:
 
-Access to the bucket is split along least-privilege lines: ingest workers hold a key pair with `s3:PutObject` and `s3:ListBucket` only — enough to write new records and check for duplicates, but not to read existing content — while the RankeDB backend holds a full read/write key pair.
-This makes ingest workers blind to the archive they feed, which is useful both as a security property (a compromised worker cannot exfiltrate the archive) and as an architectural discipline (workers cannot accidentally become RankeDB-aware).
+- A `content_cached` column with inlined content for nodes that are eligible under a caching policy (for example, `encoding LIKE 'text/%' AND content_size <= :threshold`). The policy is a config knob and can be raised or lowered at runtime; a background worker fills or evicts the cache accordingly. Correctness does not depend on cache state — the API falls back to S3 on miss.
+- Full-text search indices via `tsvector` over cached text.
+- Vector embeddings via pgvector, in a separate table with a foreign key to the content; embeddings are regenerable at any time with a different model or chunking strategy.
 
-#### 4.1.2 Level 1: Postgres
+#### 4.1.2 FalkorDB: a traversal index over Level 2
 
-Level 1 runs in Postgres.
-Postgres holds the full content of every derived node, the Provenance DAG as a table of edges, full-text search indices (via `tsvector`), vector embeddings (via pgvector, in a separate table with a foreign key to the content), user accounts, auth, and configuration.
-Backups are taken with `pg_dump` and shipped to Level 0 storage — Postgres itself is therefore rebuildable from the combination of its source nodes and its schema.
+FalkorDB is a secondary index over the Level 2 region of the graph: it mirrors the entity and relation nodes plus their semantic edges (head/tail) from Postgres, optimized for the kind of associative traversal FalkorDB is built for.
+Like Postgres, FalkorDB may cache small content inline under the same policy; full content always lives in S3.
+FalkorDB is rebuildable from Postgres — a dropped FalkorDB instance is a rebuild event, not a data loss event.
+A prototype deployment could omit FalkorDB entirely; traversal queries would then fall back to slower SQL traversals in Postgres.
 
-#### 4.1.3 Level 2: FalkorDB
+A concrete case where FalkorDB earns its keep: a query like *"return everyone I've exchanged emails with, every person those people in turn know, and every organization those people are connected to"* is a single Cypher pattern in FalkorDB.
+The equivalent in SQL is a recursive CTE over the edges table or an application-level breadth-first search — correct, but slow as hops grow.
+For traversal-heavy workloads the speedup is order-of-magnitude.
 
-Level 2 runs in FalkorDB.
-It holds a lightweight projection of Level 1 nodes (without full content) together with the semantic edges: associative, cross-domain, potentially cyclic, and suitable for traversal.
-Because Level 2 is a materialized view of Level 1, it is rebuildable at any time from Postgres alone, and backups are optional — a dropped FalkorDB instance is a rebuild event, not a data loss event.
+#### 4.1.3 S3: content blob storage
+
+The reference deployment uses any S3-compatible object store — S3 is a de-facto standard whose API surface has been stable since 2006, and migration between providers (Backblaze B2, Cloudflare R2, AWS, MinIO, others) is a single `rclone sync` away.
+Blobs are stored keyed by their content hash (SHA-256 in this deployment).
+Buckets are configured with versioning (as a guard against accidental deletion during development) and with Object Lock (WORM) for production, which enforces immutability at the storage layer.
+
+We use the object store as *dark storage*.
+Two choices combine to create this discipline: we route all access through the API (workers never hold S3 credentials and cannot reach blobs directly), and we deliberately do not list or enumerate bucket contents.
+The API resolves every blob read from Postgres's `content_sha256` field; a compromised worker cannot enumerate what is stored, and Postgres remains the sole discovery path for what lives in the graph.
 
 #### 4.1.4 The API contract
 
@@ -521,46 +516,30 @@ The API is the only way into RankeDB. It enforces two core properties:
 - **Immutability.** Once written, a node is never modified. Corrections are new nodes that reference what they correct.
 - **Provenance.** Every derivation has edges to its inputs, including the tool node that produced it — no derivation exists in the graph without them. What a worker records about itself (its configuration, version, parameters) is up to the application; storing these as graph nodes is recommended so that worker details themselves gain provenance. The guarantee is naturally scoped to what was given to the system — it cannot attest to what was never recorded.
 
-What lies beneath the API — which object store, which relational database, which graph engine — is implementation detail and can change without affecting consumers.
-
-#### 4.1.5 Implementation sequence
-
-Each level is independently useful before the next one exists, which makes the rollout incrementally valuable rather than all-or-nothing:
-
-1. **Level 0 and a first ingest worker.** Full capture: stop losing data. A single source (for example, an email archive) is enough to start.
-2. **Postgres and the ingestion pipeline.** Content extraction, node creation, full-text search, provenance. RankeDB is a searchable archive with derivation history at this point, even without a Semantic Graph.
-3. **Vector embeddings.** pgvector, semantic similarity search over the content.
-4. **FalkorDB and semantic projection.** The Semantics level. RankeDB becomes a navigable Semantic Graph with full provenance back to source.
-
-The design and implementation of the workers that drive this pipeline will be the subject of the companion paper on RankeDB Workers.
-
-#### 4.1.6 Forking and backups
+#### 4.1.5 Forking and backups
 
 Content-addressed blob storage makes forks of the database cheap.
-Because blobs are addressed by their content hash (SHA-256 in this deployment), two or more graph instances can share a single blob pool without copying bytes — only the graph (Postgres and FalkorDB) needs to be duplicated, and the graph is small relative to the blobs.
-This enables experimentation, A/B testing of worker pipelines, and isolated development against production data without touching it.
+Because blobs are addressed by their content hash, two or more graph instances can share a single blob pool without copying bytes — only the graph (Postgres and FalkorDB) needs to be duplicated, and the graph is small relative to the blobs.
+This enables experimentation, A/B testing of worker pipelines, and isolated development against production data.
 
-Backups have two parts correspondingly: the graph and the blob pool.
-Both must be backed up in full; the blob pool is shared across any number of forks.
-A full backup of the system consists of both parts.
-The graph holds all node metadata — origin, filename, creation date, and parent relationships at L0; derivation history at L1; semantic projection at L2.
-The blob pool holds the raw bytes of every source, keyed by content hash.
-Together they are the full state of the system; from an L0 backup alone, the cognitive layer can be regrown by re-running the workers (see §2.3 on the limits of reprocessing).
+A full backup has two parts.
+Postgres holds the canonical graph — all node metadata, edges, indices, and cached content.
+The S3 blob pool holds the raw bytes of every node's content, keyed by content hash.
+FalkorDB is not backed up separately; it is regenerated from Postgres on demand.
+From a Postgres backup together with the blob pool, the system's state is fully recoverable; regrowing cognitive and semantic content from an L0-only backup is subject to the limits of reprocessing (§2.3).
 
 ### 4.2 RankeDB Explorer
 
-RankeDB Explorer is a bundled visual interface for navigating and inspecting the RankeDB data model.
-It is the first and reference application built against the RankeDB API, shipped alongside RankeDB but architecturally separate — it reads from the API like any other consumer.
+RankeDB Explorer is a bundled visual interface for navigating and inspecting the data model through the API.
+It is the first application built against RankeDB.
 
 The Explorer serves three purposes:
 
-- **Provenance inspection.** Given any node in the Semantic Graph (Level 2), the Explorer traces its full derivation chain through the Cognition level (Level 1) down to the Sources (Level 0). This makes the "everything is knowledge" principle tangible: a user can follow any fact back to the raw source that produced it, through every intermediate processing step.
-- **Graph exploration.** The Semantic Graph can be navigated visually — entities, relations, temporal validity, confidence scores. This provides the primary human interface to RankeDB's knowledge state, since Level 2 is optimized for exactly this kind of associative traversal.
-- **Architecture validation.** The Explorer demonstrates that the API is sufficient to support rich interactive applications. If the Explorer can render full provenance chains, temporal graphs, and cross-level traversals, then so can any downstream application — agent systems, dashboards, or export tools.
+- **Provenance inspection.** Given any node in the Semantic Graph (Level 2), the Explorer traces its full derivation chain through Cognition (Level 1) down to the Sources (Level 0). A user can follow any fact back to the raw source that produced it.
+- **Graph exploration.** The Semantic Graph can be navigated visually — entities, relations, temporal validity, confidence scores.
+- **Architecture validation.** If the Explorer can render full provenance chains, temporal graphs, and cross-level traversals through the API, so can any downstream application — agent systems, dashboards, export tools.
 
-The Explorer is not part of RankeDB's core architecture.
-It is an application.
-But it is bundled because a database without a way to see its contents is not usable as a research tool — and RankeDB, in its current phase, is primarily a research tool.
+In the current phase, RankeDB is primarily a research tool, and a database without a way to see its contents is not usable as one.
 
 ## 5. Workers
 
