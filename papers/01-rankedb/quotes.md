@@ -193,16 +193,23 @@ What goes to S3:
 
 Refinement: content duplication in Postgres is not an architectural commitment but a runtime cache policy. The threshold (what size of blob gets cached inline) is a config knob that can be raised or lowered at runtime without data loss.
 
-**Every node carries three fields related to content:**
+**Every node carries fields related to content:**
 - `content_hash` — SHA-256 pointing at the blob in S3 (canonical storage)
 - `content_size` — size in bytes, for policy queries
-- `content_cached` — `bytea` column holding the inlined blob bytes, NULL if not cached. Byte storage, not text — the blob might be a PNG, an audio clip, or compressed content. Text-searchability is a separate concern (see below).
+- `encoding` — format identifier; used to determine cache eligibility (see below)
+- `content_cached` — `text` column holding inlined text content, NULL if not cached or not text
 
-**The threshold is cache-fill policy.** Raise from 8 KB to 32 KB: a background pass fills the cache.
+**Cache eligibility is determined by encoding.** Text-based encodings (`normalized`, `eml`, `chatgpt`, `whatsapp`, `markdown`, `plain`, etc.) are cacheable in Postgres. Binary encodings (`png`, `jpeg`, `heic`, `mp4`, `wav`, `heif`) are never cached — they stay in S3 only. This matches reality: binary content has value in its bytes and would be streamed to a viewer or processed by a worker anyway; there is no SQL operation that meaningfully queries a PNG. Text content, by contrast, benefits from inline availability for full-text search, display, and worker consumption.
+
+A boolean `is_text_content` column (derived from encoding at ingest) makes the cache-fill query trivial.
+
+**The threshold is cache-fill policy.** Raise from 8 KB to 32 KB: a background pass fills the cache for eligible (text) nodes.
 
 ```sql
 SELECT id, content_hash, content_size FROM nodes
-WHERE content_size <= 32768 AND content_cached IS NULL;
+WHERE content_size <= 32768
+  AND is_text_content = TRUE
+  AND content_cached IS NULL;
 ```
 
 Lower from 32 KB to 8 KB: a background pass evicts.
@@ -224,7 +231,7 @@ WHERE content_size > 8192 AND content_cached IS NOT NULL;
 1. Cache operations don't cause page I/O or row locking on graph metadata.
 2. Deduplication by hash — if multiple nodes reference the same blob (possible with content-addressing), they share a single cache entry.
 
-**Text-searchability is a separate concern.** The cache stores bytes, not text — a PNG is a PNG. Full-text search operates on *derived text nodes*, not on raw binary blobs. When a worker produces text from a non-text source (OCR from an image, transcript from audio, plain text from HTML), that text becomes its own node with its own hash, its own cache row, and its own tsvector. The graph naturally distinguishes the binary source from its textual interpretation — both preserved with provenance.
+**Binary content is never in Postgres.** A PNG stays in S3. Its text interpretation (OCR output) is a separate derived node with its own hash, its own `encoding: text`, its own cache row. The graph naturally distinguishes the binary source from its textual interpretation — both preserved with provenance. SQL never operates on binary bytes, only on their text derivations.
 
-**Summary:** S3 is canonical. Postgres is a tunable, queryable cache over S3 (in addition to being the graph). The cache stores raw bytes (`bytea`). Text search operates on derived text nodes, not on cached binary blobs. The cache fills and evicts based on a runtime-configurable size threshold. Nothing is lost by changing the threshold because S3 is always the source of truth.
+**Summary:** S3 is canonical, stores all content (text and binary). Postgres is a tunable cache over text content only, plus the graph structure itself. Cache eligibility is determined by encoding. Binary encodings never cache. Text encodings cache up to a runtime-tunable size threshold. Text search operates on cached text. Binary content access always goes through S3. Nothing is lost by changing the threshold because S3 is always the source of truth.
 
