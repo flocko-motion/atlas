@@ -141,9 +141,11 @@ Each level, viewed in isolation, has its own characteristic shape:
 - **Level 1 — Cognition.** Nodes in Level 1 may combine multiple inputs from Levels 0 and 1.
   Together with Level 0, Level 1 forms the **Provenance DAG**: the strictly acyclic backbone of the system.
 - **Level 2 — Semantics.** A **Semantic Graph**: a property graph of entities and relations with cyclic semantic connections, optimized for associative retrieval. Each relation in Level 2 is described by a relationship node with a *head* edge and a *tail* edge pointing to an entity node. Every node in Level 2 is pointed at from Level 1 nodes, documenting the provenance of each atomic piece of knowledge.
-  Thus Level 2 is a materialized view projected from the Provenance DAG.
+  Level 2 is populated by projection workers reading Level 1, not a deterministic function of it (§2.1.3).
 
 The level names (Sources, Cognition, Semantics) classify their content; the functional terms (the Provenance DAG at L0+L1, the Semantic Graph at L2) describe their role in the system.
+Writes flow in one direction across levels: a node at any level may reference nodes at the same or an earlier level, never later.
+This keeps the Provenance DAG acyclic even though the Semantic Graph may contain semantic cycles.
 
 ![Figure 1: The three storage levels of RankeDB.](drawio/layers.svg "Figure 1: The three storage levels of RankeDB. Node types such as Email, Conversation, Fact, and Summary are application-defined examples; RankeDB provides type categories (e.g. source, conversation) but leaves concrete types to the application.")
 
@@ -164,49 +166,24 @@ Removal is possible only as an administrative operation, treated as a fork of th
 > - **SPADE (SRI International).** Provenance auditing system storing derivation chains in Neo4j OR Postgres, abstracting over both through its QuickGrail query language (ACM Queue 3476885). *The closest direct analog to RankeDB's split-store architecture (FalkorDB for semantics, Postgres for provenance).* `read.pdf`. **Priority: H — must cite in §6, currently missing.**
 > - **dbt Semantic Layer, Cube.dev, AtScale.** Analytics semantic layer tradition — abstraction over warehouse data into business metrics. January 2026 **Open Semantic Interchange (OSI)** spec supported by 40+ companies (Snowflake, Salesforce, Databricks). Shares DNA with transformation lineage but at dataset level, not per-fact. `read.pdf`. **Priority: L.**
 
-### 2.1 Node Format
+### 2.1 Nodes
 
-All nodes in the graph share a common format, with level-specific extensions.
+All nodes in the graph share a common format.
+Level-specific extensions are introduced in §2.1.1, §2.1.2, and §2.1.3; there is no overlap between level-specific fields.
+
 Content and identity are separated: a node carries its payload in `content` together with `content_sha256` and `content_len` for integrity and size, while `id` is the node's identity in the graph.
 For L0 root artifacts, `id` is deterministic from `content_sha256` — this is what makes ingestion idempotent: re-uploading the same bytes maps to the same root node.
 For all other nodes (derived L0 nodes, L1 derivations, L2 projections), `id` is synthesized independently, because two nodes with identical content but different provenance are distinct knowledge.
 
-| Field                 | Purpose                                                                                    | L0  | L1  | L2  |
-| --------------------- | ------------------------------------------------------------------------------------------ | :-: | :-: | :-: |
-| `id`                  | Node identity (deterministic from `content_sha256` for L0 root artifacts; synthesized otherwise) | ✓   | ✓   | ✓   |
-| `content`             | Payload (text or bytes, interpreted per `encoding`)                                        | ✓   | ✓   | ✓   |
-| `content_sha256`      | Cryptographic hash of `content`                                                            | ✓   | ✓   | ✓   |
-| `content_len`         | Byte length of `content`                                                                   | ✓   | ✓   | ✓   |
-| `content_type`        | Category and type (dispatch key for workers and consumers)                                 | ✓   | ✓   | ✓   |
-| `encoding`            | MIME-style `class/format` (e.g. `text/eml`, `image/png`); dispatch key for workers         | ✓   | ✓   | ✓   |
-| `created_at`          | When the node entered the graph                                                            | ✓   | ✓   | ✓   |
-| `artifact_created_at` | Original creation date of the external artifact                                            | ✓   |     |     |
-| `origin`              | Ingest pathway                                                                             | ✓   |     |     |
-| `original_name`       | Original filename                                                                          | ✓   |     |     |
-| `parent`              | Primary input (denormalized shortcut; full provenance is the edge set)                     | ✓   | ✓   |     |
-| `tool`                | Worker that produced the node                                                              |     | ✓   |     |
-| `tool_config`         | Worker configuration                                                                       |     | ✓   |     |
-| `worker_run_id`       | Run identifier (for administrative operations)                                             |     | ✓   |     |
-| `valid_from`          | Start of temporal validity window                                                          |     |     | ✓   |
-| `valid_until`         | End of temporal validity window                                                            |     |     | ✓   |
-| `confidence`          | Confidence score                                                                           |     |     | ✓   |
-
-The level-specific extensions reflect the role each level plays: L0 carries ingestion metadata, L1 carries worker attribution, L2 carries temporal validity and confidence for the projected relations.
-
-### 2.2 Level 0: Sources
-
-Level 0 is a content-addressable object store.
-Every external artifact ingested into RankeDB — a document, an email, a chat transcript, an image — is stored as a node, addressed by its content hash.
-Source nodes are self-describing through attached metadata and their own content.
-
-A source node may be an original artifact, a source unpacked from a bundle (e.g. an individual conversation extracted from a bulk chat export), a format conversion (e.g. TIFF to PNG), or a cleaned and normalized version of another source.
-All remain sources — they are still artifacts of communicative acts, not knowledge *about* those acts.
-
-Level 0 is the archive of utterances, preserved byte-exact.
-It does not claim truth about the world — it claims only that these are the artifacts ingested, unmodified.
-It is the fixpoint against which every derivation can be traced.
-
-Because `id` is deterministic from `content_sha256` for root artifacts, writes are idempotent: uploading the same bytes twice is a no-op, and producers need not coordinate to avoid duplicates.
+| Field            | Purpose                                                                                          |
+| ---------------- | ------------------------------------------------------------------------------------------------ |
+| `id`             | Node identity (deterministic from `content_sha256` for L0 root artifacts; synthesized otherwise) |
+| `content`        | Payload (text or bytes, interpreted per `encoding`)                                              |
+| `content_sha256` | Cryptographic hash of `content`                                                                  |
+| `content_len`    | Byte length of `content`                                                                         |
+| `content_type`   | Category and type (dispatch key for workers and consumers)                                       |
+| `encoding`       | MIME-style `class/format` (e.g. `text/eml`, `image/png`); dispatch key for workers               |
+| `created_at`     | When the node entered the graph                                                                  |
 
 The `content_type` field follows a two-part pattern: `category/type`.
 RankeDB defines the categories and a set of foundational types; applications may extend the types within each category.
@@ -215,16 +192,33 @@ The `encoding` field follows a MIME-style pattern: `class/format`.
 The class is hardcoded and small — `text`, `image`, `audio`, `video`, `application` — and doubles as a machine-readable policy hint (only `text/*` is treated as text; everything else is binary).
 The format is the specific syntax (e.g. `text/eml`, `text/whatsapp`, `image/png`, `application/pdf`) and is the primary dispatch key for reactive workers.
 Formats are application-extensible; each format is a micro-project: a parser, quickly written, easily tested.
-Sources can wait patiently until a parser for their format becomes available.
+Nodes can wait patiently until a parser for their format becomes available.
 
-#### Source types
+#### 2.1.1 Level 0: Sources
 
-RankeDB defines four source types and one container type.
+Level 0 is the region of the graph that holds ingested external artifacts.
+An artifact may be a communicative act (an email, a chat transcript, a letter, a voicemail), a document (a book, a contract, an article), a perceptual capture (a photograph, a recording), a machine observation (a sensor reading, a transaction log), or structured data (a spreadsheet, a database export).
+Every artifact enters the graph as a node, self-describing through attached metadata and its own content.
+A source node may be an original artifact or a source derived deterministically from another source - e.g. unpacked from a bundle (e.g. an individual conversation extracted from a bulk chat export), converted from another format (e.g. TIFF to PNG), or cleaned and normalized (e.g. stripped of html tags).
+All of these remain sources: captured artifacts of the world, not knowledge *about* them.
+
+Level 0 is the archive. It does not claim truth about the world — it just stores the artifacts ingested. That's our ground truth, the fixpoint against which every derivation can be traced.
+
+In addition to the common fields, L0 nodes carry:
+
+| Field                 | Purpose                                         |
+| --------------------- | ----------------------------------------------- |
+| `artifact_created_at` | Original creation date of the external artifact |
+| `origin`              | Ingest pathway                                  |
+| `original_name`       | Original filename                               |
+
+**Content types:**
+
+Level 0 holds only `source/*` content types. RankeDB defines four source types and one container type.
 The design principle is *few types, many encodings*: the diversity of the world lives in encodings, not in the type system.
-Among the formats, `normalized` has a special role: it is the canonical, format-free representation of a given class.
-Many format-specific encodings converge into a single normalized form per class — e.g. a `source/conversation` node may arrive as `text/eml`, `text/whatsapp`, or `text/telegram` and is converted to `text/normalized` before Level 1 workers see it.
-The normalized encoding is still a source — it preserves what was said faithfully — but it is the form that Level 1 workers operate on.
-The convergence happens in Level 0; by the time a node enters Level 1, source-format diversity is irrelevant.
+Format-specific diversity within a content type (e.g. `text/eml`, `text/whatsapp`, `text/telegram` for conversations) is reconciled by normalization workers that produce new Level 0 nodes with the same content type but a canonical encoding (e.g. `text/plain`).
+Normalization changes only the format, not the kind of thing — the node is still a source artifact.
+By the time Level 1 workers pick up a conversation for cognitive processing, source-format diversity is irrelevant — workers will likely process only normalized content (though they have full access to the graph and can process whatever they need).
 
 | Content type | What it captures | Examples |
 |---|---|---|
@@ -240,99 +234,118 @@ The convergence happens in Level 0; by the time a node enters Level 1, source-fo
 - Source nodes are self-describing. Metadata is sufficient for full reconstruction (modulo worker non-determinism).
 - Writes are idempotent. A duplicate `PUT` has no effect.
 
-### 2.3 Level 1: Cognition
+#### 2.1.2 Level 1: Cognition
 
-Level 1 adds derived knowledge to the Provenance DAG, stored in Postgres.
+Level 1 adds derived knowledge to the Provenance DAG.
 Its nodes are derived from source nodes or other derived nodes through processing by external tools (workers).
 Every derived node requires at least one input and one tool attribution.
 The DAG is strictly acyclic because derivations cannot be circular: a node cannot be derived from its own output.
+
+We call that process *cognition* as a metaphor for signal processing in the human brain, spanning low-level operations (edge detection in the visual cortex, phoneme recognition) up to abstract reasoning.
+The term does not imply consciousness, awareness, or intent — we use it as shorthand for *information processing that extracts knowledge from lower levels of the graph*.
 
 Together with Level 0, Level 1 forms the complete Provenance DAG.
 Where Level 0 provides the roots — the sources — Level 1 stores the derivation history: not just what is believed, but *how it came to be believed*.
 This history is itself knowledge: queryable, traversable, and available as context for downstream consumers.
 
-Provenance edges carry metadata: which tool produced the derivation, its configuration, the model version (if an LLM), and timestamps.
-This metadata is not auxiliary — it is part of the knowledge graph.
-A derivation produced by a 2024 language model and one produced by a 2028 model from the same source are both preserved as competing interpretations with full provenance.
+L1 nodes use only the common fields (§2.1); there are no L1-specific node fields.
+A derivation produced by a 2024 language model and one produced by a 2028 model from the same source are both preserved as competing interpretations, each with a full provenance chain that includes the tool node in effect at the time.
 
-Level 1 holds the full content of every derived node (extracted text, structured fields), the full derivation record, and any downstream indices that require fast content access (full-text search, vector embeddings).
-Embeddings are maintained in a separate table with a foreign key to the content — they are a derived index, regenerable at any time with a different model or chunking strategy, without touching the content itself.
-A `parent_id` per node records the primary input as a denormalized shortcut for plausibility checks and quick traversal; the full provenance is always the edge set, not this field.
+**Content types:**
 
-#### Cognition types
-
-Every node in Level 1 is a thought — the output of a worker interpreting, classifying, extracting, summarizing, or reasoning about the graph.
-The content type categories distinguish *what kind* of thought.
+Every node in Level 1 is the output of a worker interpreting, classifying, extracting, summarizing, or reasoning about the graph.
+The content type categories distinguish *what kind* of derivation it produces.
 
 Level 1 content types follow the same `category/type` pattern as Level 0.
-Workers in Level 1 operate on normalized sources — by the time an artifact reaches Level 1, source-format diversity is irrelevant.
-A worker that extracts entities from a conversation works identically whether the original source was an email, a WhatsApp chat, or a scanned letter.
-RankeDB defines foundational categories; applications may extend the types within each category and add new categories as needed.
+The following categories are part of the RankeDB architecture; the types within each category are application-defined.
+Examples given are illustrative only — RankeDB does not commit to any particular structure within a type.
 
-| Category           | Purpose                                                                                                                                                                                                                                                 | Foundational types                                                                                                                                                                        |
-| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `conversation/*`   | Resolved conversation with participants linked to entities. A long conversation may yield multiple resolved segments, each a separate node.                                                                                                             | Application-defined (e.g. `conversation/email`, `conversation/chat`, `conversation/transaction`)                                                                                          |
-| `image/*`          | Enriched image with extracted text, identified subjects.                                                                                                                                                                                                | Application-defined                                                                                                                                                                       |
-| `video/*`          | Enriched video with transcript, identified speakers.                                                                                                                                                                                                    | Application-defined                                                                                                                                                                       |
-| `classification/*` | A worker's statement about a node: what it is, who appears in it, what it concerns. Classification nodes bridge the Provenance DAG and the Semantic Graph — they live in Level 1 with full provenance and their edges project into Level 2.            | `classification/entity` (who/what was identified), `classification/content` (what kind of thing is this), `classification/topic` (what is this about)                                     |
-| `observation/*`    | A worker's statement about relationships between nodes — grouping, contradiction, correlation, sequence, gaps. The natural output of analytical workers that traverse the graph rather than processing individual nodes.                                | Application-defined (e.g. `observation/contradiction`, `observation/alias`, `observation/grouping`)                                                                                       |
-| `summary/*`        | Condensed representation of one or more nodes.                                                                                                                                                                                                          | Application-defined (e.g. by length, audience, purpose)                                                                                                                                   |
-| `fact/*`           | Extracted factual claim with provenance to the node that supports it.                                                                                                                                                                                   | Application-defined (e.g. by domain, confidence threshold)                                                                                                                                |
+| Category           | Purpose                                                                                                                                                                                                                                       | Examples                                                                                                                                              |
+| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `conversation/*`   | L1 representations of conversations, beyond raw source format.                                                                                                                                                                                | `conversation/transaction`, `conversation/interview` (never by source format)                                                                         |
+| `image/*`          | L1 representations of images, beyond raw source format.                                                                                                                                                                                       | `image/photo`, `image/diagram` (never by source format)                                                                                               |
+| `video/*`         | L1 representations of videos, beyond raw source format.                                                                                                                                                                                       | `video/meeting`, `video/lecture` (never by source format)                                                                                             |
+| `classification/*` | A worker's statement about a node: what it is, who appears in it, what it concerns. Classification nodes bridge the Provenance DAG and the Semantic Graph — they live in Level 1 with full provenance and their edges project into Level 2.  | `classification/entity` (who/what was identified), `classification/content` (what kind of thing is this), `classification/topic` (what is this about) |
+| `observation/*`    | A worker's statement about relationships between nodes — grouping, contradiction, correlation, sequence, gaps. The natural output of analytical workers that traverse the graph rather than processing individual nodes.                      | `observation/contradiction`, `observation/alias`, `observation/grouping`                                                                              |
+| `summary/*`        | Condensed representation of one or more nodes.                                                                                                                                                                                                | by length, audience, or purpose                                                                                                                       |
+| `fact/*`           | Extracted factual claim with provenance to the node that supports it.                                                                                                                                                                         | by domain, or by confidence threshold                                                                                                                 |
 
 Source types and Level 1 types are not 1:1.
 A `source/record` containing bank transactions can resolve into `conversation/transaction` nodes — sender, receiver, amount as message.
-The source type captures how an artifact entered the world; the Level 1 type captures what it means.
+A `source/media` might resolve into `conversation/transaction` or into `image/diagram`.
+The source type in Level 0 captures how an artifact entered the graph; the Level 1 type captures what it means.
 
-Dependencies among Level 1 types are emergent from the workers, not prescribed by the architecture: a `conversation` worker may wait for `classification/entity` results before it can resolve participants, producing a natural ordering without the architecture having to enforce one.
+Dependencies among Level 1 types are emergent from the workers and their usage of the infrastructure, not prescribed by the architecture: a `conversation` worker may wait for `classification/entity` results before it can resolve participants, producing a natural ordering without the architecture having to enforce one.
 
 **Invariants:**
 
-- The graph is acyclic. No node can transitively depend on itself.
+- The graph is acyclic within this level. No node can transitively depend on itself.
 - Every node has provenance. No node exists without at least one input edge and one tool attribution.
 
-### 2.4 Level 2: Semantics
+#### 2.1.3 Level 2: Semantics
 
-Level 2 holds the Semantics of the knowledge graph, stored in FalkorDB as a Semantic Graph: a property graph optimized for associative traversal and retrieval. It is a **materialized view** projected from the Provenance DAG — specifically, a filtered subset of DAG nodes (entities, facts, relations) represented with semantic edges.
+Level 2 holds the Semantics of the knowledge graph, structured as a Semantic Graph: a property graph optimized for associative traversal and retrieval.
+It is a first-class level of the graph, populated by projection workers that read Level 1 and produce the entity and relation nodes that make associative retrieval possible.
+If Level 2 were merely a deterministic view of Level 1, it would be redundant; it exists as its own level because associative traversal over the full Provenance DAG would be prohibitively expensive at scale, and because the cognitive work of deciding *what* to project is itself a worker activity.
 
-Every node and every edge in Level 2 has a provenance reference back into the DAG.
-Level 2 contains no independent truth — it is entirely derived from and traceable to Levels 0 and 1.
+Every node in Level 2 has a provenance edge back into Level 1.
+Relation nodes additionally carry a `head` edge and a `tail` edge to the entity nodes they connect.
+Semantic connections within Level 2 may be cyclic; the acyclicity of the Provenance DAG applies only to provenance edges (§2.2).
 
-Relations in Level 2 are natural-language labels, not formal ontology predicates.
-Each relation is a unique node with its own identity, temporal validity window (`valid_from`, `valid_until`), confidence score, and provenance chain.
+Relation labels are natural-language strings, not formal ontology predicates.
 The ontology is not predefined — it emerges from the data as workers extract and normalize relations over time.
 
-Level 2 is, strictly speaking, an index.
-It exists because the full Provenance DAG is too large and too deep for efficient associative retrieval. Consumers — whether LLM agents, dashboards, or analytical tools — typically enter through Level 2 and descend into the DAG only when provenance or derivation history is needed.
+In addition to the common fields, L2 nodes carry:
 
-Nodes appear in both levels but in different forms: Level 1 stores the full content; Level 2 stores a lightweight projection sufficient for graph traversal.
-Provenance itself is never stored in Level 2 — it is strictly acyclic and therefore lives in Level 1, where the DAG invariant can be enforced.
+| Field         | Purpose                                |
+| ------------- | -------------------------------------- |
+| `valid_from`  | Start of temporal validity window      |
+| `valid_until` | End of temporal validity window        |
+| `confidence`  | Confidence score                       |
+
+**Content types:**
+
+Level 2 defines two foundational categories — entities and relations — each with a fixed architectural shape.
+Entity subtypes name a minimal upper-ontology that many applications will share; applications may extend with their own subtypes.
+
+| Category     | Purpose                                                            | Foundational subtypes (applications may extend)                                                                                                                          |
+| ------------ | ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `entity/*`   | Projected nodes representing identifiable things in the world.     | `entity/person`, `entity/organization`, `entity/place`, `entity/thing`, `entity/work`, `entity/idea`, `entity/event`, `entity/role`                                      |
+| `relation/*` | Reified semantic relations between entities, with head/tail edges. | `relation/alias` (two entities refer to the same thing), `relation/part_of` (structural composition), `relation/has_role` (entity holds a role, time-bounded)            |
+
+The foundational subtypes are a *shared vocabulary*, not a privileged class.
+RankeDB does not enforce or validate them at the storage layer — an application that ignores them and defines its own types is architecturally equivalent.
+What the foundational set provides is a coordination point: consumers walking the graph (entity-resolution libraries, UI renderers, analytical tools) can assume that `entity/person` means a human individual, `relation/has_role` is time-bounded, and so on.
+Apps adopting this vocabulary become interoperable with tools built against it; apps inventing their own are responsible for interoperability themselves.
+Like every other L2 relation, aliases carry confidence and compete with other claims — consumers decide how to weight them, not the architecture.
 
 **Invariants:**
 
-- Every node and edge in Level 2 has a provenance reference to Level 1.
-- Level 2 can be fully reconstructed from Level 1.
-- Relations use natural-language labels. No formal ontology is required.
-- Level 2 stores no provenance edges. Provenance is acyclic and lives in Level 1.
+- Every L2 node has a provenance edge to Level 1.
+- Every relation node has exactly one `head` edge and one `tail` edge, each to an entity node.
+- Relation labels are natural-language; no formal ontology is required.
+- Provenance edges are not stored in Level 2 — they belong to the Provenance DAG.
 
-### 2.5 Data Flow
+### 2.2 Edges
 
-The three levels form a strictly unidirectional pipeline:
+Two classes of edges coexist in the graph.
 
-```
-Level 0 (Sources / S3)
-  │
-  │  Ingestion: content extraction, node creation, provenance
-  ▼
-Level 1 (Cognition / Postgres)
-  │
-  │  Projection: semantic enrichment of processed content
-  ▼
-Level 2 (Semantics / FalkorDB)
-```
+**Provenance edges** connect every derived node to its inputs.
+They form the strict DAG that spans Level 0 and Level 1, and they carry the provenance references that connect Level 2 back into Level 1.
+Provenance edges are acyclic by construction: a node cannot transitively depend on itself.
 
-Writes propagate downward only.
-Level 1 is written first and stamps provenance; Level 2 projects from Level 1 once the upstream node is committed.
-There is no backward flow, no two-way synchronization, and no synchronization problem: a downstream level cannot get out of sync with an upstream one, because the downstream level is by definition a projection of the upstream one and can always be rebuilt from it.
+Each provenance edge carries a `run_id` property identifying the worker run that produced it.
+The `run_id` is not a node field; it lives on the edge.
+This is what enables administrative operations such as purging a defective run — the edges produced by that run are removed, orphaned nodes follow.
+
+**Semantic edges** live in Level 2 only and connect reified relation nodes to their head and tail entities.
+They are permitted to form cycles, because the Semantic Graph is a graph of associations, not a graph of derivation.
+
+Three further design decisions follow from treating the graph as a single data structure with two edge classes:
+
+- **Parent relationships are edges.** An L0 node derived from another L0 node (a format conversion, a normalization, an item unpacked from a bulk container) is connected by a provenance edge, not a `parent` field. Denormalization may appear at the storage layer as an optimization; it is not part of the node format.
+- **Tool and tool config are themselves nodes.** A worker's identity and configuration at a point in time are stored as L1 nodes (content type `tool/*`), which a derivation links to as an input. This gives tool configurations their own provenance and lineage, and puts "which tool produced this?" in the same graph as everything else.
+- **Every node has provenance.** No node exists without at least one incoming provenance edge (except L0 root artifacts, which are roots by definition) and, where applicable, at least one input edge to a tool node.
 
 ## 3. Core Properties
 
@@ -517,7 +530,7 @@ The reference deployment uses Hetzner Object Storage, but any S3-compatible prov
 Buckets are configured with versioning enabled (as a guard against accidental deletion during development) and with Object Lock (WORM) for production operation, to make immutability enforceable at the storage layer rather than only at the API layer.
 
 Source nodes are stored with the SHA-256 content hash as the object key.
-The API-level metadata fields defined in §2.1 (Node Format) are mapped to S3 user-metadata headers (prefixed `x-amz-meta-`) — this mapping is internal to the storage layer and invisible to API consumers.
+The API-level metadata fields defined in §2.1 (Nodes) are mapped to S3 user-metadata headers (prefixed `x-amz-meta-`) — this mapping is internal to the storage layer and invisible to API consumers.
 
 Access to the bucket is split along least-privilege lines: ingest workers hold a key pair with `s3:PutObject` and `s3:ListBucket` only — enough to write new records and check for duplicates, but not to read existing content — while the RankeDB backend holds a full read/write key pair.
 This makes ingest workers blind to the archive they feed, which is useful both as a security property (a compromised worker cannot exfiltrate the archive) and as an architectural discipline (workers cannot accidentally become RankeDB-aware).
@@ -890,11 +903,11 @@ RankeDB leaves all of them reachable, and leaves the strategy to the consumer.
 
 - **Provenance as substrate (§3.3).** *Keeps abstention and knowledge updates possible.* A consumer can check whether a claim has a provenance chain and refuse to answer if it does not — an architectural precondition for any abstention policy above. And because a superseding node links to what it supersedes, current-vs-historical selection is a queryable property, not something lost in a consolidation pass.
 
-- **Timestamps on every node and edge (§2.3, §2.4).** *Keeps temporal reasoning possible as a first-class query primitive.* Two temporal dimensions are carried at all times: when the underlying event occurred (from source metadata or explicit in-content mentions) and when the node entered the database (transaction time from the L1 DAG). Questions about *when* have direct answers; a consumer does not have to reconstruct temporal order from implicit cues.
+- **Timestamps on every node and edge (§2.1.2, §2.1.3).** *Keeps temporal reasoning possible as a first-class query primitive.* Two temporal dimensions are carried at all times: when the underlying event occurred (from source metadata or explicit in-content mentions) and when the node entered the database (transaction time from the L1 DAG). Questions about *when* have direct answers; a consumer does not have to reconstruct temporal order from implicit cues.
 
-- **Temporal validity on L2 edges (§2.4).** *Keeps knowledge updates possible without losing history.* Every L2 edge carries `valid_from` and `valid_until`, not just a creation timestamp. A fact true from February to April coexists with a fact true from April onward; both remain retrievable, and which one answers a given query is a view-configuration choice left to the consumer.
+- **Temporal validity on L2 edges (§2.1.3).** *Keeps knowledge updates possible without losing history.* Every L2 edge carries `valid_from` and `valid_until`, not just a creation timestamp. A fact true from February to April coexists with a fact true from April onward; both remain retrievable, and which one answers a given query is a view-configuration choice left to the consumer.
 
-- **Append-only over content-addressable source (§3.2, §2.2).** *Keeps knowledge updates and abstention possible at the infrastructure level.* Nothing is ever mutated or overwritten, and the raw source is byte-identical to what was ingested. History cannot be corrupted by "updating" a fact, and a claim that cannot be verified today can be re-verified tomorrow against the unchanged source.
+- **Append-only over content-addressable source (§3.2, §2.1.1).** *Keeps knowledge updates and abstention possible at the infrastructure level.* Nothing is ever mutated or overwritten, and the raw source is byte-identical to what was ingested. History cannot be corrupted by "updating" a fact, and a claim that cannot be verified today can be re-verified tomorrow against the unchanged source.
 
 This rationale is a *reading* of the architecture, not a derivation of it.
 RankeDB was not designed by starting from the five abilities and working backward — it was designed from the provenance-as-substrate inversion (§3.3) and the under-prescription principle (§3.6), and the five abilities fall out as consequences.
