@@ -14,6 +14,16 @@ We present RankeDB, a domain-specific database architecture for knowledge system
 
 The system is delivered as two components: **RankeDB Server**, a self-contained server (Docker Compose stack) exposing the complete data model through a REST API, and **RankeDB Explorer**, a bundled visual interface for navigating provenance chains and the semantic graph. Together they constitute a complete, deployable provenance database with an integrated visualization tool.
 
+> **TODO — Restructure paper 1 into two halves (planned rewrite):**
+>
+> The paper currently front-loads the architecture and treats motivation as setup. A stronger structure splits it in two:
+>
+> **Part 1 — The argument (why this must exist).** Build the case from the 180-year tradition (Ranke, Cencetti, respect des fonds, Briet, Wilson, Burke, CLIR, Berners-Lee as foil); the CS priority that was identified but never operationalized (Cheney 2009 and the research gap); and the LLM rupture (Talisman, vibe citing, knowledge network decay, doom loop). Close with the positioning: rebuild the chain LLMs broke, using LLMs, for LLMs. A provenance-first architecture is not a nice-to-have, it is the minimum response to the severity of the problem.
+>
+> **Part 2 — The proposal (what we built).** Three levels, one graph, one API. Content type taxonomy. Core properties. Reference implementation. Close with pointers to papers 2/3/4 as *evidence* that the proposal can be populated, consumed, and coordinated — not as downstream products, but as validation that the philosophy of Part 1 is operationalizable.
+>
+> Why this matters: (a) current §1 is dense and does too much work; splitting gives each half room to breathe; (b) the paper becomes one coherent argument rather than motivation → architecture → related work; (c) reframes papers 2/3/4 as evidence for a philosophical claim rather than standalone products; (d) the philosophical grounding is the paper's most distinctive contribution and deserves more space than it currently gets. The quotes.md file collects the raw material for Part 1.
+
 ## 1. Introduction
 
 Knowledge management systems face a fundamental tension: they must serve both *current* truth and *historical* understanding. Traditional knowledge graphs optimize for the former — they store what is believed to be true now, updated in place as understanding changes. This design made sense in an era of expensive storage and limited query capacity. It makes less sense in an era of large language models, where the ability to present a model with the full derivation history of a belief — including contradictions, revisions, and competing interpretations — produces qualitatively better reasoning than presenting a single consolidated snapshot.
@@ -22,9 +32,9 @@ Existing systems that address this tension do so partially. Temporal knowledge g
 
 RankeDB addresses this gap through a structural inversion: the provenance DAG is the system, and everything else — including the semantic knowledge graph — is a view derived from it. It is deliberately **under-prescribed** in how it should be used: the data model preserves every level of detail in parallel — from the raw source artifact up to the semantic triplet — networked by provenance, and leaves the strategy of retrieval and reasoning to the consumer. This paper describes the architecture, its invariants, and its properties.
 
-RankeDB (pronounced *run-keh-dee-bee*) is named after Leopold von Ranke, the 19th-century historian who transformed his discipline by insisting that every historical claim must trace back to a critically examined primary source. Ranke's famous phrase — history *"wie es eigentlich gewesen"*, "as it actually was" — has since been rightly criticized for assuming unmediated access to past reality. RankeDB takes that criticism as foundational: the primary data point is never *"how it was"* but the communicative act that reports, claims, or interprets it — an email, a chat message, a voicemail, a document. What RankeDB stores is always someone's utterance about the world, never the world itself. What survives from Ranke's method, intact, is the discipline of attribution: nothing is asserted without its derivation, and nothing is derived without its sources.
+RankeDB (pronounced *run-keh-dee-bee*) is named after Leopold von Ranke (1795–1886), the historian who transformed his discipline by insisting that every historical claim must trace back to a critically examined primary source. Ranke's famous phrase — history *"wie es eigentlich gewesen"*, "as it actually was" — has since been rightly criticized for assuming unmediated access to past reality. RankeDB takes that criticism as foundational: the primary data point is never *"how it was"* but the artifact of a communicative act that reports, claims, or interprets it — an email, a chat message, a voicemail, a document. What RankeDB stores is always someone's utterance about the world, never the world itself. What survives from Ranke's method, intact, is the discipline of attribution: nothing is asserted without its derivation, and nothing is derived without its sources.
 
-For a rich treatment of what *provenance* has meant across 180 years — from the archival principle of *respect des fonds* through the Semantic Web to the LLM era — we refer the reader to Talisman's essay ([Talisman 2026](sources.gen.md#talisman2026provenance)). In this paper we use the term in a narrower, operational sense: the complete derivation chain of a piece of knowledge — the raw source artifact, every intermediate processing step, every tool and configuration involved, and every transformation applied. This is compatible with W3C PROV-DM's Entity/Activity/Agent vocabulary ([Moreau & Missier 2013](sources.gen.md#moreau2013provdm)) but makes a stronger commitment: In RankeDB, provenance is not metadata about knowledge — it is knowledge, stored in the same graph, queryable through the same API, subject to the same invariants. A Thought is both a claim and the record of how that claim came to be. There is no separate "provenance layer" because there is nothing for such a layer to annotate; the derivation chain is the knowledge, and the knowledge is the derivation chain.
+For a rich treatment of what *provenance* has meant across 180 years — from the archival principle of *respect des fonds* through the Semantic Web to the LLM era — we refer the reader to Talisman's essay ([Talisman 2026](sources.gen.md#talisman2026provenance)). In this paper we use the term in a narrower, operational sense: the complete derivation chain of a piece of knowledge — the raw source artifact, every intermediate processing step, every tool and configuration involved, and every transformation applied. This is compatible with W3C PROV-DM's Entity/Activity/Agent vocabulary ([Moreau & Missier 2013](sources.gen.md#moreau2013provdm)) but makes a stronger commitment: In RankeDB, provenance is not metadata about knowledge — it is knowledge, stored in the same graph, queryable through the same API, subject to the same invariants. Each node in the graph is both a statement and the record of how that statement came to be. There is no separate "provenance layer" - the derivation chain is the knowledge, and the knowledge is the derivation chain.
 
 > **TODO — Reading for §1 (gap framing and motivation):**
 >
@@ -35,13 +45,16 @@ For a rich treatment of what *provenance* has meant across 180 years — from th
 > - **Dibowski, H. (FOIS 2024, Bosch Research).** *"A problem that has not yet adequately been solved for KGs is the traceability and provenance of changes… KGs typically contain the current snapshot of data valid at a certain moment in time only."* `read_2.pdf`. **Priority: M.**
 > - **Sikos & Seneviratne (2020). Data Science and Engineering.** Already cited. Survey finding: *RDF "inherently lacks the mechanism to attach provenance data"* — reviews named graphs, reification, RDF-star, singleton properties, nanopubs, finds none fully satisfactory. `read_2.pdf`. **Priority: H — this is the cited survey that justifies the whole RDF-workaround critique.**
 > - **Figay, N. (2025). "When Knowledge Graphs Fail, It's Not the Ontology — It's the Epistemology"** (Medium). Enterprise KGs fail because teams conflate data / information / facts / inferences / unknowns — exactly the conflation RankeDB's three layers separate. `read.pdf`. **Priority: M.**
+> - **Pérez, Rubio & Sáenz-Adán (2018). Systematic review in *Knowledge and Information Systems*.** Surveyed 105 provenance systems and identified a six-dimensional taxonomy: general aspects, data capture, data access, subject, storage, non-functional aspects. Demonstrates that the field already developed robust approaches to capturing, storing, and querying provenance at scale — i.e. systems for verifying provenance do exist, the building blocks are mature. Strengthens the "the groundwork was ready but never integrated" line from Cheney 2009. Cited via [talisman2026](sources/talisman2026provenance). **Priority: H — read next, then slot into §1 Part 1 as evidence that the tools existed but the architectural integration didn't.**
 > - *PDF2 core claim:* the gap has been identified from at least five independent angles (KG engineering, LLM/AI provenance, scientific reproducibility, enterprise AI governance, content addressability for AI) — none proposing the integrated solution. Use this multi-angle framing in §1. **Priority: H.**
 
 ## 2. Architecture
 
-RankeDB is organized into three storage levels (see Figure 1). Each level serves a distinct function, but they are not independent layers in a traditional stack — Level 1 carries Level 2, and Level 0 anchors Level 1. The three levels are implementation details behind a single API; external consumers interact with RankeDB exclusively through this API.
+RankeDB is one graph of nodes and edges, organized into three levels (see Figure 1). Each level is a region of the graph with its own rules and content types. Levels 0 and 1 together constitute the **Provenance DAG**: Level 0 provides the root nodes (sources, tree-structured, at most one parent per node), Level 1 provides the derived nodes (combinatorial, multiple parents per node). Level 2 is the **Semantic Graph**: a materialized view projected from the DAG, optimized for associative retrieval, where edges may be cyclic. The three levels are implementation details behind a single API; external consumers interact with RankeDB exclusively through this API.
 
-![Figure 1: The three storage levels of RankeDB.](drawio/layers.svg "Figure 1: The three storage levels of RankeDB.")
+![Figure 1: The three storage levels of RankeDB.](drawio/layers.svg "Figure 1: The three storage levels of RankeDB. Node types such as Email, Conversation, Fact, and Summary are application-defined examples; RankeDB provides type categories (e.g. source, conversation) but leaves concrete types to the application.")
+
+*Figure 1: The three storage levels of RankeDB. Concrete node labels such as Email, Conversation, Fact, and Summary are illustrative examples. RankeDB defines content type categories (e.g. `source/conversation`, `classification/entity`) and leaves encodings and application-specific types to the application layer.*
 
 > **TODO — Reading for §2 (three-layer architecture precedents):**
 >
@@ -51,44 +64,99 @@ RankeDB is organized into three storage levels (see Figure 1). Each level serves
 > - **SPADE (SRI International).** Provenance auditing system storing derivation chains in Neo4j OR Postgres, abstracting over both through its QuickGrail query language (ACM Queue 3476885). *The closest direct analog to RankeDB's split-store architecture (FalkorDB for semantics, Postgres for provenance).* `read.pdf`. **Priority: H — must cite in §6, currently missing.**
 > - **dbt Semantic Layer, Cube.dev, AtScale.** Analytics semantic layer tradition — abstraction over warehouse data into business metrics. January 2026 **Open Semantic Interchange (OSI)** spec supported by 40+ companies (Snowflake, Salesforce, Databricks). Shares DNA with transformation lineage but at dataset level, not per-fact. `read.pdf`. **Priority: L.**
 
-### 2.1 Level 0: Raw Sources (Quellen)
+### 2.1 Level 0: Sources (Quellen)
 
-Level 0 is an immutable, content-addressable object store. Every external artifact ingested into RankeDB — a document, an email, a chat transcript, an image — is stored as a Record: a raw, unmodified copy of the original, addressed by its SHA-256 content hash. Records are self-describing through attached metadata sufficient to reconstruct the full database state from Level 0 alone.
+Level 0 is an immutable, content-addressable object store. Every external artifact ingested into RankeDB — a document, an email, a chat transcript, an image — is stored as a node, addressed by its SHA-256 content hash. Source nodes are self-describing through attached metadata sufficient to reconstruct the full database state from Level 0 alone.
+
+Level 0 is part of the Provenance DAG. A source node may be an original artifact, a source unpacked from a bundle (e.g. an individual conversation extracted from a bulk chat export), a format conversion (e.g. TIFF to PNG), or a cleaned and normalized version of another source. All remain sources — they are still artifacts of communicative acts, not knowledge *about* those acts. Each source node has at most one parent — Level 0 forms a tree, not a DAG. The combinatorial derivations that merge multiple inputs begin in Level 1.
 
 Level 0 is the only level that contains ground truth in the absolute sense. It is the archive — the fixpoint against which all derived knowledge can be validated.
 
-Because the content hash is the storage key, writes are idempotent: uploading the same blob twice is a no-op, and producers need not coordinate to avoid duplicates. Metadata attached to a Record at write time is strictly for *routing and identification* — source attribution, original filename, creation timestamp, ingestion timestamp, content type — and never for semantic modeling. Anything that could be derived from the bytes belongs in Level 1, not Level 0.
+Because the content hash is the storage key, writes are idempotent: uploading the same blob twice is a no-op, and producers need not coordinate to avoid duplicates. Every node carries metadata for routing, identification, and lineage. The field names are the same across all three levels — the API treats the graph as a single data structure, and the storage boundary between engines is an implementation detail hidden behind it.
+
+| Field | Purpose | Example |
+|---|---|---|
+| `hash` | Content hash (SHA-256), canonical identifier | `a3f2b7c...` |
+| `content_type` | Category and type (see below) | `source/conversation` |
+| `encoding` | Format-specific encoding (application-defined) | `eml`, `chatgpt`, `whatsapp` |
+| `origin` | Ingest pathway | `zoho`, `android`, `google-photos` |
+| `original_name` | Original filename | `invoice-2026-03.pdf` |
+| `created_at` | Creation time of the original artifact | `2026-03-26T14:30:00Z` |
+| `ingested_at` | Time of ingest into RankeDB | `2026-03-26T15:01:12Z` |
+| `parent` | Parent node (if derived from another source) | `b8e4d1a...` |
+
+The `content_type` field follows a two-part pattern: `category/type`. RankeDB defines the categories and a set of foundational types; applications may extend the types within each category. The `encoding` field captures the format-specific representation — application-defined, and the primary dispatch key for reactive workers. Each encoding is a micro-project: a parser, quickly written, easily tested. Sources can wait patiently until a parser for their encoding becomes available.
+
+#### Source types
+
+RankeDB defines four source types and one container type. The design principle is *few types, many encodings*: the diversity of the world lives in encodings, not in the type system. Among the encodings, `normalized` has a special role: it is the canonical, format-free representation of a source type. Many format-specific encodings converge into a single normalized form per type (e.g. `source/conversation/eml`, `source/conversation/whatsapp`, `source/conversation/telegram` all converge to `source/conversation/normalized`). The normalized encoding is still a source — it preserves what was said faithfully — but it is the form that Level 1 workers operate on. The convergence happens in Level 0; by the time a node enters Level 1, source-format diversity is irrelevant.
+
+| Content type | What it captures | Examples |
+|---|---|---|
+| `source/conversation` | Communicative act with sender and receiver, even if implicit. An invoice is a conversation (sender → receiver). An article is a conversation (author → readers). What *kind* of conversation it is — invoice, contract, smalltalk — is determined by a classification worker in Level 1, not at import. | email, chat, letter, voicemail transcript, article |
+| `source/media` | Audio, visual, or audiovisual capture. Content is opaque until a worker processes it — could be a voicemail, art, a surveillance recording, or a meeting. | photo, video, audio recording, screen capture |
+| `source/record` | Objective, machine-generated observation of world-state. Not human expression — structured readings from sensors, APIs, instruments. | GPS positions, weather readings, stock prices, bank transactions |
+| `source/data` | Structured information that does not fit the above categories. Defined by exclusion: not a communicative act, not a perceptual capture, not a machine observation. Application layer decides boundary cases. | spreadsheets, configuration files, database exports |
+| `source/bulk` | Container of other sources. Unpacked by workers into individual source nodes. The bulk node serves deduplication across repeated exports — if a contained source already exists (same hash), it is skipped. | ChatGPT export, WhatsApp backup, Gmail archive, photo library export |
 
 **Invariants:**
-- Records are immutable. Once written, a Record is never modified or deleted.
-- Records are content-addressed. The SHA-256 hash serves as the canonical identifier.
-- Records are self-describing. Metadata is sufficient for full reconstruction.
+- Nodes are immutable. Once written, a node is never modified or deleted.
+- Nodes are content-addressed. The SHA-256 hash serves as the canonical identifier.
+- Source nodes are self-describing. Metadata is sufficient for full reconstruction.
 - Writes are idempotent. A duplicate `PUT` has no effect.
+- Each source node has at most one parent. Level 0 is a tree.
 
-### 2.2 Level 1: Provenance DAG (Provenienz)
+### 2.2 Level 1: Derivations (Provenienz)
 
-Level 1 is an append-only directed acyclic graph stored in Postgres. Its nodes are Thoughts — knowledge products derived from Records or other Thoughts through processing by external tools (workers). Every Thought requires at least one input (a Record or another Thought) and one tool attribution. The graph is strictly acyclic because derivations cannot be circular: a Thought cannot be derived from its own output.
+Level 1 extends the Provenance DAG with derived knowledge, stored in Postgres. Its nodes are derived from source nodes or other derived nodes through processing by external tools (workers). Every derived node requires at least one input and one tool attribution. The DAG is strictly acyclic because derivations cannot be circular: a node cannot be derived from its own output.
 
-Level 1 is the core of RankeDB. It stores the complete history of how knowledge was produced — not just what is believed, but *how it came to be believed*. This history is itself knowledge: queryable, traversable, and available as context for downstream consumers.
+Together with Level 0, Level 1 forms the complete Provenance DAG. Where Level 0 provides the roots — the sources — Level 1 stores the derivation history: not just what is believed, but *how it came to be believed*. This history is itself knowledge: queryable, traversable, and available as context for downstream consumers.
 
-Provenance edges carry metadata: which tool produced the derivation, its configuration, the model version (if an LLM), and timestamps. This metadata is not auxiliary — it is part of the knowledge graph. A derivation produced by a 2024 language model and one produced by a 2028 model from the same source Record are both preserved as competing interpretations with full provenance.
+Provenance edges carry metadata: which tool produced the derivation, its configuration, the model version (if an LLM), and timestamps. This metadata is not auxiliary — it is part of the knowledge graph. A derivation produced by a 2024 language model and one produced by a 2028 model from the same source are both preserved as competing interpretations with full provenance.
 
-Level 1 is also the **node authority** for the system: it holds the full content of every Thought (extracted text, structured fields), the full derivation record, and any downstream indices that require fast content access (full-text search, vector embeddings). Embeddings are maintained in a separate table with a foreign key to the content — they are a derived index, regenerable at any time with a different model or chunking strategy, without touching the content itself. A `parent_id` per Thought records the primary input as a denormalized shortcut for plausibility checks and quick traversal; the full provenance is always the edge set, not this field.
+Level 1 is also the **node authority** for the system: it holds the full content of every derived node (extracted text, structured fields), the full derivation record, and any downstream indices that require fast content access (full-text search, vector embeddings). Embeddings are maintained in a separate table with a foreign key to the content — they are a derived index, regenerable at any time with a different model or chunking strategy, without touching the content itself. A `parent_id` per node records the primary input as a denormalized shortcut for plausibility checks and quick traversal; the full provenance is always the edge set, not this field.
+
+#### Derivation types
+
+Level 1 is the cognitive layer. Every node in Level 1 is a thought — the output of a worker interpreting, classifying, extracting, summarizing, or reasoning about the graph. The content type categories distinguish *what kind* of thought, not whether interpretation was involved.
+
+Level 1 content types follow the same `category/type` pattern as Level 0. Workers in Level 1 operate on normalized sources — by the time an artifact reaches Level 1, source-format diversity is irrelevant. A worker that extracts entities from a conversation works identically whether the original source was an email, a WhatsApp chat, or a scanned letter. RankeDB defines foundational categories in two groups; applications may extend the types within each category and add new categories as needed.
+
+**Resolved forms** are enriched representations of source artifacts. They depend on classification results and produce the resolved, interlinked versions that downstream workers operate on. For example, a resolved `conversation` node has participants identified by entity ID, names resolved (no more "the guy" — instead "Bob Bobson, id:123"), and structure made explicit. A long conversation may yield multiple resolved segments, each a separate node.
+
+| Category | Purpose |
+|---|---|
+| `conversation/*` | Resolved conversation with participants linked to entities. |
+| `image/*` | Enriched image with extracted text, identified subjects. |
+| `video/*` | Enriched video with transcript, identified speakers. |
+
+Source types and resolved forms are not 1:1. A `source/record` containing bank transactions can resolve into `conversation/transaction` nodes — sender, receiver, amount as message. The source type captures how an artifact entered the world; the Level 1 type captures what it means.
+
+**Cognitive derivations** are thoughts about the graph: what a node contains, how nodes relate, what facts they support.
+
+| Category | Purpose | Foundational types |
+|---|---|---|
+| `classification/*` | A worker's statement about a node: what it is, who appears in it, what it concerns. Classification nodes are the bridge between the Provenance DAG and the Semantic Graph — they live in Level 1 with full provenance and their edges project into Level 2. | `classification/entity` (who/what was identified), `classification/content` (what kind of thing is this: invoice, voicemail, memo?), `classification/topic` (what is this about) |
+| `observation/*` | A worker's statement about relationships between nodes — grouping, contradiction, correlation, sequence, gaps. The natural output of analytical workers that traverse the graph rather than processing individual nodes. | Application-defined (e.g. `observation/contradiction`, `observation/alias`, `observation/grouping`) |
+| `summary/*` | Condensed representation of one or more nodes. | Application-defined (e.g. by length, audience, purpose) |
+| `fact/*` | Extracted factual claim with provenance to the node that supports it. | Application-defined (e.g. by domain, confidence threshold) |
+
+Note that resolved forms depend on classifications: a `conversation` worker waits for `classification/entity` results before it can resolve participants. This creates a natural ordering within Level 1 — classification first, then resolved forms, then downstream extraction — but the ordering is emergent from the dependency graph, not prescribed by the architecture.
 
 **Invariants:**
-- The graph is append-only. Thoughts are never modified or deleted.
-- The graph is acyclic. No Thought can transitively depend on itself.
-- Every Thought has provenance. No node exists without at least one input edge and one tool attribution.
+- The graph is append-only. Nodes are never modified or deleted.
+- The graph is acyclic. No node can transitively depend on itself.
+- Every node has provenance. No node exists without at least one input edge and one tool attribution.
 
-### 2.3 Level 2: Semantic Index (Semantik)
+### 2.3 Level 2: Semantic Graph (Semantik)
 
-Level 2 is a semantic graph stored in FalkorDB, optimized for associative traversal and retrieval. It is a **materialized view** projected from Level 1 — specifically, a filtered subset of DAG nodes (entities, facts, relations) represented as a property graph with semantic edges.
+Level 2 is the Semantic Graph, stored in FalkorDB, optimized for associative traversal and retrieval. It is a **materialized view** projected from the Provenance DAG — specifically, a filtered subset of DAG nodes (entities, facts, relations) represented as a property graph with semantic edges.
 
-Every node and every edge in Level 2 has a provenance reference back into the Level 1 DAG. Level 2 contains no independent truth — it is entirely derived from and traceable to Level 1.
+Every node and every edge in Level 2 has a provenance reference back into the DAG. Level 2 contains no independent truth — it is entirely derived from and traceable to Levels 0 and 1.
 
 Relations in Level 2 are natural-language labels, not formal ontology predicates. Each relation is a unique node with its own identity, temporal validity window (`valid_from`, `valid_until`), confidence score, and provenance chain. The ontology is not predefined — it emerges from the data as workers extract and normalize relations over time.
 
-Level 2 is, strictly speaking, an index. It exists because the full Level 1 DAG is too large and too deep for efficient associative retrieval. Consumers — whether LLM agents, dashboards, or analytical tools — typically enter through Level 2 and descend into Level 1 only when provenance or derivation history is needed.
+Level 2 is, strictly speaking, an index. It exists because the full Provenance DAG is too large and too deep for efficient associative retrieval. Consumers — whether LLM agents, dashboards, or analytical tools — typically enter through Level 2 and descend into the DAG only when provenance or derivation history is needed.
 
 Where Level 1 is the **node authority** (content, provenance, indices over content), Level 2 is the **edge authority** (semantic relations, cross-domain links, traversal paths). Nodes appear in both levels but in different forms: Level 1 stores the full content; Level 2 stores a lightweight projection sufficient for graph traversal. Provenance itself is never stored in Level 2 — it is strictly acyclic and therefore lives in Level 1, where the DAG invariant can be enforced. The two storage engines are complementary, not redundant: each holds the class of relations it is best suited to.
 
@@ -107,20 +175,20 @@ Level 0 (Sources / S3)
   │
   │  Ingestion: content extraction, node creation, provenance
   ▼
-Level 1 (Provenance DAG / Postgres)
+Level 1 (Derivations / Postgres)
   │
   │  Projection: semantic enrichment of processed content
   ▼
-Level 2 (Semantic Index / FalkorDB)
+Level 2 (Semantic Graph / FalkorDB)
 ```
 
-Writes propagate downward only. Level 1 is written first and stamps provenance; Level 2 projects from Level 1 once the upstream Thought is committed. There is no backward flow, no two-way synchronization, and no synchronization problem: a downstream level cannot get out of sync with an upstream one, because the downstream level is by definition a projection of the upstream one and can always be rebuilt from it.
+Writes propagate downward only. Level 1 is written first and stamps provenance; Level 2 projects from Level 1 once the upstream node is committed. There is no backward flow, no two-way synchronization, and no synchronization problem: a downstream level cannot get out of sync with an upstream one, because the downstream level is by definition a projection of the upstream one and can always be rebuilt from it.
 
 ## 3. Core Properties
 
 ### 3.1 Everything Is Knowledge
 
-RankeDB makes no distinction between data, metadata, and provenance. A classification ("this Record belongs to the finance domain") is a Thought with provenance. A visibility decision ("this Record is accessible to group X") is a Thought with provenance. An assessment of quality ("the 2028 extractor produces better results than the 2024 extractor") is a Thought with provenance.
+RankeDB makes no distinction between data, metadata, and provenance. A classification ("this node belongs to the finance domain") is a node with provenance. A visibility decision ("this node is accessible to group X") is a node with provenance. An assessment of quality ("the 2028 extractor produces better results than the 2024 extractor") is a node with provenance.
 
 This principle — *everything is knowledge* — eliminates the need for separate metadata systems, tagging taxonomies, or access control lists as external infrastructure. All of these are expressible as nodes in the DAG, derived from the same sources, subject to the same immutability guarantees, and queryable through the same API.
 
@@ -139,7 +207,7 @@ This principle — *everything is knowledge* — eliminates the need for separat
 
 ### 3.2 Immutability and Accumulation
 
-RankeDB is strictly append-only at the knowledge level. No Record, Thought, or semantic relation is ever modified or deleted through normal operation. When new information contradicts existing knowledge, the contradiction is represented as a new Thought — not as an update to the old one. Both coexist in the graph, each with full provenance.
+RankeDB is strictly append-only at the knowledge level. No node or edge is ever modified or deleted through normal operation. When new information contradicts existing knowledge, the contradiction is represented as a new node — not as an update to the old one. Both coexist in the graph, each with full provenance.
 
 This design is a deliberate bet on the trajectory of language model context windows. Systems that destructively consolidate today — merging entity summaries, deduplicating facts, compacting histories — optimize for current retrieval efficiency at the cost of inferential depth. RankeDB optimizes for a future in which a model receiving the full derivation history of a belief (including contradictions and revisions) produces better reasoning than one receiving a consolidated summary.
 
@@ -157,9 +225,9 @@ Immutability applies to knowledge, not to infrastructure. Technical defects (e.g
 
 ### 3.3 The Provenance DAG as Content
 
-In conventional systems, the knowledge graph is primary and provenance is attached to it as secondary metadata — an annotation layer on top of the "real" content. RankeDB rejects this split. The provenance DAG (Level 1) is not an annotation layer and not a substrate beneath the content: it *is* the content. The semantic knowledge graph (Level 2) is a projection from it, optimized for associative retrieval, but every node and edge there points back to a Thought in the DAG, and the Thought is what the knowledge actually is.
+In conventional systems, the knowledge graph is primary and provenance is attached to it as secondary metadata — an annotation layer on top of the "real" content. RankeDB rejects this split. The Provenance DAG is not an annotation layer and not a substrate beneath the content: it *is* the content. The Semantic Graph is a projection from it, optimized for associative retrieval, but every node and edge there points back to a node in the DAG, and the DAG node is what the knowledge actually is.
 
-This inversion has a concrete architectural consequence: operations that would require complex graph surgery in a conventional system become simple view operations in RankeDB. Reprocessing sources with better tools produces new Thoughts alongside old ones — no migration required. Filtering out results from an obsolete worker is a query parameter, not a data operation. Evaluating competing interpretations of the same source is a traversal of the DAG, not a diff between snapshots.
+This inversion has a concrete architectural consequence: operations that would require complex graph surgery in a conventional system become simple view operations in RankeDB. Reprocessing sources with better tools produces new nodes alongside old ones — no migration required. Filtering out results from an obsolete worker is a query parameter, not a data operation. Evaluating competing interpretations of the same source is a traversal of the DAG, not a diff between snapshots.
 
 > **TODO — Reading for §3.3 (the architectural inversion — the core novelty claim):**
 >
@@ -184,9 +252,9 @@ This inversion has a concrete architectural consequence: operations that would r
 
 Access control in RankeDB is not a system feature but an application-level concern expressible within the data model. Every input artifact has an owner — not a person but a user group. Groups are hierarchically organized. A node in the DAG is visible to a user if and only if all of its inputs are visible to that user. At the root (Level 0), this means ownership by one of the user's groups.
 
-Visibility propagates through the provenance graph: a Thought derived from one public and one confidential Record is automatically confidential. Changing visibility at a source Record propagates immediately through all derived Thoughts — not through explicit re-tagging but through DAG traversal. This is compliance by architecture, not by policy.
+Visibility propagates through the provenance graph: a node derived from one public and one confidential source is automatically confidential. Changing visibility at a source node propagates immediately through all derived nodes — not through explicit re-tagging but through graph traversal. This is compliance by architecture, not by policy.
 
-The classification of Records into visibility groups is itself a Thought with provenance — produced by a worker, subject to revision, queryable like any other knowledge.
+The classification of nodes into visibility groups is itself a node with provenance — produced by a worker, subject to revision, queryable like any other knowledge.
 
 ### 3.5 The Rebuild Guarantee
 
@@ -196,7 +264,7 @@ This property has concrete operational consequences. Backups at Level 0 are the 
 
 ### 3.6 Under-Prescription: A Base for Evolution
 
-RankeDB stores **multiple levels of detail in parallel, networked by provenance.** The raw source artifact sits at Level 0. Every intermediate derivation — normalization, extraction, summary, alias resolution, classification — sits as a Thought in Level 1. Projected entities and relations sit in Level 2 as semantic triplets. Nothing is omitted at any level. A consumer can traverse from a semantic triplet down to the exact byte range in the raw source that supports it, or from a raw source up through every derivation it participated in, in a single query across the three levels.
+RankeDB stores **multiple levels of detail in parallel, networked by provenance.** The raw source artifact sits at Level 0. Every intermediate derivation — normalization, extraction, summary, alias resolution, classification — sits as a node in Level 1. Projected entities and relations sit in Level 2 as semantic triplets. Nothing is omitted at any level. A consumer can traverse from a semantic triplet down to the exact byte range in the raw source that supports it, or from a raw source up through every derivation it participated in, in a single query across the three levels.
 
 This is a deliberate design choice with a specific purpose: **to leave the strategy of use to the consumer, and to expect that strategy to evolve.** RankeDB does not decide in advance which level of detail is the right one to query, which granularity is best for which question, or which projection best serves which application. It captures everything and exposes everything. Consumers — memory agents, analytics pipelines, experimental workflows — work out their own strategies against the captured data, and when a better strategy emerges, it runs over the same data without migration.
 
@@ -218,9 +286,9 @@ The reference implementation is delivered as two components: a **server** that e
 
 ### 4.1 RankeDB
 
-RankeDB is a self-contained server deployed as a Docker Compose stack. It encapsulates the three storage engines (S3-compatible object store, Postgres, FalkorDB) behind a single REST API. The storage engines are hidden implementation details — consumers interact exclusively with the API, which enforces all invariants: immutability, acyclicity of the provenance DAG, mandatory provenance on every Thought, and content-addressability of Records.
+RankeDB is a self-contained server deployed as a Docker Compose stack. It encapsulates the three storage engines (S3-compatible object store, Postgres, FalkorDB) behind a single REST API. The storage engines are hidden implementation details — consumers interact exclusively with the API, which enforces all invariants: immutability, acyclicity of the provenance DAG, mandatory provenance on every node, and content-addressability of sources.
 
-The API is the sole interface to the system. There is no query language in the traditional sense — the API *is* the query language, imperative rather than declarative. All operations — ingesting Records, creating Thoughts, traversing provenance chains, querying the semantic graph — are API calls. Workers, the Explorer, and any future application consume the same interface.
+The API is the sole interface to the system. There is no query language in the traditional sense — the API *is* the query language, imperative rather than declarative. All operations — ingesting sources, creating nodes, traversing provenance chains, querying the semantic graph — are API calls. Workers, the Explorer, and any future application consume the same interface.
 
 RankeDB is the data platform, not an application. What runs on top — chat interfaces, memory agents, research tools — is delivered by clients that consume the API. The stack is designed to run on a single host in the reference deployment, but the API contract is the same regardless of topology.
 
@@ -228,21 +296,13 @@ RankeDB is the data platform, not an application. What runs on top — chat inte
 
 The reference deployment uses Hetzner Object Storage, but any S3-compatible provider will do — S3 is a de-facto standard whose API surface is stable since 2006, and migration to another provider is a single `rclone sync` away (Backblaze B2, Cloudflare R2, AWS, others). Buckets are configured with versioning enabled (as a guard against accidental deletion during development) and with Object Lock (WORM) for production operation, to make immutability enforceable at the storage layer rather than only at the API layer.
 
-Records are stored with the SHA-256 content hash as the object key and the following routing metadata as S3 headers:
-
-| Header | Purpose | Example |
-|---|---|---|
-| `x-amz-meta-source` | Origin / ingest worker | `zoho`, `android`, `google-photos` |
-| `x-amz-meta-content-type` | Semantic type | `email`, `photo`, `chat`, `document` |
-| `x-amz-meta-original-name` | Original filename | `invoice-2026-03.pdf` |
-| `x-amz-meta-created-at` | Creation time of the original | `2026-03-26T14:30:00Z` |
-| `x-amz-meta-ingested-at` | Time of ingest into RankeDB | `2026-03-26T15:01:12Z` |
+Source nodes are stored with the SHA-256 content hash as the object key. The API-level metadata fields defined in §2.1 are mapped to S3 user-metadata headers (prefixed `x-amz-meta-`) — this mapping is internal to the storage layer and invisible to API consumers.
 
 Access to the bucket is split along least-privilege lines: ingest workers hold a key pair with `s3:PutObject` and `s3:ListBucket` only — enough to write new records and check for duplicates, but not to read existing content — while the RankeDB backend holds a full read/write key pair. This makes ingest workers blind to the archive they feed, which is useful both as a security property (a compromised worker cannot exfiltrate the archive) and as an architectural discipline (workers cannot accidentally become RankeDB-aware).
 
 #### 4.1.2 Level 1: Postgres
 
-Level 1 runs in Postgres. Postgres is the **node authority** for the system: it holds the full content of every Thought, the provenance DAG as a table of edges, full-text search indices (via `tsvector`), vector embeddings (via pgvector, in a separate table with a foreign key to the content), user accounts, auth, and configuration. Backups are taken with `pg_dump` and shipped to Level 0 storage — Postgres itself is therefore rebuildable from the combination of its source Records and its schema.
+Level 1 runs in Postgres. Postgres is the **node authority** for the system: it holds the full content of every derived node, the provenance DAG as a table of edges, full-text search indices (via `tsvector`), vector embeddings (via pgvector, in a separate table with a foreign key to the content), user accounts, auth, and configuration. Backups are taken with `pg_dump` and shipped to Level 0 storage — Postgres itself is therefore rebuildable from the combination of its source nodes and its schema.
 
 #### 4.1.3 Level 2: FalkorDB
 
@@ -252,8 +312,8 @@ Level 2 runs in FalkorDB. It holds a lightweight projection of Level 1 nodes (wi
 
 The API is the only way into RankeDB, and it makes three guarantees on behalf of every caller:
 
-- **Immutability.** Once written, a Record or Thought is never modified. Corrections are new Thoughts with provenance that refers to the thing they correct.
-- **Provenance.** Every derivation carries the source(s) it was produced from and the tool that produced it. The API refuses to create a Thought without these.
+- **Immutability.** Once written, a node is never modified. Corrections are new nodes with provenance that refers to the thing they correct.
+- **Provenance.** Every derivation carries the source(s) it was produced from and the tool that produced it. The API refuses to create a node without these.
 - **Access control.** Visibility is derived from the provenance graph (§3.4). The API enforces it on every read.
 
 What lies beneath the API — which object store, which relational database, which graph engine — is implementation detail and can change without affecting consumers.
@@ -263,7 +323,7 @@ What lies beneath the API — which object store, which relational database, whi
 Each level is independently useful before the next one exists, which makes the rollout incrementally valuable rather than all-or-nothing:
 
 1. **Level 0 and a first ingest worker.** Full capture: stop losing data. A single source (for example, an email archive) is enough to start.
-2. **Postgres and the ingestion pipeline.** Content extraction, Thought creation, full-text search, provenance. RankeDB is a searchable archive with derivation history at this point, even without a semantic graph.
+2. **Postgres and the ingestion pipeline.** Content extraction, node creation, full-text search, provenance. RankeDB is a searchable archive with derivation history at this point, even without a semantic graph.
 3. **Vector embeddings.** pgvector, semantic similarity search over the content.
 4. **FalkorDB and semantic projection.** The knowledge graph layer. RankeDB becomes a navigable semantic graph with full provenance back to source.
 
@@ -283,11 +343,13 @@ The Explorer is not part of RankeDB's core architecture. It is an application. B
 
 ## 5. Workers
 
-RankeDB is a database. It does not contain application logic, AI models, or processing pipelines. External processes — **workers** — interact with RankeDB exclusively through the API, reading existing Records and Thoughts and writing new Thoughts.
+RankeDB is a database. It does not contain application logic, AI models, or processing pipelines. External processes — **workers** — interact with RankeDB exclusively through the API, reading existing nodes and writing new nodes. Workers are applications implemented against the API; RankeDB defines categories of worker patterns but leaves concrete implementations to the application layer.
+
+Two broad categories emerge in practice. **Reactive workers** poll for unprocessed nodes whose content type matches their profile, producing new nodes of a different content type — format converters, bulk-archive unpackers, normalizers, fact extractors. **Analytical workers** traverse the DAG more freely, searching for contradictions, gaps, or patterns across existing nodes. Both categories interact with RankeDB through the same API; the distinction is in their traversal strategy, not their interface.
 
 Workers may be LLM-based (entity extraction, summarization, synthesis), deterministic (format conversion, deduplication detection), or hybrid. RankeDB is agnostic to the nature of its workers — it tracks only the provenance of their outputs: what inputs they consumed, which tool and configuration they used, and when they ran. Workers are identified by run IDs, enabling administrative operations (such as purging defective runs) without affecting the knowledge model.
 
-The same Record can be processed by multiple workers or by successive versions of the same worker. Old and new results coexist with full provenance. Consumers select between them through view configuration (e.g., preferring the most recent extractor), not through data operations.
+The same node can be processed by multiple workers or by successive versions of the same worker. Old and new results coexist with full provenance. Consumers select between them through view configuration (e.g., preferring the most recent extractor), not through data operations.
 
 The design, implementation, and evaluation of a concrete worker pipeline — from raw data ingestion through normalization, summarization, and entity extraction to a populated semantic graph — is the subject of a companion paper.
 
@@ -342,7 +404,7 @@ Datomic (Hickey, 2012) operationalizes Pat Helland's "Immutability Changes Every
 
 ### 6.4 W3C PROV-DM
 
-The W3C PROV Data Model provides a formal vocabulary for provenance (Entity, Activity, Agent, wasGeneratedBy, wasDerivedFrom, used). RankeDB's internal model is semantically compatible with PROV-DM — Records map to Entities, worker runs to Activities, tools to Agents — but RankeDB does not depend on or implement the W3C stack (RDF, SPARQL, OWL). PROV-DM compatibility exists at the conceptual level, enabling potential export or interoperability without architectural coupling.
+The W3C PROV Data Model provides a formal vocabulary for provenance (Entity, Activity, Agent, wasGeneratedBy, wasDerivedFrom, used). RankeDB's internal model is semantically compatible with PROV-DM — nodes map to Entities, worker runs to Activities, tools to Agents — but RankeDB does not depend on or implement the W3C stack (RDF, SPARQL, OWL). PROV-DM compatibility exists at the conceptual level, enabling potential export or interoperability without architectural coupling.
 
 > **TODO — Reading for §6.4 (PROV-DM expansion):**
 >
@@ -491,7 +553,7 @@ Each of these approaches commits the memory solution *to the language model itse
 
 ### 7.2 Reprocessing Without Migration
 
-A distinctive property of RankeDB's architecture is that improvements in processing tools require no data migration. When a better entity extractor becomes available in 2028, it runs over the same Level 0 Records and produces new Thoughts in Level 1. Old and new results coexist. Consumers select between them through view configuration — filtering by worker version, recency, or confidence score. The old results remain available as fallback, as training signal, or as historical context.
+A distinctive property of RankeDB's architecture is that improvements in processing tools require no data migration. When a better entity extractor becomes available in 2028, it runs over the same Level 0 sources and produces new nodes in Level 1. Old and new results coexist. Consumers select between them through view configuration — filtering by worker version, recency, or confidence score. The old results remain available as fallback, as training signal, or as historical context.
 
 This property follows directly from immutability and the separation of Level 0 (sources) from Level 1 (derivations). In systems that update in place, reprocessing is a migration — destructive, irreversible, and operationally risky. In RankeDB, reprocessing is an append operation.
 
@@ -530,9 +592,9 @@ RankeDB does not guarantee any of the five. They are delivered by the consumers 
 
 - **Multiple levels of detail in parallel (§3.6).** *Keeps information extraction and multi-session reasoning possible from the same data.* Raw dialogue, intermediate derivations, and semantic triplets all exist at once, so a consumer can descend to the exact utterance for specific recall *or* aggregate at the entity level for cross-session synthesis — without one undermining the other.
 
-- **Provenance as substrate (§3.3).** *Keeps abstention and knowledge updates possible.* A consumer can check whether a claim has a provenance chain and refuse to answer if it does not — an architectural precondition for any abstention policy above. And because a superseding Thought links to what it supersedes, current-vs-historical selection is a queryable property, not something lost in a consolidation pass.
+- **Provenance as substrate (§3.3).** *Keeps abstention and knowledge updates possible.* A consumer can check whether a claim has a provenance chain and refuse to answer if it does not — an architectural precondition for any abstention policy above. And because a superseding node links to what it supersedes, current-vs-historical selection is a queryable property, not something lost in a consolidation pass.
 
-- **Timestamps on every node and edge (§2.2, §2.3).** *Keeps temporal reasoning possible as a first-class query primitive.* Two temporal dimensions are carried at all times: when the underlying event occurred (from source metadata or explicit in-content mentions) and when the Thought entered the database (transaction time from the L1 DAG). Questions about *when* have direct answers; a consumer does not have to reconstruct temporal order from implicit cues.
+- **Timestamps on every node and edge (§2.2, §2.3).** *Keeps temporal reasoning possible as a first-class query primitive.* Two temporal dimensions are carried at all times: when the underlying event occurred (from source metadata or explicit in-content mentions) and when the node entered the database (transaction time from the L1 DAG). Questions about *when* have direct answers; a consumer does not have to reconstruct temporal order from implicit cues.
 
 - **Temporal validity on L2 edges (§2.3).** *Keeps knowledge updates possible without losing history.* Every L2 edge carries `valid_from` and `valid_until`, not just a creation timestamp. A fact true from February to April coexists with a fact true from April onward; both remain retrievable, and which one answers a given query is a view-configuration choice left to the consumer.
 
