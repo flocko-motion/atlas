@@ -142,3 +142,48 @@ Update §4.1 during next pass to reflect this cleaner mental model:
 
 The storage split is about *byte payload* (S3 for blobs, Postgres for metadata and structure), not about *logical level*. L0 and L1 share the same Postgres tables because they share the same graph.
 
+---
+
+## Implementation note: dark storage + content-addressed blob pool
+
+Refinement of the storage distribution. S3 is pure content-addressed dark storage — nobody lists it, nobody browses it. The API is the only door. All access patterns reduce to GET/PUT/HEAD by hash.
+
+**Ingest is to the API, always.** Workers never touch S3 or Postgres directly. The API:
+
+1. Computes the hash of the incoming blob.
+2. Idempotently PUTs to S3 (no-op if hash is already there).
+3. Creates a Postgres node with metadata and the hash pointing at the S3 blob.
+
+Workers don't need S3 credentials. Workers don't know S3 exists. That is what "dark storage" means — it is hidden backend infrastructure, not part of any ACL surface.
+
+**Defining invariant:** *if it is not in Postgres, it is not there.* Postgres is the complete index of what exists. An orphaned S3 blob (somehow present without a Postgres node) is unreachable through the API. Content-addressed storage means orphans are benign — they take space but can't be referenced. GC is optional: a Postgres query that finds hashes in S3 not referenced by any node.
+
+**L1 blobs go to S3 too.** Summaries, normalized conversations, OCR text, transcripts, extracted fact text — all are content blobs. They get the same treatment as L0 blobs: content-addressed in S3, referenced by hash in Postgres. This keeps Postgres slim.
+
+**The rule: Postgres = graph topology + metadata + indices. S3 = content.**
+
+What stays in Postgres:
+- Graph structure (nodes + edges)
+- Small queryable metadata (content_type, encoding, origin, timestamps, parent, tags, conviction scores, validity windows)
+- Full-text search indices (tsvector; see caveat below)
+- Vector embeddings (pgvector — small, derived)
+
+What goes to S3:
+- L0 source bytes (original artifacts)
+- L1 normalized content (conversation text, OCR, transcripts)
+- L1 derived content (summaries, fact text, entity descriptions)
+
+**Caching at the API level.** Content-addressed means cache invalidation is impossible by construction — content at hash X is content at hash X, forever. Pure LRU. Three-tier: API process memory → local disk → S3. Reloads are deterministic, eviction is safe. Hot working set is typically small.
+
+**Caveats:**
+- Full-text search wants text in the same row as the tsvector. Probably store extracted text in Postgres for indexing *and* in S3 as canonical blob. tsvector plus plain text is cheap; it keeps text search self-contained.
+- Vector embeddings are tiny, stay in Postgres with pgvector.
+
+**Consequences:**
+- Postgres rows become uniform: metadata + hash, a few hundred bytes each. The graph fits in RAM at personal/project scale.
+- Backup asymmetry: Postgres is small and frequent; S3 is bulky and occasional.
+- Forking Postgres stays cheap — one S3 blob pool, many graph instances. Experiments, A/B tests, development branches, all share the same content.
+- Storage abstraction is minimal — S3, R2, Backblaze, IPFS, local filesystem, anything that supports content-addressed GET/PUT/HEAD. Swapping backends is trivial because the interface is small.
+
+**Supersedes earlier thinking** about ACL-split between ingest workers and backend (where ingest workers had S3 `PutObject`). Under dark storage, *no worker ever touches S3*. The API is the only S3 client.
+
