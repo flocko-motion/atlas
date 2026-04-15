@@ -199,16 +199,33 @@ Refinement: content duplication in Postgres is not an architectural commitment b
 - `encoding` — format identifier; used to determine cache eligibility (see below)
 - `content_cached` — `text` column holding inlined text content, NULL if not cached or not text
 
-**Cache eligibility is determined by encoding.** Text-based encodings (`normalized`, `eml`, `chatgpt`, `whatsapp`, `markdown`, `plain`, etc.) are cacheable in Postgres. Binary encodings (`png`, `jpeg`, `heic`, `mp4`, `wav`, `heif`) are never cached — they stay in S3 only. This matches reality: binary content has value in its bytes and would be streamed to a viewer or processed by a worker anyway; there is no SQL operation that meaningfully queries a PNG. Text content, by contrast, benefits from inline availability for full-text search, display, and worker consumption.
+**Encoding is MIME-style: `class/format`.** Borrowed directly from HTTP's Content-Type convention. The top-level class indicates what kind of content it is; the subtype indicates the specific format:
 
-A boolean `is_text_content` column (derived from encoding at ingest) makes the cache-fill query trivial.
+```
+text/eml          text/chatgpt       text/whatsapp
+text/normalized   text/markdown      text/plain       text/json
+image/png         image/jpeg         image/heic
+audio/wav         audio/mp3
+video/mp4
+application/pdf   application/dkb-csv
+```
+
+**Cache eligibility falls out of the naming scheme:**
+
+```sql
+WHERE encoding LIKE 'text/%'
+```
+
+Anything with prefix `text/` is cacheable. Everything else is S3-only. No hardcoded enum, no lookup table, no `is_text_content` column. The policy is expressed in the naming convention. New text encodings (`text/rss`, `text/ical`) become cacheable automatically. New binary encodings (`image/avif`) stay in S3 automatically.
+
+**Bonus:** the encoding field becomes self-describing for consumers. An API endpoint serving the blob can set the HTTP `Content-Type` header directly — no translation needed. A worker dispatching by content type knows the handler family from the class prefix.
 
 **The threshold is cache-fill policy.** Raise from 8 KB to 32 KB: a background pass fills the cache for eligible (text) nodes.
 
 ```sql
 SELECT id, content_hash, content_size FROM nodes
 WHERE content_size <= 32768
-  AND is_text_content = TRUE
+  AND encoding LIKE 'text/%'
   AND content_cached IS NULL;
 ```
 
