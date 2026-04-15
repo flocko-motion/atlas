@@ -194,9 +194,9 @@ What goes to S3:
 Refinement: content duplication in Postgres is not an architectural commitment but a runtime cache policy. The threshold (what size of blob gets cached inline) is a config knob that can be raised or lowered at runtime without data loss.
 
 **Every node carries three fields related to content:**
-- `content_hash` — points at the blob in S3 (canonical storage)
+- `content_hash` — SHA-256 pointing at the blob in S3 (canonical storage)
 - `content_size` — size in bytes, for policy queries
-- `content_cached` — optional inline copy of the blob content, NULL if not cached
+- `content_cached` — `bytea` column holding the inlined blob bytes, NULL if not cached. Byte storage, not text — the blob might be a PNG, an audio clip, or compressed content. Text-searchability is a separate concern (see below).
 
 **The threshold is cache-fill policy.** Raise from 8 KB to 32 KB: a background pass fills the cache.
 
@@ -224,5 +224,7 @@ WHERE content_size > 8192 AND content_cached IS NOT NULL;
 1. Cache operations don't cause page I/O or row locking on graph metadata.
 2. Deduplication by hash — if multiple nodes reference the same blob (possible with content-addressing), they share a single cache entry.
 
-**Summary:** S3 is canonical. Postgres is a tunable, queryable cache over S3 (in addition to being the graph). The cache fills and evicts based on a runtime-configurable size threshold. Nothing is lost by changing the threshold because S3 is always the source of truth.
+**Text-searchability is a separate concern.** The cache stores bytes, not text — a PNG is a PNG. Full-text search operates on *derived text nodes*, not on raw binary blobs. When a worker produces text from a non-text source (OCR from an image, transcript from audio, plain text from HTML), that text becomes its own node with its own hash, its own cache row, and its own tsvector. The graph naturally distinguishes the binary source from its textual interpretation — both preserved with provenance.
+
+**Summary:** S3 is canonical. Postgres is a tunable, queryable cache over S3 (in addition to being the graph). The cache stores raw bytes (`bytea`). Text search operates on derived text nodes, not on cached binary blobs. The cache fills and evicts based on a runtime-configurable size threshold. Nothing is lost by changing the threshold because S3 is always the source of truth.
 
