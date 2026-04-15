@@ -245,6 +245,15 @@ The design principle: **capture well now with as few decisions as possible that 
 The companion papers on workers and on memory agents will describe *one way* to populate and consume this base using today's tools.
 Neither will be the final answer; both will be first-generation consumers of a substrate designed to outlive them.
 
+> **TODO — Reading for §2.3 (reprocessing vs migration — GraphRAG family comparison):**
+>
+> The GraphRAG landscape is the cleanest contrast point for RankeDB's reprocessing property.
+>
+> - **Edge et al. (April 2024). "From Local to Global: A Graph RAG Approach to Query-Focused Summarization."** Microsoft Research foundational GraphRAG paper. LLM entity/relation extraction + Leiden community detection + pre-built community summaries. `read.pdf`. **Priority: M.**
+> - **DRIFT Search (Microsoft, October 2024).** Combines global and local retrieval with iterative refinement. Reference: microsoft.com/en-us/research/blog/introducing-drift-search. `read.pdf`. **Priority: L.**
+> - **LazyGraphRAG (Microsoft, November 2024).** Reduces indexing costs to **0.1% of full GraphRAG** via NLP-based extraction instead of LLM summarization. lianpr.com/en/news/detail/3224. `read.pdf`. **Priority: L — cite as efficiency-trades-history example.**
+> - The crucial pattern: **all GraphRAG variants require full reprocessing when the extractor improves.** Contrast explicitly with RankeDB's append semantics.
+
 ## 3. Architecture
 
 RankeDB is a single connected graph organized into three levels (see Figure 1).
@@ -307,6 +316,12 @@ The format is the specific syntax (e.g. `text/eml`, `text/whatsapp`, `image/png`
 Formats are application-extensible; each format is a micro-project: a parser, quickly written, easily tested.
 Nodes can wait patiently until a parser for their format becomes available.
 
+Date fields that carry real-world time are accompanied by a `_blur` sibling expressing temporal fuzziness as a duration (e.g. `30d` = ±30 days, `0` = precise).
+Blur defaults to `0`, so it is opt-in: workers that produce precise timestamps leave it alone; workers that produce imprecise dates — "around 2018," "mid-20th century" — set it to the scale of fuzziness.
+Consumers extend range queries by the blur to cover fuzzy matches; the exact interpretation (hard cutoff, weighted match) is a consumer concern.
+Blur is orthogonal to `confidence`: blur captures how precise the timing is; `confidence` captures how sure we are of the claim itself.
+System-captured dates (`created_at`) are precise by construction and have no blur.
+
 #### 3.1.1 Level 0: Sources
 
 Level 0 is the region of the graph that holds ingested external artifacts.
@@ -319,11 +334,12 @@ Level 0 is the archive. It does not claim truth about the world — it just stor
 
 In addition to the common fields, L0 nodes carry:
 
-| Field                 | Purpose                                         |
-| --------------------- | ----------------------------------------------- |
-| `artifact_created_at` | Original creation date of the external artifact |
-| `origin`              | Ingest pathway                                  |
-| `original_name`       | Original filename                               |
+| Field                      | Purpose                                                                       |
+| -------------------------- | ----------------------------------------------------------------------------- |
+| `artifact_created_at`      | Original creation date of the external artifact                               |
+| `artifact_created_at_blur` | Temporal fuzziness around `artifact_created_at`, as a duration (default `0`) |
+| `origin`                   | Ingest pathway                                                                |
+| `original_name`            | Original filename                                                             |
 
 **Content types:**
 
@@ -410,11 +426,13 @@ The ontology is not predefined — it emerges from the data as workers extract a
 
 In addition to the common fields, L2 nodes carry:
 
-| Field         | Purpose                                |
-| ------------- | -------------------------------------- |
-| `valid_from`  | Start of temporal validity window      |
-| `valid_until` | End of temporal validity window        |
-| `confidence`  | Confidence score                       |
+| Field              | Purpose                                                                 |
+| ------------------ | ----------------------------------------------------------------------- |
+| `valid_from`       | Start of temporal validity window                                       |
+| `valid_from_blur`  | Temporal fuzziness around `valid_from`, as a duration (default `0`)   |
+| `valid_until`      | End of temporal validity window                                         |
+| `valid_until_blur` | Temporal fuzziness around `valid_until`, as a duration (default `0`)  |
+| `confidence`       | Confidence score                                                        |
 
 **Content types:**
 
@@ -543,35 +561,19 @@ In the current phase, RankeDB is primarily a research tool, and a database witho
 
 ## 5. Workers
 
-RankeDB is a database.
-It does not contain application logic, AI models, or processing pipelines.
-External processes — **workers** — interact with RankeDB exclusively through the API, reading existing nodes and writing new nodes.
-Workers are applications implemented against the API; RankeDB defines categories of worker patterns but leaves concrete implementations to the application layer.
+**Workers** are external processes that read and write the graph through the API.
+The concrete design of a worker pipeline will be the subject of the companion paper on RankeDB Workers; this section sketches the categories we anticipate, based on patterns that are natural for the data model but have not yet been built at scale.
 
-Two broad categories emerge in practice.
-**Reactive workers** poll for unprocessed nodes whose content type matches their profile, producing new nodes of a different content type — format converters, bulk-archive unpackers, normalizers, fact extractors.
-**Analytical workers** traverse the DAG more freely, searching for contradictions, gaps, or patterns across existing nodes.
-Both categories interact with RankeDB through the same API; the distinction is in their traversal strategy, not their interface.
+We expect two broad categories to emerge in practice.
+**Reactive workers** would poll for unprocessed nodes whose content type matches their profile and produce new nodes of a different content type — format converters, bulk-archive unpackers, normalizers, fact extractors.
+**Analytical workers** would traverse the graph more freely, searching for contradictions, gaps, or patterns across existing nodes.
+Both would interact through the same API; the distinction is in their traversal strategy.
 
-Workers may be LLM-based (entity extraction, summarization, synthesis), deterministic (format conversion, deduplication detection), or hybrid.
-RankeDB is agnostic to the nature of its workers — it tracks only the provenance of their outputs: what inputs they consumed, which tool and configuration they used, and when they ran.
-Workers are identified by run IDs, enabling administrative operations (such as purging defective runs) without affecting the knowledge model.
+Workers could be LLM-based (entity extraction, summarization, synthesis), deterministic (format conversion, deduplication, normalization), or hybrid.
+RankeDB is agnostic to the nature of a worker — it records only the provenance of what the worker produces: which inputs were consumed, which tool node was in effect (§3.1.2), and the run identifier carried on the edges the worker created (§3.2).
 
-The same node can be processed by multiple workers or by successive versions of the same worker.
-Old and new results coexist with full provenance.
-Consumers select between them through view configuration (e.g., preferring the most recent extractor), not through data operations.
-
-The design, implementation, and evaluation of a concrete worker pipeline — from raw data ingestion through normalization, summarization, and entity extraction to a populated Semantic Graph — will be the subject of a companion paper.
-
-### 5.1 From Foundation to First Generation
-
-> **TODO — Write §5.1 (closing of Part II, 1–2 short paragraphs).** Frame Papers 2–4 as the **first generation of application** on the foundation described in Part II — not independent downstream products, but the test of whether the philosophy-derived architecture (Part I) actually bears load.
-> Intended points:
->
-> - Paper 2 (workers): a first-generation population strategy — ingestion, normalization, classification, extraction, summarization — using the tools available today (2026). A different generation of workers, built on different technology, will run over the same DAG without migration.
-> - Paper 3 (chat and memory agents): a first-generation consumption strategy against the populated graph, delivering the five long-term-memory abilities identified by Wu et al. (2025, LongMemEval). A different generation of consumers will run against the same graph with different retrieval strategies.
-> - Paper 4 (multi-agent coordination): a first-generation pluralism strategy — competing, cooperating, coexisting agents on the same substrate — enabled by the under-prescription stance of §2.3.
-> - The foundation is a falsifiable bet. The optimistic outcome: the assumptions hold, the first generation proves the base useful, later generations continue to build. The pessimistic outcome: the assumptions do not hold, and the system is less useful than the philosophy promised. Paper 1 owes the argument for trying; Papers 2–4 owe the evidence that the trying was worth it.
+A single node could be processed by multiple workers, or by successive versions of the same worker.
+Old and new outputs coexist with full provenance (§2.2); consumers would select between them through query parameters — for example, filtering on the most recent worker run.
 
 ## 6. Related Work
 
@@ -585,8 +587,8 @@ Graphiti (Zep, 2024–2025) is the closest existing system to RankeDB in the LLM
 It builds temporal, provenance-aware knowledge graphs using FalkorDB or Neo4j, with bidirectional episode indices and temporal validity windows.
 Facts are invalidated rather than deleted.
 
-However, Graphiti performs destructive entity summary updates, lacks a separate content-addressable source archive (Level 0), embeds provenance in the knowledge graph rather than maintaining a separate provenance DAG, and does not treat provenance as queryable knowledge.
-RankeDB can be understood as an extension of Graphiti's philosophy — adding immutability, a source archive, and the architectural inversion that makes provenance the substrate rather than an annotation.
+However, Graphiti performs destructive entity summary updates, has no content-addressable source region comparable to RankeDB's Level 0, and embeds provenance as annotation on the knowledge graph rather than treating it as the content itself.
+RankeDB can be understood as an extension of Graphiti's philosophy — adding immutability, first-class sources, and the architectural inversion that makes provenance the substrate rather than an annotation.
 
 > **TODO — Reading for §6.1 (Graphiti/Zep expansion):**
 >
@@ -760,12 +762,13 @@ Each component has mature prior art; the architectural composition is novel.
 
 ### 7.1 The Context Window Bet
 
-RankeDB's append-only accumulation model is predicated on a specific technological trajectory: that large language model context windows will become fast and cheap enough to consume full derivation histories.
-If this trajectory holds, systems that destructively consolidate today will be unable to reconstruct the inferential context that RankeDB preserves.
-If it does not hold, RankeDB pays a storage and retrieval cost for history that cannot be effectively utilized.
+RankeDB's append-only accumulation model is a bet on a specific technological trajectory: that models, retrieval strategies, and reasoning capabilities will keep improving, and that systems holding rich inferential history will be able to exploit those improvements as they arrive.
+The bet is not about cramming everything into prompt context; it is about keeping the material available so that larger, richer, better-targeted slices can be asked for as capabilities grow.
+If the trajectory holds, systems that destructively consolidate today will be unable to reconstruct the inferential context that RankeDB preserves.
+If it does not, RankeDB pays a storage cost for history that cannot be effectively utilized.
 
 Current trends support the bet.
-Context windows have grown from 4K tokens (2022) to 200K+ tokens (2025), with costs per token declining by orders of magnitude.
+Context windows have grown from 4K tokens (2022) to 1M+ tokens (2026), with inference speed improving, costs per token declining by orders of magnitude and retrieval strategies maturing alongside.
 The architectural question is not whether models *can* process full provenance chains, but when they can do so at acceptable latency and cost for interactive use.
 
 The bet is also a deliberate rejection of the three paths the field currently takes to equip chat assistants with long-term memory.
@@ -801,28 +804,7 @@ The memory problem and the modeling problem are decoupled by construction.
 > *PDF1 key framing to use verbatim:* *"No existing system matches RankeDB's full specification: add-only storage, content-addressable immutable raw sources, no destructive consolidation, conviction-based entity resolution instead of hard merges, and complete inferential history preservation.
 > RankeDB's commitment to immutability is more extreme than any published system."*
 
-### 7.2 Reprocessing Without Migration
-
-A distinctive property of RankeDB's architecture is that improvements in processing tools require no data migration.
-When a better entity extractor becomes available in 2028, it runs over the same Level 0 sources and produces new nodes in Level 1.
-Old and new results coexist.
-Consumers select between them through view configuration — filtering by worker version, recency, or confidence score.
-The old results remain available as fallback, as training signal, or as historical context.
-
-This property follows directly from immutability and the separation of Level 0 (sources) from Level 1 (derivations).
-In systems that update in place, reprocessing is a migration — destructive, irreversible, and operationally risky.
-In RankeDB, reprocessing is an append operation.
-
-> **TODO — Reading for §7.2 (reprocessing vs migration — GraphRAG family comparison):**
->
-> The GraphRAG landscape is the cleanest contrast point for RankeDB's reprocessing property.
->
-> - **Edge et al. (April 2024). "From Local to Global: A Graph RAG Approach to Query-Focused Summarization."** Microsoft Research foundational GraphRAG paper. LLM entity/relation extraction + Leiden community detection + pre-built community summaries. `read.pdf`. **Priority: M.**
-> - **DRIFT Search (Microsoft, October 2024).** Combines global and local retrieval with iterative refinement. Reference: microsoft.com/en-us/research/blog/introducing-drift-search. `read.pdf`. **Priority: L.**
-> - **LazyGraphRAG (Microsoft, November 2024).** Reduces indexing costs to **0.1% of full GraphRAG** via NLP-based extraction instead of LLM summarization. lianpr.com/en/news/detail/3224. `read.pdf`. **Priority: L — cite as efficiency-trades-history example.**
-> - The crucial pattern: **all GraphRAG variants require full reprocessing when the extractor improves.** Contrast explicitly with RankeDB's append semantics.
-
-### 7.3 Toward a CRDT-Compatible Architecture
+### 7.2 Toward a CRDT-Compatible Architecture
 
 An add-only monotonic DAG is provably a Conflict-Free Replicated Data Type (CRDT) — it can be replicated across distributed nodes and always merged into a consistent state without coordination.
 This property, while not exploited in the current single-node design, suggests that RankeDB's architecture could natively support decentralized, coordination-free knowledge management.
@@ -845,15 +827,14 @@ This connection between provenance DAGs and CRDTs appears unexplored in the lite
 > - **DefraDB.** Content-addressable immutable blob store with knowledge graph aspirations. `read_2.pdf §5 table`. **Priority: L.**
 > - **Arweave.** Strictly append-only, no destructive operations, permanent storage. dolthub.com/blog/2022-03-21-immutable-database. `read_2.pdf §5 table`. **Priority: L.**
 
-### 7.4 Design Rationale: What the Architecture Makes Possible
+### 7.3 Design Rationale: What the Architecture Makes Possible
 
 Wu et al. (2025, *LongMemEval*) identify five core long-term memory abilities — **information extraction**, **multi-session reasoning**, **knowledge updates**, **temporal reasoning**, and **abstention** — as the coverage axes for long-term memory systems.
 The companion papers on workers and on chat/memory agents will describe how a pipeline and a consumer stack actually deliver these abilities.
 This section answers the complementary question: *why does the database look the way it does?*
 
-RankeDB does not guarantee any of the five.
-They are delivered by the consumers built on top.
-What the database does is **refuse to foreclose** on them: each architectural choice in §2 and §3 was made to keep each of the abilities **possible** — reachable by *some* consumer strategy — without committing to any particular one.
+RankeDB does not guarantee any of the five — achieving them is the work of consumers built on top, and the database's role is to make that work easier by keeping every ability reachable.
+Each architectural choice in §2 and §3 was made to **refuse to foreclose** on the abilities — reachable by *some* consumer strategy — without committing to any particular one.
 A system that commits to one granularity, one retrieval path, one indexing scheme, or one consolidation policy makes some subset of the abilities cheap and the rest expensive or impossible.
 RankeDB leaves all of them reachable, and leaves the strategy to the consumer.
 
@@ -861,17 +842,15 @@ RankeDB leaves all of them reachable, and leaves the strategy to the consumer.
 
 - **Provenance as substrate (§2.1).** *Keeps abstention and knowledge updates possible.* A consumer can check whether a claim has a provenance chain and refuse to answer if it does not — an architectural precondition for any abstention policy above. And because a superseding node links to what it supersedes, current-vs-historical selection is a queryable property, not something lost in a consolidation pass.
 
-- **Timestamps on every node and edge (§3.1.2, §3.1.3).** *Keeps temporal reasoning possible as a first-class query primitive.* Two temporal dimensions are carried at all times: when the underlying event occurred (from source metadata or explicit in-content mentions) and when the node entered the database (transaction time from the L1 DAG). Questions about *when* have direct answers; a consumer does not have to reconstruct temporal order from implicit cues.
+- **Timestamps on every node and edge (§3.1.2, §3.1.3).** *Keeps temporal reasoning possible as a first-class query primitive.* Two temporal dimensions are carried at all times: when the underlying event occurred (from source metadata or explicit in-content mentions) and when the node entered the graph (transaction time). Questions about *when* have direct answers; a consumer does not have to reconstruct temporal order from implicit cues.
 
 - **Temporal validity on L2 edges (§3.1.3).** *Keeps knowledge updates possible without losing history.* Every L2 edge carries `valid_from` and `valid_until`, not just a creation timestamp. A fact true from February to April coexists with a fact true from April onward; both remain retrievable, and which one answers a given query is a view-configuration choice left to the consumer.
 
 - **Append-only over content-addressable source (§2.2, §3.1.1).** *Keeps knowledge updates and abstention possible at the infrastructure level.* Nothing is ever mutated or overwritten, and the raw source is byte-identical to what was ingested. History cannot be corrupted by "updating" a fact, and a claim that cannot be verified today can be re-verified tomorrow against the unchanged source.
 
-This rationale is a *reading* of the architecture, not a derivation of it.
-RankeDB was not designed by starting from the five abilities and working backward — it was designed from the provenance-as-substrate inversion (§2.1) and the under-prescription principle (§2.3), and the five abilities fall out as consequences.
-But the mapping is clean enough to use as an explanation: when a reader asks *why does the database look the way it does?*, one useful answer is *because each choice keeps one or more of the abilities reachable, without committing to how a consumer reaches them.*
+The five abilities fall out as consequences of the provenance-as-substrate inversion (§2.1) and the under-prescription principle (§2.3), not as design targets chosen in advance.
 
-### 7.5 Outlook: What the Substrate Makes Possible
+### 7.4 Outlook: What the Substrate Makes Possible
 
 RankeDB is scoped as a personal knowledge system; several capabilities that fall outside that scope are nonetheless expressible within the substrate and worth sketching as directions for future work or later papers.
 
