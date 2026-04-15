@@ -120,3 +120,25 @@ This is the concrete operational advantage of provenance + immutability + worker
 
 Strengthens §3.2 (immutability), §3.5 (rebuild guarantee), §5 (workers), and §7.2 (reprocessing without migration). Also a strong contrast point with Karpathy's LLM Wiki — where the equivalent operation is "revert the whole git repo and hope you find the right commit."
 
+---
+
+## Implementation note: storage distribution
+
+L0 and L1 are both in Postgres as *nodes with metadata and edges*. Only the raw blobs of source artifacts go to S3. The split is:
+
+- **Postgres** = the graph (all nodes + all edges, L0 and L1). Content_type, encoding, origin, parent, provenance — everything that makes the graph queryable.
+- **S3** = blob store (raw bytes only, keyed by SHA-256 hash). Referenced by L0 source nodes but not part of graph traversal.
+- **FalkorDB** = the semantic index (L2 projection).
+
+This means "one graph, three regions" is correct architecturally, not just philosophically: the regions span storage boundaries but the graph is one thing. Any node in Postgres can point to its blob in S3 (if it is a source) or to other nodes (if it is derived). The API treats it all as one data structure.
+
+The L0 tree invariant ("each source node has at most one parent") is enforced in Postgres, where the edges actually live. S3 does not need to know about the tree — it is just a content-addressed blob store.
+
+Update §4.1 during next pass to reflect this cleaner mental model:
+
+- **§4.1.1** should describe S3 as *the blob store*, not as Level 0. Blobs referenced by hash.
+- **§4.1.2** should describe Postgres as holding *the entire graph structure* — L0 source nodes with blob references, L1 derived nodes, and all provenance edges between them. The node authority for the whole DAG, not just Level 1.
+- **§4.1.3** FalkorDB remains the L2 semantic graph projection.
+
+The storage split is about *byte payload* (S3 for blobs, Postgres for metadata and structure), not about *logical level*. L0 and L1 share the same Postgres tables because they share the same graph.
+
