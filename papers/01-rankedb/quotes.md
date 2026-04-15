@@ -187,3 +187,42 @@ What goes to S3:
 
 **Supersedes earlier thinking** about ACL-split between ingest workers and backend (where ingest workers had S3 `PutObject`). Under dark storage, *no worker ever touches S3*. The API is the only S3 client.
 
+---
+
+## Implementation note: Postgres as tunable cache over S3
+
+Refinement: content duplication in Postgres is not an architectural commitment but a runtime cache policy. The threshold (what size of blob gets cached inline) is a config knob that can be raised or lowered at runtime without data loss.
+
+**Every node carries three fields related to content:**
+- `content_hash` — points at the blob in S3 (canonical storage)
+- `content_size` — size in bytes, for policy queries
+- `content_cached` — optional inline copy of the blob content, NULL if not cached
+
+**The threshold is cache-fill policy.** Raise from 8 KB to 32 KB: a background pass fills the cache.
+
+```sql
+SELECT id, content_hash, content_size FROM nodes
+WHERE content_size <= 32768 AND content_cached IS NULL;
+```
+
+Lower from 32 KB to 8 KB: a background pass evicts.
+
+```sql
+SELECT id FROM nodes
+WHERE content_size > 8192 AND content_cached IS NOT NULL;
+```
+
+**Properties:**
+- Policy is queryable (SQL shows exactly what is cached).
+- Policy is reversible (raise/lower threshold is just fill/evict; S3 always holds canonical content).
+- Multiple policies can coexist (cache summaries always, cache conversations under 32 KB, never cache transcripts — each a WHERE clause).
+- Per-node pinning is easy (a `pin` flag column). Hot content above threshold can be pinned.
+- Partial cache is safe. API falls back to S3 on miss. No correctness dependency on cache state.
+- Cost/performance tuning is live. Adjust threshold under memory or latency pressure. No downtime.
+
+**Schema suggestion:** split the cache from the main nodes table. A lean `nodes` table with metadata + hash + size. A separate `node_content_cache` table keyed by hash. Two wins:
+1. Cache operations don't cause page I/O or row locking on graph metadata.
+2. Deduplication by hash — if multiple nodes reference the same blob (possible with content-addressing), they share a single cache entry.
+
+**Summary:** S3 is canonical. Postgres is a tunable, queryable cache over S3 (in addition to being the graph). The cache fills and evicts based on a runtime-configurable size threshold. Nothing is lost by changing the threshold because S3 is always the source of truth.
+
