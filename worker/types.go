@@ -1,5 +1,11 @@
 package rankedb
 
+import "github.com/flocko-motion/rankedb/worker/apiclient"
+
+// NodeResponse is the API response for a node.
+// Re-exported so workers don't need to import the generated apiclient package.
+type NodeResponse = apiclient.NodeResponse
+
 // CreateNodeRequest is the JSON body for POST /api/nodes.
 // This is defined here because the generated client doesn't include
 // a request body type for the RawRoute endpoint.
