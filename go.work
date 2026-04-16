@@ -3,5 +3,5 @@ go 1.26.2
 use (
 	./rankedb/go
 	./workers/sdk/go
-	./workers/ingest/bulk
+	./workers/cli/ranke-cli
 )

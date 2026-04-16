@@ -1,10 +1,11 @@
-module github.com/flocko-motion/rankedb-ingest-bulk
+module github.com/flocko-motion/ranke-cli
 
 go 1.26.2
 
 require (
-	github.com/flocko-motion/rankedb-sdk v0.0.0
+	github.com/BurntSushi/toml v1.5.0
 	github.com/spf13/cobra v1.10.2
+	rankedb v0.0.0
 )
 
 require (
@@ -13,10 +14,6 @@ require (
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/oapi-codegen/runtime v1.4.0 // indirect
 	github.com/spf13/pflag v1.0.10 // indirect
-	rankedb v0.0.0 // indirect
 )
 
-replace (
-	github.com/flocko-motion/rankedb-sdk => ../../sdk/go
-	rankedb => ../../../rankedb/go
-)
+replace rankedb => ../../../rankedb/go

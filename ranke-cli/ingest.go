@@ -1,56 +1,51 @@
 package main
 
 import (
-	"context"
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 
-	rankedb "github.com/flocko-motion/rankedb-sdk"
 	"github.com/spf13/cobra"
 )
 
-func main() {
-	rootCmd := &cobra.Command{
-		Use:   "ranke-ingest-bulk <format> <archive-file>",
-		Short: "Upload an archive file to RankeDB as a source/bulk node",
-		Long: `Uploads an archive file (.tar.gz, .tgz, .zip) to RankeDB as an L0 source/bulk root node.
+func ingestCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "ingest <format> <archive-file>",
+		Short: "Upload a bulk archive to RankeDB",
+		Long: `Uploads an archive file (.tar.gz, .tgz, .zip) as an L0 source/bulk root node.
 
 The format argument tells unpack workers what kind of archive this is
 (e.g. google-takeout, whatsapp-export, signal-backup).
 
 Examples:
-  ranke-ingest-bulk google-takeout takeout.tgz
-  ranke-ingest-bulk whatsapp-export chat.zip`,
+  ranke-cli ingest google-takeout takeout.tgz
+  ranke-cli ingest whatsapp-export chat.zip`,
 		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			server, _ := cmd.Flags().GetString("server")
 			origin, _ := cmd.Flags().GetString("origin")
 			dryRun, _ := cmd.Flags().GetBool("dry-run")
-
-			return run(args[1], server, args[0], origin, dryRun)
+			return runIngest(args[0], args[1], origin, dryRun)
 		},
 	}
-
-	rootCmd.Flags().String("server", "http://localhost:7000", "RankeDB server URL")
-	rootCmd.Flags().String("origin", "", "Origin label (default: derived from filename)")
-	rootCmd.Flags().Bool("dry-run", false, "Show what would be uploaded without sending")
-
-	if err := rootCmd.Execute(); err != nil {
-		os.Exit(1)
-	}
+	cmd.Flags().String("origin", "", "Origin label (default: derived from filename)")
+	cmd.Flags().Bool("dry-run", false, "Show what would be uploaded without sending")
+	return cmd
 }
 
-func run(path string, server string, format string, origin string, dryRun bool) error {
+func runIngest(format string, path string, origin string, dryRun bool) error {
 	info, err := os.Stat(path)
 	if err != nil {
 		return fmt.Errorf("stat %s: %w", path, err)
 	}
 	if info.IsDir() {
-		return fmt.Errorf("%s is a directory — this tool expects an archive file (.tar.gz, .tgz, .zip)", path)
+		return fmt.Errorf("%s is a directory — expected an archive file (.tar.gz, .tgz, .zip)", path)
 	}
 
 	const maxSize = 100 * 1024 * 1024 // 100 MB
@@ -85,30 +80,36 @@ func run(path string, server string, format string, origin string, dryRun bool) 
 		return nil
 	}
 
-	fmt.Printf("Server:   %s\n\n", server)
+	fmt.Printf("Server:   %s\n\n", cfg.Server)
 
-	client, err := rankedb.NewClient(server)
-	if err != nil {
-		return fmt.Errorf("create client: %w", err)
-	}
-
-	// L0 roots are idempotent by content hash — the server handles dedup
-	ctx := context.Background()
+	// POST directly — the generated client doesn't support a body for this RawRoute endpoint
 	contentStr := string(content)
-	node, err := client.CreateNode(ctx, rankedb.CreateNodeRequest{
-		Level:          0,
-		ContentClass:   "source",
-		ContentType:    "bulk",
-		EncodingClass:  encodingClass,
-		EncodingFormat: encodingFormat,
-		Content:        &contentStr,
-		Origin:         rankedb.Ptr(origin),
-		OriginalName:   rankedb.Ptr(originalName),
+	reqBody, _ := json.Marshal(map[string]any{
+		"level":           0,
+		"content_class":   "source",
+		"content_type":    "bulk",
+		"encoding_class":  encodingClass,
+		"encoding_format": encodingFormat,
+		"content":         contentStr,
+		"origin":          origin,
+		"original_name":   originalName,
 	})
+
+	resp, err := http.Post(cfg.Server+"/api/nodes", "application/json", bytes.NewReader(reqBody))
 	if err != nil {
-		return fmt.Errorf("create node: %w", err)
+		return fmt.Errorf("POST /api/nodes: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("server returned %d: %s", resp.StatusCode, string(b))
 	}
 
+	var node struct {
+		Id string `json:"id"`
+	}
+	json.NewDecoder(resp.Body).Decode(&node)
 	fmt.Printf("Created node: %s\n", node.Id)
 	return nil
 }
