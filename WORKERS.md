@@ -37,44 +37,51 @@ This creates a `source/worker-config` node with `text/json` encoding. Do this on
 Before creating any edges, register a run:
 
 ```go
-runID, err := client.StartRun(ctx, configID)
+configID, runID, err := client.StartRun(ctx, rankedb.WorkerConfig{
+    Name:    "my-entity-extractor",
+    Version: "0.1",
+    Params:  map[string]string{"model": "gpt-4o"},
+})
 ```
 
-Returns a UUID v7 (time-sortable). All edges created during this run carry this `run_id`, enabling batch operations (inspect, prune).
+Returns a UUID v7 run ID (time-sortable). The client stores both IDs internally — `Queue` and `Done` use them automatically.
 
 ### 3. Query for work
 
-Find nodes that haven't been processed yet:
+Find source nodes that haven't been processed yet:
 
 ```go
 nodes, err := client.Queue(ctx, rankedb.QueueParams{
     ContentClass: "source",
     ContentType:  "conversation",
-    EncodingClass: "text",
-    NotConsumedBy: "classification",
 })
 ```
 
-Returns source nodes that have no `provenance/input` edge from a `classification/*` node.
+By default, filters by the exact config ID from `StartRun` — sources already processed by this config are skipped. Override with `ByWorker` (skip if any config of that worker name processed it) or `ByClass` (skip if any derived node of that class exists) for coarser granularity.
 
 ### 4. Process and write
 
-For each input, create output nodes with provenance:
+For each source, create output nodes and signal completion:
 
 ```go
-nodeID, err := client.CreateNode(ctx, rankedb.CreateNodeRequest{
-    Level:         1,
-    ContentClass:  "classification",
-    ContentType:   "entity",
-    EncodingClass: "text",
-    EncodingFormat: "plain",
-    Content:       "Person: Alice Müller",
-    RunID:         runID,
-    Edges: []rankedb.EdgeSpec{
-        {Type: "provenance/input", TargetNodeID: sourceNodeID},
-        {Type: "provenance/worker", TargetNodeID: configID},
-    },
-})
+for _, source := range nodes {
+    nodeID, err := client.CreateNode(ctx, rankedb.CreateNodeRequest{
+        Level:         1,
+        ContentClass:  "classification",
+        ContentType:   "entity",
+        EncodingClass: "text",
+        EncodingFormat: "plain",
+        Content:       rankedb.Ptr("Person: Alice Müller"),
+        Edges: []rankedb.EdgeSpec{
+            {Type: "provenance/input", TargetNodeID: source.Id, RunID: &runID},
+            {Type: "provenance/worker", TargetNodeID: configID, RunID: &runID},
+        },
+    })
+
+    // Signal done — for bulk sources, creates a processed marker.
+    // For non-bulk sources, no-op (the L1 output is proof enough).
+    client.Done(ctx, &source)
+}
 ```
 
 ### 5. Create relations (L2)

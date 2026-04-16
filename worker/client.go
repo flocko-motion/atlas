@@ -17,6 +17,10 @@ type Client struct {
 	api    *apiclient.ClientWithResponses
 	server string
 	DryRun bool // when true, print write calls instead of sending them
+
+	// Set by StartRun — used by Done() to stamp provenance automatically.
+	configID string
+	runID    string
 }
 
 // NewClient creates a RankeDB worker client for the given server URL.
@@ -65,23 +69,39 @@ func (c *Client) CreateNode(ctx context.Context, req CreateNodeRequest) (*apicli
 
 var dryRunCounter int
 
-// QueueParams defines filters for finding unprocessed nodes.
+// QueueParams defines what source nodes the worker wants.
+// Filtering granularity is determined automatically:
+//   - Default (after StartRun): by_config — skip sources this exact config already processed.
+//   - Override with ByWorker: skip if any config with that worker name processed it.
+//   - Override with ByClass: skip if any derived node of that content class exists.
 type QueueParams struct {
-	ContentClass  string // required: content class to look for (e.g. "source")
-	ContentType   string // required: content type to look for (e.g. "bulk")
-	NotConsumedBy string // content class that should NOT already have derived from this node
-	Limit         int    // max results (default 100)
+	ContentClass string // required: content class to look for (e.g. "source")
+	ContentType  string // required: content type to look for (e.g. "bulk")
+	ByClass      string // override: skip if derived class exists (e.g. "classification")
+	ByWorker     string // override: skip if worker name has processed (e.g. "google-contacts")
+	Limit        int    // max results (default 100)
 }
 
-// Queue returns nodes that haven't been processed yet by a worker of the given output class.
+// Queue returns source nodes that haven't been processed yet.
+// Defaults to by_config filtering using the config from StartRun.
+// Set ByWorker or ByClass to override with coarser granularity.
 func (c *Client) Queue(ctx context.Context, params QueueParams) ([]apiclient.NodeResponse, error) {
 	limit := params.Limit
 	if limit <= 0 {
 		limit = 100
 	}
 
-	query := fmt.Sprintf("/api/queue?content_class=%s&content_type=%s&not_consumed_by=%s&limit=%d",
-		params.ContentClass, params.ContentType, params.NotConsumedBy, limit)
+	query := fmt.Sprintf("/api/queue?content_class=%s&content_type=%s&limit=%d",
+		params.ContentClass, params.ContentType, limit)
+
+	switch {
+	case params.ByClass != "":
+		query += "&by_class=" + params.ByClass
+	case params.ByWorker != "":
+		query += "&by_worker=" + params.ByWorker
+	case c.configID != "":
+		query += "&by_config=" + c.configID
+	}
 
 	resp, err := http.Get(c.server + query)
 	if err != nil {
@@ -103,14 +123,24 @@ func (c *Client) Queue(ctx context.Context, params QueueParams) ([]apiclient.Nod
 	return result.Nodes, nil
 }
 
-// MarkProcessed marks a source node as processed by this worker.
-// Creates a minimal L1 observation/processed node with provenance.
-// The queue will no longer offer this source to the same worker type.
-func (c *Client) MarkProcessed(ctx context.Context, sourceID, configID, runID string, reason string) error {
-	content := reason
-	if content == "" {
-		content = "processed"
+// Done signals that the worker has finished processing a source node.
+// For bulk sources, this creates an observation/processed marker so the
+// queue won't serve the source again. For non-bulk sources, the L1 output
+// nodes already serve as implicit proof of processing — this is a no-op.
+// Requires StartRun to have been called first.
+func (c *Client) Done(ctx context.Context, source *apiclient.NodeResponse) error {
+	if c.runID == "" {
+		return fmt.Errorf("Done called before StartRun")
 	}
+	if source.ContentType != "bulk" {
+		return nil // non-bulk: L1 outputs already mark the source as processed
+	}
+	return c.markProcessed(ctx, source.Id)
+}
+
+// markProcessed creates a minimal L1 observation/processed node with provenance.
+func (c *Client) markProcessed(ctx context.Context, sourceID string) error {
+	content := "processed"
 	_, err := c.CreateNode(ctx, CreateNodeRequest{
 		Level:          1,
 		ContentClass:   "observation",
@@ -119,8 +149,8 @@ func (c *Client) MarkProcessed(ctx context.Context, sourceID, configID, runID st
 		EncodingFormat: "plain",
 		Content:        &content,
 		Edges: []EdgeSpec{
-			{Type: "provenance/input", TargetNodeID: sourceID, RunID: &runID},
-			{Type: "provenance/worker", TargetNodeID: configID, RunID: &runID},
+			{Type: "provenance/input", TargetNodeID: sourceID, RunID: &c.runID},
+			{Type: "provenance/worker", TargetNodeID: c.configID, RunID: &c.runID},
 		},
 	})
 	return err

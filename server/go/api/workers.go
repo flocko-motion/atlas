@@ -24,32 +24,64 @@ func (e GetQueueEndpoint) Handle(ctx context.Context, req GetQueueReq) (GetQueue
 	conn := schemafdb.DB()
 	limit := defaultLimit(req.Limit)
 
-	// Find nodes matching content_class/type that haven't been consumed.
-	// "Consumed" = a node of class $3 has a provenance/input edge pointing at this node.
-	// This catches both real derivations and observation/processed markers.
-	query := `
+	// Three levels of "already processed" filtering, from most lenient to most strict:
+	// 1. by_class:  any derived node of that content class → source is consumed
+	// 2. by_worker: any run by a worker with that name → source is consumed
+	// 3. by_config: any run by that exact config ID → source is consumed
+	// The worker chooses which level to apply.
+	var query string
+	var args []any
+
+	nodeSelect := `
 SELECT n.id, n.level, n.content_class, n.content_type, n.encoding_class, n.encoding_format,
        n.content_sha256, n.content_len, n.content_cached, n.created_at,
        n.artifact_created_at, n.artifact_created_at_blur, n.origin, n.original_name,
        n.valid_from, n.valid_from_blur, n.valid_until, n.valid_until_blur, n.confidence
 FROM nodes n
-WHERE n.content_class = $1 AND n.content_type = $2
+WHERE n.content_class = $1 AND n.content_type = $2`
+
+	switch {
+	case req.ByConfig != nil:
+		query = nodeSelect + `
+  AND NOT EXISTS (
+      SELECT 1 FROM edges e
+      JOIN runs r ON e.run_id = r.id
+      WHERE e.target_node_id = n.id AND e.type = 'provenance/input'
+        AND r.worker_config_id = $3
+  )
+ORDER BY n.created_at ASC LIMIT $4`
+		args = []any{req.ContentClass, req.ContentType, *req.ByConfig, limit}
+
+	case req.ByWorker != nil:
+		query = nodeSelect + `
+  AND NOT EXISTS (
+      SELECT 1 FROM edges e
+      JOIN runs r ON e.run_id = r.id
+      JOIN nodes config ON r.worker_config_id = config.id
+      WHERE e.target_node_id = n.id AND e.type = 'provenance/input'
+        AND config.content_cached::jsonb->>'name' = $3
+  )
+ORDER BY n.created_at ASC LIMIT $4`
+		args = []any{req.ContentClass, req.ContentType, *req.ByWorker, limit}
+
+	case req.ByClass != nil:
+		query = nodeSelect + `
   AND NOT EXISTS (
       SELECT 1 FROM edges e
       JOIN nodes derived ON e.source_node_id = derived.id
-      WHERE e.target_node_id = n.id
-        AND e.type = 'provenance/input'
+      WHERE e.target_node_id = n.id AND e.type = 'provenance/input'
         AND derived.content_class = $3
   )
-ORDER BY n.created_at ASC
-LIMIT $4
-`
-	notConsumedBy := ""
-	if req.NotConsumedBy != nil {
-		notConsumedBy = *req.NotConsumedBy
+ORDER BY n.created_at ASC LIMIT $4`
+		args = []any{req.ContentClass, req.ContentType, *req.ByClass, limit}
+
+	default:
+		query = nodeSelect + `
+ORDER BY n.created_at ASC LIMIT $3`
+		args = []any{req.ContentClass, req.ContentType, limit}
 	}
 
-	rows, err := conn.QueryContext(ctx, query, req.ContentClass, req.ContentType, notConsumedBy, limit)
+	rows, err := conn.QueryContext(ctx, query, args...)
 	if err != nil {
 		return GetQueueResp{Nodes: []NodeResponse{}}, err
 	}
@@ -80,10 +112,12 @@ LIMIT $4
 }
 
 type GetQueueReq struct {
-	ContentClass  string  `query:"content_class"`
-	ContentType   string  `query:"content_type"`
-	NotConsumedBy *string `query:"not_consumed_by"`
-	Limit         int     `query:"limit"`
+	ContentClass string  `query:"content_class"`
+	ContentType  string  `query:"content_type"`
+	ByClass      *string `query:"by_class"`  // lenient: skip if any derived node of this class exists
+	ByWorker     *string `query:"by_worker"` // medium: skip if any run by a worker with this name exists
+	ByConfig     *string `query:"by_config"` // strict: skip if any run by this exact config ID exists
+	Limit        int     `query:"limit"`
 }
 
 type GetQueueResp struct {

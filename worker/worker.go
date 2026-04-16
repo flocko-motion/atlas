@@ -37,6 +37,7 @@ func (c *Client) EnsureWorkerConfig(ctx context.Context, cfg WorkerConfig) (stri
 }
 
 // StartRun registers a worker config and starts a new run, returning both IDs.
+// The IDs are also stored on the client for use by Done().
 func (c *Client) StartRun(ctx context.Context, cfg WorkerConfig) (configID string, runID string, err error) {
 	configID, err = c.EnsureWorkerConfig(ctx, cfg)
 	if err != nil {
@@ -46,5 +47,7 @@ func (c *Client) StartRun(ctx context.Context, cfg WorkerConfig) (configID strin
 	if err != nil {
 		return "", "", err
 	}
+	c.configID = configID
+	c.runID = runID
 	return configID, runID, nil
 }
