@@ -117,16 +117,6 @@ func (c *Client) Queue(ctx context.Context, params QueueParams) ([]apiclient.Nod
 
 	c.log(LogDebug, "GET /api/queue %s/%s filter=%s limit=%d", params.ContentClass, params.ContentType, filterDesc, limit)
 
-	if c.DryRun {
-		nodes := []apiclient.NodeResponse{{
-			Id:           "dry-run-source",
-			ContentClass: params.ContentClass,
-			ContentType:  params.ContentType,
-		}}
-		c.log(LogInfo, "queue: %d %s/%s nodes (dry-run)", len(nodes), params.ContentClass, params.ContentType)
-		return nodes, nil
-	}
-
 	resp, err := http.Get(c.server + query)
 	if err != nil {
 		return nil, fmt.Errorf("GET /api/queue: %w", err)
@@ -185,11 +175,6 @@ func (c *Client) markProcessed(ctx context.Context, sourceID string) error {
 
 // GetNode fetches a node by ID.
 func (c *Client) GetNode(ctx context.Context, id string) (*apiclient.NodeResponse, error) {
-	if c.DryRun {
-		c.log(LogDebug, "[dry-run] GET /api/nodes/%s", id)
-		return &apiclient.NodeResponse{Id: id}, nil
-	}
-
 	resp, err := c.api.GetApiNodesIdWithResponse(ctx, id)
 	if err != nil {
 		return nil, fmt.Errorf("get node %s: %w", id, err)
@@ -202,11 +187,6 @@ func (c *Client) GetNode(ctx context.Context, id string) (*apiclient.NodeRespons
 
 // GetNodeContent downloads the raw content bytes of a node.
 func (c *Client) GetNodeContent(ctx context.Context, id string) ([]byte, error) {
-	if c.DryRun {
-		c.log(LogDebug, "[dry-run] GET /api/nodes/%s/content", id)
-		return []byte("dry-run-content"), nil
-	}
-
 	resp, err := http.Get(c.server + "/api/nodes/" + id + "/content")
 	if err != nil {
 		return nil, fmt.Errorf("get content %s: %w", id, err)

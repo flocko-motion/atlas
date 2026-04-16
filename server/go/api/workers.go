@@ -83,6 +83,7 @@ ORDER BY n.created_at ASC LIMIT $3`
 
 	rows, err := conn.QueryContext(ctx, query, args...)
 	if err != nil {
+		log.Printf("[queue] query error: %v", err)
 		return GetQueueResp{Nodes: []NodeResponse{}}, err
 	}
 	defer rows.Close()
