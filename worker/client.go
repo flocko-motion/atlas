@@ -65,6 +65,67 @@ func (c *Client) CreateNode(ctx context.Context, req CreateNodeRequest) (*apicli
 
 var dryRunCounter int
 
+// QueueParams defines filters for finding unprocessed nodes.
+type QueueParams struct {
+	ContentClass  string // required: content class to look for (e.g. "source")
+	ContentType   string // required: content type to look for (e.g. "bulk")
+	NotConsumedBy string // content class that should NOT already have derived from this node
+	Limit         int    // max results (default 100)
+}
+
+// Queue returns nodes that haven't been processed yet by a worker of the given output class.
+func (c *Client) Queue(ctx context.Context, params QueueParams) ([]apiclient.NodeResponse, error) {
+	limit := params.Limit
+	if limit <= 0 {
+		limit = 100
+	}
+
+	query := fmt.Sprintf("/api/queue?content_class=%s&content_type=%s&not_consumed_by=%s&limit=%d",
+		params.ContentClass, params.ContentType, params.NotConsumedBy, limit)
+
+	resp, err := http.Get(c.server + query)
+	if err != nil {
+		return nil, fmt.Errorf("GET /api/queue: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("GET /api/queue returned %d: %s", resp.StatusCode, string(b))
+	}
+
+	var result struct {
+		Nodes []apiclient.NodeResponse `json:"nodes"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("decode queue response: %w", err)
+	}
+	return result.Nodes, nil
+}
+
+// MarkProcessed marks a source node as processed by this worker.
+// Creates a minimal L1 observation/processed node with provenance.
+// The queue will no longer offer this source to the same worker type.
+func (c *Client) MarkProcessed(ctx context.Context, sourceID, configID, runID string, reason string) error {
+	content := reason
+	if content == "" {
+		content = "processed"
+	}
+	_, err := c.CreateNode(ctx, CreateNodeRequest{
+		Level:          1,
+		ContentClass:   "observation",
+		ContentType:    "processed",
+		EncodingClass:  "text",
+		EncodingFormat: "plain",
+		Content:        &content,
+		Edges: []EdgeSpec{
+			{Type: "provenance/input", TargetNodeID: sourceID, RunID: &runID},
+			{Type: "provenance/worker", TargetNodeID: configID, RunID: &runID},
+		},
+	})
+	return err
+}
+
 // GetNode fetches a node by ID.
 func (c *Client) GetNode(ctx context.Context, id string) (*apiclient.NodeResponse, error) {
 	resp, err := c.api.GetApiNodesIdWithResponse(ctx, id)

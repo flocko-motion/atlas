@@ -24,8 +24,9 @@ func (e GetQueueEndpoint) Handle(ctx context.Context, req GetQueueReq) (GetQueue
 	conn := schemafdb.DB()
 	limit := defaultLimit(req.Limit)
 
-	// Find nodes matching content_class/type that don't have a provenance/input edge
-	// from a node of the specified output class
+	// Find nodes matching content_class/type that haven't been consumed.
+	// "Consumed" = a node of class $3 has a provenance/input edge pointing at this node.
+	// This catches both real derivations and observation/processed markers.
 	query := `
 SELECT n.id, n.level, n.content_class, n.content_type, n.encoding_class, n.encoding_format,
        n.content_sha256, n.content_len, n.content_cached, n.created_at,
@@ -35,10 +36,10 @@ FROM nodes n
 WHERE n.content_class = $1 AND n.content_type = $2
   AND NOT EXISTS (
       SELECT 1 FROM edges e
-      JOIN nodes target ON e.target_node_id = target.id
-      WHERE e.source_node_id = n.id
+      JOIN nodes derived ON e.source_node_id = derived.id
+      WHERE e.target_node_id = n.id
         AND e.type = 'provenance/input'
-        AND target.content_class = $3
+        AND derived.content_class = $3
   )
 ORDER BY n.created_at ASC
 LIMIT $4
