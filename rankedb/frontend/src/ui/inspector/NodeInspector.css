@@ -1,0 +1,123 @@
+/**
+ * @layer ui
+ * @description NodeInspector styles.
+ */
+
+.inspector-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 200px;
+  color: var(--text-muted);
+  font-size: 13px;
+  font-style: italic;
+}
+
+.inspector {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.inspector-level-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #fff;
+}
+
+.inspector-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+}
+
+.inspector-meta-row {
+  display: flex;
+  gap: 8px;
+}
+
+.inspector-meta-key {
+  color: var(--text-muted);
+  width: 130px;
+  flex-shrink: 0;
+  text-align: right;
+}
+
+.inspector-meta-value {
+  color: var(--text-primary);
+  word-break: break-all;
+}
+
+.inspector-content {
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 8px;
+  font-family: monospace;
+  font-size: 12px;
+  white-space: pre-wrap;
+  max-height: 200px;
+  overflow-y: auto;
+  color: var(--text-primary);
+}
+
+.inspector-section-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-top: 4px;
+}
+
+.inspector-edges {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.inspector-edge-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 6px;
+  border-radius: 3px;
+  font-size: 11px;
+  cursor: pointer;
+  color: var(--text-secondary);
+}
+
+.inspector-edge-row:hover {
+  background: var(--bg-hover);
+}
+
+.inspector-edge-type {
+  font-weight: 600;
+  font-size: 10px;
+}
+
+.inspector-edge-dir {
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.inspector-btn {
+  padding: 4px 12px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-primary);
+  font-size: 12px;
+  cursor: pointer;
+  align-self: flex-start;
+}
+
+.inspector-btn:hover {
+  background: var(--bg-hover);
+}

@@ -1,4 +1,4 @@
-package main
+package ingest
 
 import (
 	"bytes"
@@ -12,10 +12,11 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/flocko-motion/ranke-cli/internal/cli"
 	"github.com/spf13/cobra"
 )
 
-func ingestCmd() *cobra.Command {
+func Cmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "ingest <format> <archive-file>",
 		Short: "Upload a bulk archive to RankeDB",
@@ -80,9 +81,8 @@ func runIngest(format string, path string, origin string, dryRun bool) error {
 		return nil
 	}
 
-	fmt.Printf("Server:   %s\n\n", cfg.Server)
+	fmt.Printf("Server:   %s\n\n", cli.Cfg.Server)
 
-	// POST directly — the generated client doesn't support a body for this RawRoute endpoint
 	contentStr := string(content)
 	reqBody, _ := json.Marshal(map[string]any{
 		"level":           0,
@@ -95,7 +95,7 @@ func runIngest(format string, path string, origin string, dryRun bool) error {
 		"original_name":   originalName,
 	})
 
-	resp, err := http.Post(cfg.Server+"/api/nodes", "application/json", bytes.NewReader(reqBody))
+	resp, err := http.Post(cli.Cfg.Server+"/api/nodes", "application/json", bytes.NewReader(reqBody))
 	if err != nil {
 		return fmt.Errorf("POST /api/nodes: %w", err)
 	}

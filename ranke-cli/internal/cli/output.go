@@ -1,4 +1,4 @@
-package main
+package cli
 
 import (
 	"encoding/json"
@@ -10,13 +10,13 @@ import (
 	"rankedb/apiclient"
 )
 
-func printJSON(v any) {
+func PrintJSON(v any) {
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
 	enc.Encode(v)
 }
 
-func printNode(n apiclient.NodeResponse) {
+func PrintNode(n apiclient.NodeResponse) {
 	fmt.Printf("ID:       %s\n", n.Id)
 	fmt.Printf("Level:    %d\n", n.Level)
 	fmt.Printf("Class:    %s/%s\n", n.ContentClass, n.ContentType)
@@ -48,7 +48,7 @@ func printNode(n apiclient.NodeResponse) {
 	}
 }
 
-func printNodeTable(nodes []apiclient.NodeResponse) {
+func PrintNodeTable(nodes []apiclient.NodeResponse) {
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 	fmt.Fprintln(w, "ID\tLEVEL\tCLASS/TYPE\tENCODING\tSIZE\tCREATED")
 	for _, n := range nodes {
@@ -67,7 +67,7 @@ func printNodeTable(nodes []apiclient.NodeResponse) {
 	w.Flush()
 }
 
-func printEdge(e apiclient.EdgeResponse) {
+func PrintEdge(e apiclient.EdgeResponse) {
 	fmt.Printf("%s  %s -> %s  [%s]", e.Id, e.SourceNodeId, e.TargetNodeId, e.Type)
 	if e.Confidence != 0 {
 		fmt.Printf("  conf=%.2f", e.Confidence)
@@ -75,7 +75,7 @@ func printEdge(e apiclient.EdgeResponse) {
 	fmt.Println()
 }
 
-func printEdgeTable(edges []apiclient.EdgeResponse) {
+func PrintEdgeTable(edges []apiclient.EdgeResponse) {
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 	fmt.Fprintln(w, "ID\tSOURCE\tTARGET\tTYPE\tCONF")
 	for _, e := range edges {
@@ -84,29 +84,29 @@ func printEdgeTable(edges []apiclient.EdgeResponse) {
 			conf = fmt.Sprintf("%.2f", e.Confidence)
 		}
 		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
-			shorten(e.Id), shorten(e.SourceNodeId), shorten(e.TargetNodeId), e.Type, conf)
+			Shorten(e.Id), Shorten(e.SourceNodeId), Shorten(e.TargetNodeId), e.Type, conf)
 	}
 	w.Flush()
 }
 
-func printRelation(r apiclient.RelationResponse) {
+func PrintRelation(r apiclient.RelationResponse) {
 	tails := make([]string, len(r.TailEdges))
 	for i, e := range r.TailEdges {
-		tails[i] = shorten(e.SourceNodeId)
+		tails[i] = Shorten(e.SourceNodeId)
 	}
 	heads := make([]string, len(r.HeadEdges))
 	for i, e := range r.HeadEdges {
-		heads[i] = shorten(e.TargetNodeId)
+		heads[i] = Shorten(e.TargetNodeId)
 	}
 	label := r.Node.Content
 	if label == "" {
 		label = r.Node.ContentType
 	}
 	fmt.Printf("[%s] --%s--> [%s]  (%s)\n",
-		strings.Join(tails, ", "), label, strings.Join(heads, ", "), shorten(r.Node.Id))
+		strings.Join(tails, ", "), label, strings.Join(heads, ", "), Shorten(r.Node.Id))
 }
 
-func shorten(id string) string {
+func Shorten(id string) string {
 	if len(id) > 20 {
 		return id[:20] + "..."
 	}

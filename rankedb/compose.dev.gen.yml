@@ -2,6 +2,9 @@
 # Dev overrides: exposes service ports to localhost for local development.
 # Run via: ./schemaf.sh dev
 
+include:
+  - compose/minio.dev.yml
+
 services:
   postgres:
     environment:

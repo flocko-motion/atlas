@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
@@ -43,17 +44,28 @@ func Init(ctx context.Context) error {
 		return fmt.Errorf("S3 client init failed: %w", err)
 	}
 
-	// Verify bucket exists
-	exists, err := client.BucketExists(ctx, bucket)
-	if err != nil {
-		return fmt.Errorf("S3 bucket check failed: %w", err)
+	// Connect to S3 — retry for up to 30s (compose services may still be starting)
+	for attempts := 0; attempts < 15; attempts++ {
+		exists, err := client.BucketExists(ctx, bucket)
+		if err == nil {
+			if !exists {
+				// Auto-create bucket (dev mode, first run)
+				if err := client.MakeBucket(ctx, bucket, minio.MakeBucketOptions{}); err != nil {
+					return fmt.Errorf("S3 bucket creation failed: %w", err)
+				}
+				slog.Info("S3 bucket created", "bucket", bucket)
+			}
+			slog.Info("S3 connected", "endpoint", os.Getenv("S3_ENDPOINT"), "bucket", bucket)
+			return nil
+		}
+		slog.Info("S3 not ready, retrying...", "attempt", attempts+1, "error", err)
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(2 * time.Second):
+		}
 	}
-	if !exists {
-		return fmt.Errorf("S3 bucket %q does not exist", bucket)
-	}
-
-	slog.Info("S3 connected", "endpoint", os.Getenv("S3_ENDPOINT"), "bucket", bucket)
-	return nil
+	return fmt.Errorf("S3 not reachable after 30s")
 }
 
 // HealthCheck verifies S3 is still reachable.

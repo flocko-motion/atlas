@@ -1,0 +1,64 @@
+/**
+ * @layer ui
+ * @description Root layout CSS grid for the application shell.
+ */
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+:root {
+  --bg-primary: #1a1a2e;
+  --bg-secondary: #16213e;
+  --bg-surface: #0f3460;
+  --bg-hover: #1a3a6a;
+  --text-primary: #e0e0e0;
+  --text-secondary: #a0a0b0;
+  --text-muted: #6a6a7a;
+  --border: #2a2a4a;
+  --l0-color: #3b82f6;
+  --l1-color: #f59e0b;
+  --l2-entity-color: #10b981;
+  --l2-relation-color: #a855f7;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, monospace;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  overflow: hidden;
+}
+
+.app-shell {
+  display: grid;
+  grid-template-rows: 48px 1fr 28px;
+  grid-template-columns: 1fr 380px;
+  height: 100vh;
+  width: 100vw;
+}
+
+.app-topbar {
+  grid-column: 1 / -1;
+  grid-row: 1;
+}
+
+.app-main {
+  grid-column: 1;
+  grid-row: 2;
+  overflow: hidden;
+}
+
+.app-side {
+  grid-column: 2;
+  grid-row: 2;
+  border-left: 1px solid var(--border);
+  overflow: hidden;
+}
+
+.app-statusbar {
+  grid-column: 1 / -1;
+  grid-row: 3;
+  border-top: 1px solid var(--border);
+}

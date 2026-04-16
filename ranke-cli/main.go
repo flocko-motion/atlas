@@ -4,27 +4,32 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/flocko-motion/ranke-cli/edge"
+	"github.com/flocko-motion/ranke-cli/entities"
+	"github.com/flocko-motion/ranke-cli/entity"
+	"github.com/flocko-motion/ranke-cli/ingest"
+	"github.com/flocko-motion/ranke-cli/internal/cli"
+	"github.com/flocko-motion/ranke-cli/node"
+	"github.com/flocko-motion/ranke-cli/nodes"
+	"github.com/flocko-motion/ranke-cli/provenance"
+	"github.com/flocko-motion/ranke-cli/relations"
+	"github.com/flocko-motion/ranke-cli/status"
 	"github.com/spf13/cobra"
 )
-
-var cfg Config
 
 func main() {
 	rootCmd := &cobra.Command{
 		Use:   "ranke-cli",
 		Short: "CLI for interacting with a RankeDB server",
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-			var err error
-			cfg, err = loadConfig()
-			if err != nil {
+			if err := cli.LoadConfig(); err != nil {
 				return err
 			}
-			// Allow --server flag to override config
 			if s, _ := cmd.Flags().GetString("server"); s != "" {
-				cfg.Server = s
+				cli.Cfg.Server = s
 			}
-			if cfg.Server == "" {
-				return fmt.Errorf("no server configured — set server in ~/.rankedb/etc/ranke-cli.toml or use --server")
+			if cli.Cfg.Server == "" {
+				return fmt.Errorf("no server configured — set server in %s or use --server", cli.ConfigPath())
 			}
 			return nil
 		},
@@ -33,15 +38,15 @@ func main() {
 	rootCmd.PersistentFlags().String("server", "", "RankeDB server URL (overrides config)")
 
 	rootCmd.AddCommand(
-		statusCmd(),
-		nodesCmd(),
-		nodeCmd(),
-		entitiesCmd(),
-		entityCmd(),
-		relationsCmd(),
-		edgeCmd(),
-		provenanceCmd(),
-		ingestCmd(),
+		status.Cmd(),
+		nodes.Cmd(),
+		node.Cmd(),
+		entities.Cmd(),
+		entity.Cmd(),
+		relations.Cmd(),
+		edge.Cmd(),
+		provenance.Cmd(),
+		ingest.Cmd(),
 	)
 
 	if err := rootCmd.Execute(); err != nil {
