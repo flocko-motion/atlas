@@ -12,7 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/flocko-motion/rankedb/cmd/ranke-cli/internal/cli"
+	"github.com/flocko-motion/rankedb/go/cmd/ranke-cli/internal/cli"
 	"github.com/spf13/cobra"
 )
 

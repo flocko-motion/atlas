@@ -5,7 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 
-	db "github.com/flocko-motion/rankedb/db"
+	db "github.com/flocko-motion/rankedb/go/db"
 
 	schemafdb "github.com/flocko-motion/schemaf/db"
 )

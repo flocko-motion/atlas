@@ -9,7 +9,7 @@ import (
 	"io"
 	"net/http"
 
-	"github.com/flocko-motion/rankedb/apiclient"
+	"github.com/flocko-motion/rankedb/go/apiclient"
 )
 
 // Client wraps the generated API client with worker convenience methods.

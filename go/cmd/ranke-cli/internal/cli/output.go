@@ -7,7 +7,7 @@ import (
 	"strings"
 	"text/tabwriter"
 
-	"github.com/flocko-motion/rankedb/apiclient"
+	"github.com/flocko-motion/rankedb/go/apiclient"
 )
 
 func PrintJSON(v any) {

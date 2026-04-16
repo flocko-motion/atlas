@@ -11,11 +11,11 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/flocko-motion/rankedb/s3"
+	"github.com/flocko-motion/rankedb/go/s3"
 
 	"github.com/google/uuid"
 
-	db "github.com/flocko-motion/rankedb/db"
+	db "github.com/flocko-motion/rankedb/go/db"
 
 	schemafdb "github.com/flocko-motion/schemaf/db"
 )

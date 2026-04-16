@@ -4,9 +4,9 @@ import (
 	"context"
 	"log"
 	"os"
-	"github.com/flocko-motion/rankedb/api"
-	"github.com/flocko-motion/rankedb/db"
-	"github.com/flocko-motion/rankedb/s3"
+	"github.com/flocko-motion/rankedb/go/api"
+	"github.com/flocko-motion/rankedb/go/db"
+	"github.com/flocko-motion/rankedb/go/s3"
 
 	schemafapi "github.com/flocko-motion/schemaf/api"
 	"github.com/flocko-motion/schemaf/schemaf"
