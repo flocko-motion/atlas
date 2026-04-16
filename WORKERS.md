@@ -5,13 +5,13 @@ Workers are external processes that read and write the RankeDB graph through the
 ## SDK
 
 ```
-go get github.com/flocko-motion/rankedb/sdk
+go get github.com/flocko-motion/rankedb/worker
 ```
 
 Import as:
 
 ```go
-import rankedb "github.com/flocko-motion/rankedb/sdk"
+import rankedb "github.com/flocko-motion/rankedb/worker"
 ```
 
 ## Worker lifecycle
