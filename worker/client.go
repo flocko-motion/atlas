@@ -166,8 +166,8 @@ func (c *Client) markProcessed(ctx context.Context, sourceID string) error {
 		EncodingFormat: "plain",
 		Content:        &content,
 		Edges: []EdgeSpec{
-			{Type: "provenance/input", TargetNodeID: sourceID, RunID: &c.runID},
-			{Type: "provenance/worker", TargetNodeID: c.configID, RunID: &c.runID},
+			{Type: "provenance/input", SourceNodeID: sourceID, RunID: &c.runID},
+			{Type: "provenance/worker", SourceNodeID: c.configID, RunID: &c.runID},
 		},
 	})
 	return err

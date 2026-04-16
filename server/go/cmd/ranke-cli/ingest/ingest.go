@@ -3,6 +3,7 @@ package ingest
 import (
 	"bytes"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -83,7 +84,12 @@ func runIngest(format string, path string, origin string, dryRun bool) error {
 
 	fmt.Printf("Server:   %s\n\n", cli.Cfg.Server)
 
-	contentStr := string(content)
+	var contentStr string
+	if encodingClass == "text" {
+		contentStr = string(content)
+	} else {
+		contentStr = base64.StdEncoding.EncodeToString(content)
+	}
 	reqBody, _ := json.Marshal(map[string]any{
 		"level":           0,
 		"content_class":   "source",

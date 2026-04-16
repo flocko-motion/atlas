@@ -46,7 +46,7 @@ WHERE n.content_class = $1 AND n.content_type = $2`
   AND NOT EXISTS (
       SELECT 1 FROM edges e
       JOIN runs r ON e.run_id = r.id
-      WHERE e.target_node_id = n.id AND e.type = 'provenance/input'
+      WHERE e.source_node_id = n.id AND e.type = 'provenance/input'
         AND r.worker_config_id = $3
   )
 ORDER BY n.created_at ASC LIMIT $4`
@@ -58,7 +58,7 @@ ORDER BY n.created_at ASC LIMIT $4`
       SELECT 1 FROM edges e
       JOIN runs r ON e.run_id = r.id
       JOIN nodes config ON r.worker_config_id = config.id
-      WHERE e.target_node_id = n.id AND e.type = 'provenance/input'
+      WHERE e.source_node_id = n.id AND e.type = 'provenance/input'
         AND config.content_cached::jsonb->>'name' = $3
   )
 ORDER BY n.created_at ASC LIMIT $4`
@@ -68,8 +68,8 @@ ORDER BY n.created_at ASC LIMIT $4`
 		query = nodeSelect + `
   AND NOT EXISTS (
       SELECT 1 FROM edges e
-      JOIN nodes derived ON e.source_node_id = derived.id
-      WHERE e.target_node_id = n.id AND e.type = 'provenance/input'
+      JOIN nodes derived ON e.target_node_id = derived.id
+      WHERE e.source_node_id = n.id AND e.type = 'provenance/input'
         AND derived.content_class = $3
   )
 ORDER BY n.created_at ASC LIMIT $4`

@@ -73,8 +73,8 @@ for _, source := range nodes {
         EncodingFormat: "plain",
         Content:       rankedb.Ptr("Person: Alice Müller"),
         Edges: []rankedb.EdgeSpec{
-            {Type: "provenance/input", TargetNodeID: source.Id, RunID: &runID},
-            {Type: "provenance/worker", TargetNodeID: configID, RunID: &runID},
+            {Type: "provenance/input", SourceNodeID: source.Id, RunID: &runID},
+            {Type: "provenance/worker", SourceNodeID: configID, RunID: &runID},
         },
     })
 
@@ -100,8 +100,8 @@ relID, err := client.CreateNode(ctx, rankedb.CreateNodeRequest{
     ValidFrom:     "2000-01-01T00:00:00Z",
     ValidFromBlur: "365d",
     Edges: []rankedb.EdgeSpec{
-        {Type: "provenance/input", TargetNodeID: factNodeID},
-        {Type: "provenance/worker", TargetNodeID: configID},
+        {Type: "provenance/input", SourceNodeID: factNodeID},
+        {Type: "provenance/worker", SourceNodeID: configID},
         {Type: "relation/tail", TargetNodeID: aliceID, Confidence: 1.0},
         {Type: "relation/head", TargetNodeID: bobID, Confidence: 1.0},
     },

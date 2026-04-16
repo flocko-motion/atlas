@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"database/sql"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -67,18 +68,27 @@ func (e CreateNodeEndpoint) HandleRaw(w http.ResponseWriter, r *http.Request) er
 		return nil
 	}
 
-	// Compute content hash
-	contentStr := ""
+	// Resolve content bytes
+	isText := req.EncodingClass == "text"
+	var contentBytes []byte
+
 	if req.Content != nil {
-		contentStr = *req.Content
+		if isText {
+			contentBytes = []byte(*req.Content)
+		} else {
+			// Binary content arrives base64-encoded in the JSON string
+			var err error
+			contentBytes, err = base64.StdEncoding.DecodeString(*req.Content)
+			if err != nil {
+				http.Error(w, "binary content must be base64-encoded: "+err.Error(), http.StatusBadRequest)
+				return nil
+			}
+		}
 	}
-	contentBytes := []byte(contentStr)
+
 	hash := sha256.Sum256(contentBytes)
 	contentSha256 := hex.EncodeToString(hash[:])
 	contentLen := int64(len(contentBytes))
-
-	// Only cache text content inline; binary goes to S3 only
-	isText := req.EncodingClass == "text"
 
 	// Determine node ID
 	var nodeID string
@@ -186,8 +196,8 @@ func (e CreateNodeEndpoint) HandleRaw(w http.ResponseWriter, r *http.Request) er
 		ContentSha256:  contentSha256,
 		ContentLen:     contentLen,
 		ContentCached: sql.NullString{
-			String: contentStr,
-			Valid:  req.Content != nil && isText,
+			String: string(contentBytes),
+			Valid:  isText && len(contentBytes) > 0,
 		},
 		ArtifactCreatedAt: artifactCreatedAt,
 		ArtifactCreatedAtBlur: sql.NullString{
