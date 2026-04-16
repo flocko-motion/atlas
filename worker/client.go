@@ -16,6 +16,7 @@ import (
 type Client struct {
 	api    *apiclient.ClientWithResponses
 	server string
+	DryRun bool // when true, print write calls instead of sending them
 }
 
 // NewClient creates a RankeDB worker client for the given server URL.
@@ -30,10 +31,18 @@ func NewClient(server string) (*Client, error) {
 // CreateNode creates a node with edges in a single atomic transaction.
 // This uses a manual POST because the generated client doesn't support
 // a request body for this endpoint (it's a RawRoute in schemaf).
+// In DryRun mode, prints the request and returns a placeholder response.
 func (c *Client) CreateNode(ctx context.Context, req CreateNodeRequest) (*apiclient.NodeResponse, error) {
 	body, err := json.Marshal(req)
 	if err != nil {
 		return nil, fmt.Errorf("marshal request: %w", err)
+	}
+
+	if c.DryRun {
+		fmt.Printf("[DRY RUN] POST /api/nodes\n%s\n\n", body)
+		id := fmt.Sprintf("dry-run-%d", dryRunCounter)
+		dryRunCounter++
+		return &apiclient.NodeResponse{Id: id}, nil
 	}
 
 	resp, err := http.Post(c.server+"/api/nodes", "application/json", bytes.NewReader(body))
@@ -53,6 +62,8 @@ func (c *Client) CreateNode(ctx context.Context, req CreateNodeRequest) (*apicli
 	}
 	return &node, nil
 }
+
+var dryRunCounter int
 
 // GetNode fetches a node by ID.
 func (c *Client) GetNode(ctx context.Context, id string) (*apiclient.NodeResponse, error) {
@@ -83,7 +94,13 @@ func (c *Client) GetNodeContent(ctx context.Context, id string) ([]byte, error) 
 }
 
 // CreateRun registers a new worker run and returns the run_id.
+// In DryRun mode, returns a placeholder run ID.
 func (c *Client) CreateRun(ctx context.Context, workerConfigID string) (string, error) {
+	if c.DryRun {
+		fmt.Printf("[DRY RUN] POST /api/runs {worker_config_id: %s}\n\n", workerConfigID)
+		return "dry-run-id", nil
+	}
+
 	resp, err := c.api.PostApiRunsWithResponse(ctx, apiclient.CreateRunReq{
 		WorkerConfigId: workerConfigID,
 	})
