@@ -7,8 +7,9 @@
 
 import { store } from './store';
 import { generateMockGraph } from './mock';
+import { fetchNodes, fetchHealth } from './api';
 import type { ViewMode, GraphMode } from './types/graph';
-import type { Node } from './types/nodes';
+import type { Node, Edge } from './types/nodes';
 
 // --- Data loading ---
 
@@ -51,8 +52,43 @@ export function loadMockData(count: number): void {
 }
 
 export async function loadFromApi(): Promise<void> {
-  // Placeholder for Phase 2 — will use core/api.ts wrapper
-  console.warn('loadFromApi not yet implemented');
+  try {
+    const health = await fetchHealth();
+    store.setState({ isConnected: health.status === 'ok' });
+
+    const nodes = await fetchNodes({ limit: 10000 });
+    const nodeMap = new Map(nodes.map((n) => [n.id, n]));
+    const edgeMap = new Map<string, Edge>();
+
+    let minDate: Date | null = null;
+    let maxDate: Date | null = null;
+    const allClasses = new Set<string>();
+    for (const node of nodes) {
+      allClasses.add(node.contentClass);
+      const d = node.artifactCreatedAt ?? node.createdAt;
+      if (!minDate || d < minDate) minDate = d;
+      if (!maxDate || d > maxDate) maxDate = d;
+    }
+
+    store.setState({
+      nodes: nodeMap,
+      edges: edgeMap,
+      nodeCount: nodes.length,
+      edgeCount: edgeMap.size,
+      useMockData: false,
+      timelineDomain: minDate && maxDate ? [minDate, maxDate] : null,
+      timelineViewport: minDate && maxDate ? [minDate, maxDate] : null,
+      filters: {
+        levels: new Set([0, 1, 2]),
+        contentClasses: allClasses,
+        dateRange: { from: null, to: null },
+        minConfidence: -1,
+      },
+    });
+  } catch (err) {
+    console.error('Failed to load from API:', err);
+    store.setState({ isConnected: false });
+  }
 }
 
 // --- Selection (multi-select) ---

@@ -5,6 +5,7 @@
  * @must-not Contain business logic. Import from graph/.
  */
 
+import { useEffect } from 'react';
 import { MantineProvider, createTheme } from '@mantine/core';
 import '@mantine/core/styles.css';
 import '@mantine/dates/styles.css';
@@ -13,6 +14,7 @@ import { TopBar } from './layout/TopBar';
 import { MainPane } from './layout/MainPane';
 import { SidePane } from './layout/SidePane';
 import { StatusBar } from './layout/StatusBar';
+import { loadFromApi } from '../core/actions';
 
 const theme = createTheme({
   primaryColor: 'blue',
@@ -20,6 +22,10 @@ const theme = createTheme({
 });
 
 export default function App() {
+  useEffect(() => {
+    loadFromApi();
+  }, []);
+
   return (
     <MantineProvider theme={theme} defaultColorScheme="dark">
       <div className="app-shell">

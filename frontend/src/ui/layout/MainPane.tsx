@@ -10,6 +10,7 @@ import { useAppStore } from '../../core/hooks';
 import { selectNode, temporalPosition } from '../../core/actions';
 import { nodeColor } from '../../core/colors';
 import type { Node } from '../../core/types/nodes';
+import { GraphView } from '../../graph/GraphView';
 import './MainPane.css';
 
 function formatDate(d: Date): string {
@@ -36,6 +37,7 @@ export function MainPane() {
   const nodes = useAppStore((s) => s.nodes);
   const filters = useAppStore((s) => s.filters);
   const selectedNodeIds = useAppStore((s) => s.selectedNodeIds);
+  const viewMode = useAppStore((s) => s.viewMode);
 
   const sortedNodes = useMemo(() => {
     const result: Node[] = [];
@@ -58,8 +60,16 @@ export function MainPane() {
     return (
       <div className="mainpane">
         <div className="mainpane-empty">
-          No data loaded. Click "Generate" in the top bar to create mock data.
+          No data loaded. Use the Dev tab to generate mock data, or connect to the API.
         </div>
+      </div>
+    );
+  }
+
+  if (viewMode === 'graph') {
+    return (
+      <div className="mainpane">
+        <GraphView />
       </div>
     );
   }

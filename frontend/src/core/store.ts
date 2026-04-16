@@ -49,7 +49,7 @@ export const store = createStore<AppState>()(() => ({
   selectedNodeIds: new Set<string>(),
   selectedEdgeIds: new Set<string>(),
 
-  viewMode: 'timeline' as ViewMode,
+  viewMode: 'graph' as ViewMode,
   graphMode: 'provenance' as GraphMode,
 
   filters: {
