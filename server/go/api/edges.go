@@ -82,3 +82,52 @@ type EdgeProvenanceResp struct {
 	RunID            string        `json:"run_id,omitempty"`
 	WorkerConfigNode *NodeResponse `json:"worker_config_node,omitempty"`
 }
+
+// ─── List edges ──────────────────────────────────────────────────────────────
+
+// ListEdgesEndpoint returns edges with optional type filter.
+type ListEdgesEndpoint struct{}
+
+func (e ListEdgesEndpoint) Method() string { return "GET" }
+func (e ListEdgesEndpoint) Path() string   { return "/api/edges" }
+func (e ListEdgesEndpoint) Auth() bool     { return false }
+func (e ListEdgesEndpoint) Handle(ctx context.Context, req ListEdgesReq) (ListEdgesResp, error) {
+	queries := db.New(schemafdb.DB())
+	limit := defaultLimit(req.Limit)
+	offset := int32(req.Offset)
+
+	var dbEdges []db.Edge
+	var err error
+
+	if req.Type != nil && *req.Type != "" {
+		dbEdges, err = queries.ListEdgesByType(ctx, db.ListEdgesByTypeParams{
+			Type:   *req.Type,
+			Limit:  limit,
+			Offset: offset,
+		})
+	} else {
+		dbEdges, err = queries.ListEdges(ctx, db.ListEdgesParams{
+			Limit:  limit,
+			Offset: offset,
+		})
+	}
+	if err != nil {
+		return ListEdgesResp{Edges: []EdgeResponse{}}, err
+	}
+
+	edges := make([]EdgeResponse, 0, len(dbEdges))
+	for _, edge := range dbEdges {
+		edges = append(edges, edgeToResponse(edge))
+	}
+	return ListEdgesResp{Edges: edges}, nil
+}
+
+type ListEdgesReq struct {
+	Type   *string `query:"type"`
+	Limit  int     `query:"limit"`
+	Offset int     `query:"offset"`
+}
+
+type ListEdgesResp struct {
+	Edges []EdgeResponse `json:"edges"`
+}

@@ -44,37 +44,6 @@
   background: var(--border);
 }
 
-.topbar-mock {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
-  color: var(--text-secondary);
-}
-
-.topbar-mock input[type="number"] {
-  width: 72px;
-  padding: 2px 6px;
-  background: var(--bg-primary);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  color: var(--text-primary);
-  font-size: 13px;
-}
-
-.topbar-mock button {
-  padding: 2px 10px;
-  background: var(--bg-surface);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  color: var(--text-primary);
-  font-size: 13px;
-  cursor: pointer;
-}
-
-.topbar-mock button:hover {
-  background: var(--bg-hover);
-}
 
 .topbar-views {
   display: flex;

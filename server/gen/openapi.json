@@ -265,6 +265,39 @@
         ],
         "type": "object"
       },
+      "ListEdgesReq": {
+        "properties": {
+          "limit": {
+            "type": "integer"
+          },
+          "offset": {
+            "type": "integer"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "limit",
+          "offset"
+        ],
+        "type": "object"
+      },
+      "ListEdgesResp": {
+        "properties": {
+          "edges": {
+            "items": {
+              "$ref": "#/components/schemas/EdgeResponse"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "edges"
+        ],
+        "type": "object"
+      },
       "ListNodesReq": {
         "properties": {
           "contentClass": {
@@ -524,6 +557,30 @@
   },
   "openapi": "3.0.0",
   "paths": {
+    "/api/edges": {
+      "get": {
+        "operationId": "getApiEdges",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListEdgesResp"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "description": "Bad Request"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Returns edges with optional type filter."
+      }
+    },
     "/api/edges/{id}": {
       "get": {
         "operationId": "getApiEdgesId",

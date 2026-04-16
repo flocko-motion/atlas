@@ -93,6 +93,16 @@ export interface GetQueueResp {
   nodes: NodeResponse[];
 }
 
+export interface ListEdgesReq {
+  limit: number;
+  offset: number;
+  type: string;
+}
+
+export interface ListEdgesResp {
+  edges: EdgeResponse[];
+}
+
 export interface ListNodesReq {
   contentClass: string;
   contentType: string;
@@ -423,6 +433,21 @@ export class Api<
   SecurityDataType extends unknown,
 > extends HttpClient<SecurityDataType> {
   api = {
+    /**
+     * No description
+     *
+     * @name GetApiEdges
+     * @summary Returns edges with optional type filter.
+     * @request GET:/api/edges
+     */
+    getApiEdges: (params: RequestParams = {}) =>
+      this.request<ListEdgesResp, void>({
+        path: `/api/edges`,
+        method: "GET",
+        format: "json",
+        ...params,
+      }),
+
     /**
      * No description
      *

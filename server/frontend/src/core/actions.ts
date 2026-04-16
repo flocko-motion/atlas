@@ -7,9 +7,9 @@
 
 import { store } from './store';
 import { generateMockGraph } from './mock';
-import { fetchNodes, fetchHealth } from './api';
+import { fetchNodes, fetchEdges, fetchHealth } from './api';
 import type { ViewMode, GraphMode } from './types/graph';
-import type { Node, Edge } from './types/nodes';
+import type { Node } from './types/nodes';
 
 // --- Data loading ---
 
@@ -56,9 +56,12 @@ export async function loadFromApi(): Promise<void> {
     const health = await fetchHealth();
     store.setState({ isConnected: health.status === 'ok' });
 
-    const nodes = await fetchNodes({ limit: 10000 });
+    const [nodes, edges] = await Promise.all([
+      fetchNodes({ limit: 10000 }),
+      fetchEdges({ limit: 50000 }),
+    ]);
     const nodeMap = new Map(nodes.map((n) => [n.id, n]));
-    const edgeMap = new Map<string, Edge>();
+    const edgeMap = new Map(edges.map((e) => [e.id, e]));
 
     let minDate: Date | null = null;
     let maxDate: Date | null = null;
