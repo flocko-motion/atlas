@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"log"
 
-	rankedb "github.com/flocko-motion/rankedb/sdk"
+	rankedb "github.com/flocko-motion/rankedb/worker"
 )
 
 func main() {
