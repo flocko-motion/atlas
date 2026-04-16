@@ -1,0 +1,105 @@
+/**
+ * @layer graph
+ * @description Cytoscape graph renderer. Subscribes to core state, dispatches core actions.
+ * @depends core/hooks, core/actions, core/selectors, graph/elements, graph/stylesheet
+ * @must-not Contain business logic. Manage application state beyond layout/zoom.
+ */
+
+import { useEffect, useRef, useMemo } from 'react';
+import cytoscape from 'cytoscape';
+import { useAppStore } from '../core/hooks';
+import { selectNode, clearSelection } from '../core/actions';
+import { filteredNodes } from '../core/selectors';
+import { toElements } from './elements';
+import { graphStylesheet } from './stylesheet';
+import './GraphView.css';
+
+export function GraphView() {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const cyRef = useRef<cytoscape.Core | null>(null);
+  const nodes = useAppStore((s) => s.nodes);
+  const edges = useAppStore((s) => s.edges);
+  const selectedNodeIds = useAppStore((s) => s.selectedNodeIds);
+
+  const elements = useMemo(() => {
+    const visibleNodes = filteredNodes();
+    const visibleNodeIds = new Set(visibleNodes.map((n) => n.id));
+    const visibleEdges = Array.from(edges.values()).filter(
+      (e) => visibleNodeIds.has(e.sourceNodeId) && visibleNodeIds.has(e.targetNodeId)
+    );
+    return toElements(visibleNodes, visibleEdges);
+  }, [nodes, edges]);
+
+  // Initialize Cytoscape
+  useEffect(() => {
+    if (!containerRef.current) return;
+
+    const cy = cytoscape({
+      container: containerRef.current,
+      elements: [],
+      style: graphStylesheet,
+      layout: { name: 'cose', animate: false },
+      minZoom: 0.1,
+      maxZoom: 5,
+    });
+
+    // Node click → select in core
+    cy.on('tap', 'node', (evt) => {
+      const id = evt.target.id();
+      selectNode(id, evt.originalEvent.shiftKey);
+    });
+
+    // Background click → clear selection
+    cy.on('tap', (evt) => {
+      if (evt.target === cy) {
+        clearSelection();
+      }
+    });
+
+    cyRef.current = cy;
+
+    return () => {
+      cy.destroy();
+      cyRef.current = null;
+    };
+  }, []);
+
+  // Update elements when data changes
+  useEffect(() => {
+    const cy = cyRef.current;
+    if (!cy) return;
+
+    cy.elements().remove();
+    if (elements.length > 0) {
+      cy.add(elements);
+      cy.layout({
+        name: 'cose',
+        animate: false,
+      }).run();
+      cy.fit(undefined, 30);
+    }
+  }, [elements]);
+
+  // Sync selection from core → Cytoscape
+  useEffect(() => {
+    const cy = cyRef.current;
+    if (!cy) return;
+
+    cy.elements().unselect();
+    for (const id of selectedNodeIds) {
+      const el = cy.getElementById(id);
+      if (el.length > 0) el.select();
+    }
+  }, [selectedNodeIds]);
+
+  return (
+    <div className="graph-view">
+      <div className="graph-container" ref={containerRef} />
+      {nodes.size === 0 && (
+        <div className="graph-empty">
+          No data loaded.
+        </div>
+      )}
+    </div>
+  );
+}

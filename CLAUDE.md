@@ -2,13 +2,13 @@
 
 ## Project overview
 
-RankeDB is a provenance-first knowledge graph. Paper 1 (`papers/01-rankedb/rankedb.md`) defines the architecture; `rankedb/` contains the Go server, Postgres schema, and API.
+RankeDB is a provenance-first knowledge graph. Paper 1 (`papers/01-rankedb.md`) defines the architecture; `` contains the Go server, Postgres schema, and API.
 
 ## Framework: schemaf
 
 This project uses **schemaf** for all infrastructure (server, database, Docker, codegen, frontend embedding).
 
-**Before implementing anything in `rankedb/`, you MUST read the schemaf documentation:**
+**Before implementing anything in ``, you MUST read the schemaf documentation:**
 
 - README: https://raw.githubusercontent.com/flocko-motion/schemaf/refs/heads/main/README.md
 - EXTEND: https://raw.githubusercontent.com/flocko-motion/schemaf/refs/heads/main/EXTEND.md
@@ -36,7 +36,7 @@ Key schemaf rules:
 
 ## Key files
 
-- `papers/01-rankedb/rankedb.md` — the paper (architecture spec)
-- `rankedb/API-DRAFT.md` — API endpoint design
-- `rankedb/go/db/migrations/0001_graph.sql` — canonical Postgres schema
-- `rankedb/go/main.go` — server entry point
+- `papers/01-rankedb.md` — the paper (architecture spec)
+- `API-DRAFT.md` — API endpoint design
+- `go/db/migrations/0001_graph.sql` — canonical Postgres schema
+- `go/main.go` — server entry point
