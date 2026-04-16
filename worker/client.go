@@ -66,6 +66,22 @@ func (c *Client) GetNode(ctx context.Context, id string) (*apiclient.NodeRespons
 	return resp.JSON200, nil
 }
 
+// GetNodeContent downloads the raw content bytes of a node.
+func (c *Client) GetNodeContent(ctx context.Context, id string) ([]byte, error) {
+	resp, err := http.Get(c.server + "/api/nodes/" + id + "/content")
+	if err != nil {
+		return nil, fmt.Errorf("get content %s: %w", id, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("get content %s: status %d: %s", id, resp.StatusCode, string(b))
+	}
+
+	return io.ReadAll(resp.Body)
+}
+
 // CreateRun registers a new worker run and returns the run_id.
 func (c *Client) CreateRun(ctx context.Context, workerConfigID string) (string, error) {
 	resp, err := c.api.PostApiRunsWithResponse(ctx, apiclient.CreateRunReq{
