@@ -372,10 +372,8 @@ Three further design decisions follow from treating the graph as a single data s
 ### 4.1 RankeDB
 
 The API exposes RankeDB as a single graph, enforcing the invariants described in §3.
-Beneath the API, the graph lives canonically in Postgres — all nodes, all edges, across all three levels.
+Beneath the API, the graph lives in Postgres — all nodes, all edges, across all three levels.
 The raw bytes of each node's content live in an S3-compatible object store, keyed by content hash; Postgres stores the hash and, for nodes eligible under a caching policy, a copy of the content inline.
-FalkorDB runs as a secondary index over the Level 2 region of the graph, optimized for associative traversal — it is rebuildable from Postgres and is an optimization, not a source of truth.
-A minimal deployment could be implemented without FalkorDB, losing only traversal speed.
 
 The API is the sole interface.
 There is no query language in the traditional sense — the API *is* the query language, imperative rather than declarative.
@@ -384,10 +382,10 @@ Storage-engine choices and caching policies are invisible to API consumers.
 
 The reference deployment runs as a Docker Compose stack on a single host.
 
-#### 4.1.1 Postgres: the Provenance DAG
+#### 4.1.1 Postgres: the graph
 
-Postgres holds the node metadata for Level 0 and Level 1 and the edges between them.
-Every ingested source and every derivation has a row here, keyed by `id`, carrying the fields defined in §3.1 plus its `content_sha256` hash.
+Postgres holds the full graph — all node metadata across all three levels and the edges between them.
+Every ingested source, every derivation, and every projected entity or relation has a row here, keyed by `id`, carrying the fields defined in §3.1 plus its `content_sha256` hash.
 
 Postgres also holds:
 
@@ -395,18 +393,7 @@ Postgres also holds:
 - Full-text search indices via `tsvector` over cached text.
 - Vector embeddings via pgvector, in a separate table with a foreign key to the content; embeddings are regenerable at any time with a different model or chunking strategy.
 
-#### 4.1.2 FalkorDB: a traversal index over Level 2
-
-FalkorDB is a secondary index over the Level 2 region of the graph: it mirrors the entity and relation nodes plus their semantic edges (head/tail) from Postgres, optimized for the kind of associative traversal FalkorDB is built for.
-Like Postgres, FalkorDB may cache small content inline under the same policy; full content always lives in S3.
-FalkorDB is rebuildable from Postgres — a dropped FalkorDB instance is a rebuild event, not a data loss event.
-A prototype deployment could omit FalkorDB entirely; traversal queries would then fall back to slower SQL traversals in Postgres.
-
-A concrete case where FalkorDB earns its keep: a query like *"return everyone I've exchanged emails with, every person those people in turn know, and every organization those people are connected to"* is a single Cypher pattern in FalkorDB.
-The equivalent in SQL is a recursive CTE over the edges table or an application-level breadth-first search — correct, but slow as hops grow.
-For traversal-heavy workloads the speedup is order-of-magnitude.
-
-#### 4.1.3 S3: content blob storage
+#### 4.1.2 S3: content blob storage
 
 The reference deployment uses any S3-compatible object store — S3 is a de-facto standard whose API surface has been stable since 2006, and migration between providers (Backblaze B2, Cloudflare R2, AWS, MinIO, others) is a single `rclone sync` away.
 Blobs are stored keyed by their content hash (SHA-256 in this deployment).
@@ -416,23 +403,22 @@ We use the object store as *dark storage*.
 Two choices combine to create this discipline: we route all access through the API (workers never hold S3 credentials and cannot reach blobs directly), and we deliberately do not list or enumerate bucket contents.
 The API resolves every blob read from Postgres's `content_sha256` field; a compromised worker cannot enumerate what is stored, and Postgres remains the sole discovery path for what lives in the graph.
 
-#### 4.1.4 The API contract
+#### 4.1.3 The API contract
 
 The API is the only way into RankeDB. It enforces two core properties:
 
 - **Immutability.** Once written, a node is never modified. Corrections are new nodes that reference what they correct.
 - **Provenance.** Every derivation has edges to its inputs, including the tool node that produced it — no derivation exists in the graph without them. What a worker records about itself (its configuration, version, parameters) is up to the application; storing these as graph nodes is recommended so that worker details themselves gain provenance. The guarantee is naturally scoped to what was given to the system — it cannot attest to what was never recorded.
 
-#### 4.1.5 Forking and backups
+#### 4.1.4 Forking and backups
 
 Content-addressed blob storage makes forks of the database cheap.
-Because blobs are addressed by their content hash, two or more graph instances can share a single blob pool without copying bytes — only the graph (Postgres and FalkorDB) needs to be duplicated, and the graph is small relative to the blobs.
+Because blobs are addressed by their content hash, two or more graph instances can share a single blob pool without copying bytes — only Postgres needs to be duplicated, and the graph is small relative to the blobs.
 This enables experimentation, A/B testing of worker pipelines, and isolated development against production data.
 
 A full backup has two parts.
-Postgres holds the canonical graph — all node metadata, edges, indices, and cached content.
+Postgres holds the full graph — all node metadata, edges, indices, and cached content.
 The S3 blob pool holds the raw bytes of every node's content, keyed by content hash.
-FalkorDB is not backed up separately; it is regenerated from Postgres on demand.
 From a Postgres backup together with the blob pool, the system's state is fully recoverable; regrowing cognitive and semantic content from an L0-only backup is subject to the limits of reprocessing (§2.3).
 
 ### 4.2 RankeDB Explorer
