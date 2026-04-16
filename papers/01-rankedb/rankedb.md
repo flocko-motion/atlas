@@ -148,7 +148,10 @@ Agents can compete, cooperate, or coexist; each picks its level without negotiat
 
 The design principle: **capture well now with as few decisions as possible that lead to future constraints.** §2.1 says *provenance is the content.* §2.2 says *do not throw knowledge away.* §2.3 says *do not commit to a single way of using what you kept.* Together these describe a database that prioritizes headroom over optimization for today: usable now, slower than a system tuned specifically for current agent capabilities, but built to get better as those capabilities evolve — faster processing, larger working volumes, richer reasoning over long chains of derivation.
 
-The companion papers on workers and on memory agents will describe *one way* to populate and consume this base using today's tools.
+An honest assessment: building the infrastructure described in this paper is the straightforward part.
+The hard problem is what runs on top — how workers bootstrap a useful Semantic Graph from raw sources, how entity resolution scales in a personal-knowledge context, how consumers navigate the accumulated history.
+Those are the subjects of the companion papers, and the test of whether this substrate was worth building.
+The companion papers will describe *one way* to populate and consume this base using today's tools.
 Neither will be the final answer; both will be first-generation consumers of a substrate designed to outlive them.
 
 ## 3. Architecture
@@ -159,7 +162,7 @@ Each level, viewed in isolation, has its own characteristic shape:
 - **Level 0 — Sources.** A forest: every source has at most one parent (a format conversion, a normalization, an item extracted from a bulk container), and each originally ingested artifact is a root.
 - **Level 1 — Cognition.** Nodes in Level 1 may combine multiple inputs from Levels 0 and 1.
   Together with Level 0, Level 1 forms the **Provenance DAG**: the strictly acyclic backbone of the system.
-- **Level 2 — Semantics.** A **Semantic Graph**: a property graph of entities and relations with cyclic semantic connections, optimized for associative retrieval. Each relation in Level 2 is described by a relationship node with a *head* edge and a *tail* edge pointing to an entity node. Every node in Level 2 is pointed at from Level 1 nodes, documenting the provenance of each atomic piece of knowledge.
+- **Level 2 — Semantics.** A **Semantic Graph**: a property graph of entities and relations with cyclic semantic connections, optimized for associative retrieval. Each relation in Level 2 is described by a relationship node with zero or more *head* and *tail* edges to entity nodes — supporting ambiguity and structural unknowns. Every node in Level 2 is pointed at from Level 1 nodes, documenting the provenance of each atomic piece of knowledge.
   Level 2 is populated by projection workers reading Level 1, not a deterministic function of it (§3.1.3).
 
 The level names (Sources, Cognition, Semantics) classify their content; the functional terms (the Provenance DAG at L0+L1, the Semantic Graph at L2) describe their role in the system.
@@ -307,7 +310,7 @@ It is a first-class level of the graph, populated by projection workers that rea
 If Level 2 were merely a deterministic view of Level 1, it would be redundant; it exists as its own level because associative traversal over the full Provenance DAG would be prohibitively expensive at scale, and because the cognitive work of deciding *what* to project is itself a worker activity.
 
 Every node in Level 2 has a provenance edge back into Level 1.
-Relation nodes additionally carry a `head` edge and a `tail` edge to the entity nodes they connect.
+Relation nodes carry zero or more `head` edges and zero or more `tail` edges to the entity nodes they connect — each with its own `confidence` and provenance.
 Semantic connections within Level 2 may be cyclic; the acyclicity of the Provenance DAG applies only to provenance edges (§3.2).
 
 Relation labels are natural-language strings, not formal ontology predicates.
@@ -342,7 +345,7 @@ Like every other L2 relation, aliases carry confidence and compete with other cl
 **Invariants:**
 
 - Every L2 node has a provenance edge to Level 1.
-- Every relation node has exactly one `head` edge and one `tail` edge, each to an entity node.
+- A relation node has zero or more `head` edges and zero or more `tail` edges, each to an entity node. Zero heads or tails are valid — they represent structural unknowns ("X has a brother, but we don't know who"). Multiple heads at different confidence model ambiguity ("X's brother is either A or B").
 - Relation labels are natural-language; no formal ontology is required.
 - Provenance edges are not stored in Level 2 — they belong to the Provenance DAG.
 
@@ -360,8 +363,15 @@ This is what enables administrative operations such as purging a defective run �
 
 **Semantic edges** live in Level 2 only and connect reified relation nodes to their head and tail entities.
 They are permitted to form cycles, because the Semantic Graph is a graph of associations, not a graph of derivation.
+Each semantic edge carries its own `confidence` and `run_id`, because head/tail connections are created individually — a worker that identifies a new candidate head for an existing relation writes a new edge, not a new relation node.
 
-Three further design decisions follow from treating the graph as a single data structure with two edge classes:
+**Provenance can target edges, not just nodes.**
+We reified relations as nodes so that provenance can point at them.
+But the head/tail edges of a relation node are also created artifacts — a fact node in Level 1 may be the reason a particular head-edge exists.
+Rather than reifying head-edges as nodes (which would recurse the same problem one level deeper), we accept that provenance edges can target both nodes and edges.
+In Postgres this is trivially a foreign key to the edges table; at the concept level it is a pragmatic relaxation of graph-theoretic purity in service of what provenance actually needs: the ability to say *who created this*.
+
+Three further design decisions follow from treating the graph as a single data structure:
 
 - **Parent relationships are edges.** An L0 node derived from another L0 node (a format conversion, a normalization, an item unpacked from a bulk container) is connected by a provenance edge, not a `parent` field. Denormalization may appear at the storage layer as an optimization; it is not part of the node format.
 - **Tool and tool config are themselves nodes.** A worker's identity and configuration at a point in time are stored as L1 nodes (content type `tool/*`), which a derivation links to as an input. This gives tool configurations their own provenance and lineage, and puts "which tool produced this?" in the same graph as everything else.
