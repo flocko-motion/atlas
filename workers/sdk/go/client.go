@@ -1,40 +1,42 @@
-// Package rankedb provides a Go client for the RankeDB API.
+// Package rankedb provides a worker-friendly wrapper around the generated RankeDB API client.
 package rankedb
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
-	"time"
+
+	"rankedb/apiclient"
 )
 
-// Client talks to a RankeDB server.
+// Client wraps the generated API client with worker convenience methods.
 type Client struct {
-	BaseURL    string
-	HTTPClient *http.Client
+	api    *apiclient.ClientWithResponses
+	server string
 }
 
-// NewClient creates a RankeDB client for the given server URL.
-func NewClient(baseURL string) *Client {
-	return &Client{
-		BaseURL: baseURL,
-		HTTPClient: &http.Client{
-			Timeout: 30 * time.Second,
-		},
+// NewClient creates a RankeDB worker client for the given server URL.
+func NewClient(server string) (*Client, error) {
+	api, err := apiclient.NewClientWithResponses(server)
+	if err != nil {
+		return nil, fmt.Errorf("create api client: %w", err)
 	}
+	return &Client{api: api, server: server}, nil
 }
 
 // CreateNode creates a node with edges in a single atomic transaction.
-func (c *Client) CreateNode(req CreateNodeRequest) (*NodeResponse, error) {
+// This uses a manual POST because the generated client doesn't support
+// a request body for this endpoint (it's a RawRoute in schemaf).
+func (c *Client) CreateNode(ctx context.Context, req CreateNodeRequest) (*apiclient.NodeResponse, error) {
 	body, err := json.Marshal(req)
 	if err != nil {
 		return nil, fmt.Errorf("marshal request: %w", err)
 	}
 
-	resp, err := c.HTTPClient.Post(c.BaseURL+"/api/nodes", "application/json", bytes.NewReader(body))
+	resp, err := http.Post(c.server+"/api/nodes", "application/json", bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("POST /api/nodes: %w", err)
 	}
@@ -45,7 +47,7 @@ func (c *Client) CreateNode(req CreateNodeRequest) (*NodeResponse, error) {
 		return nil, fmt.Errorf("POST /api/nodes returned %d: %s", resp.StatusCode, string(b))
 	}
 
-	var node NodeResponse
+	var node apiclient.NodeResponse
 	if err := json.NewDecoder(resp.Body).Decode(&node); err != nil {
 		return nil, fmt.Errorf("decode response: %w", err)
 	}
@@ -53,89 +55,27 @@ func (c *Client) CreateNode(req CreateNodeRequest) (*NodeResponse, error) {
 }
 
 // GetNode fetches a node by ID.
-func (c *Client) GetNode(id string) (*NodeResponse, error) {
-	resp, err := c.HTTPClient.Get(c.BaseURL + "/api/nodes/" + url.PathEscape(id))
+func (c *Client) GetNode(ctx context.Context, id string) (*apiclient.NodeResponse, error) {
+	resp, err := c.api.GetApiNodesIdWithResponse(ctx, id)
 	if err != nil {
-		return nil, fmt.Errorf("GET /api/nodes/%s: %w", id, err)
+		return nil, fmt.Errorf("get node %s: %w", id, err)
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode == http.StatusNotFound {
-		return nil, nil
+	if resp.JSON200 == nil {
+		return nil, fmt.Errorf("get node %s: status %d", id, resp.StatusCode())
 	}
-	if resp.StatusCode != http.StatusOK {
-		b, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("GET /api/nodes/%s returned %d: %s", id, resp.StatusCode, string(b))
-	}
-
-	var node NodeResponse
-	if err := json.NewDecoder(resp.Body).Decode(&node); err != nil {
-		return nil, fmt.Errorf("decode response: %w", err)
-	}
-	return &node, nil
+	return resp.JSON200, nil
 }
 
 // CreateRun registers a new worker run and returns the run_id.
-func (c *Client) CreateRun(workerConfigID string) (string, error) {
-	body, err := json.Marshal(map[string]string{"worker_config_id": workerConfigID})
+func (c *Client) CreateRun(ctx context.Context, workerConfigID string) (string, error) {
+	resp, err := c.api.PostApiRunsWithResponse(ctx, apiclient.CreateRunReq{
+		WorkerConfigId: workerConfigID,
+	})
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("create run: %w", err)
 	}
-
-	resp, err := c.HTTPClient.Post(c.BaseURL+"/api/runs", "application/json", bytes.NewReader(body))
-	if err != nil {
-		return "", fmt.Errorf("POST /api/runs: %w", err)
+	if resp.JSON200 == nil {
+		return "", fmt.Errorf("create run: status %d", resp.StatusCode())
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		b, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("POST /api/runs returned %d: %s", resp.StatusCode, string(b))
-	}
-
-	var result struct {
-		RunID string `json:"run_id"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return "", fmt.Errorf("decode response: %w", err)
-	}
-	return result.RunID, nil
-}
-
-// ListNodes lists nodes with optional filters.
-func (c *Client) ListNodes(params ListNodesParams) ([]NodeResponse, error) {
-	u, _ := url.Parse(c.BaseURL + "/api/nodes")
-	q := u.Query()
-	if params.ContentClass != "" {
-		q.Set("content_class", params.ContentClass)
-	}
-	if params.ContentType != "" {
-		q.Set("content_type", params.ContentType)
-	}
-	if params.ContentSha256 != "" {
-		q.Set("content_sha256", params.ContentSha256)
-	}
-	if params.Limit > 0 {
-		q.Set("limit", fmt.Sprintf("%d", params.Limit))
-	}
-	u.RawQuery = q.Encode()
-
-	resp, err := c.HTTPClient.Get(u.String())
-	if err != nil {
-		return nil, fmt.Errorf("GET /api/nodes: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		b, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("GET /api/nodes returned %d: %s", resp.StatusCode, string(b))
-	}
-
-	var result struct {
-		Nodes []NodeResponse `json:"nodes"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("decode response: %w", err)
-	}
-	return result.Nodes, nil
+	return resp.JSON200.RunId, nil
 }

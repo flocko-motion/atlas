@@ -4,9 +4,6 @@
 
 name: rankedb
 
-include:
-  - compose/minio.yml
-
 services:
   postgres:
     image: postgres:17-alpine
@@ -32,6 +29,9 @@ services:
       context: .
       dockerfile: Dockerfile.gen
     container_name: rankedb-backend
+    env_file:
+      - path: ${HOME}/.rankedb/etc/env
+        required: false
     environment:
       SCHEMAF_ENV: docker
       DB_PASS: ${DB_PASS:-dev}
@@ -43,6 +43,8 @@ services:
       BACKUP_PATH: ${BACKUP_PATH:-/backups}
       BACKUP_RETAIN: ${BACKUP_RETAIN:-30}
       BACKUP_HOUR: ${BACKUP_HOUR:-3}
+    ports:
+      - "8000:8000"
     secrets:
       - backup_key
     networks:

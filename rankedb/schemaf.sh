@@ -23,8 +23,7 @@ cd "$PROJECT_ROOT"
 # Load project name from schemaf.toml.
 PROJECT_NAME=$(grep '^name' schemaf.toml | cut -d= -f2 | tr -d ' "')
 
-# Load secrets from ~/.<name>/dev/etc/env.
-# Only sets variables that are not already in the environment.
+# Load env vars from a file. Only sets variables not already in the environment.
 _schemaf_load_env() {
   local envfile="$1"
   [ -f "$envfile" ] || return 0
@@ -37,7 +36,13 @@ _schemaf_load_env() {
     fi
   done < "$envfile"
 }
-_schemaf_load_env "$HOME/.${PROJECT_NAME}/dev/etc/env"
+
+# Load the right env file based on command: "run" uses prod, everything else uses dev.
+if [ "${1:-}" = "run" ]; then
+  _schemaf_load_env "$HOME/.${PROJECT_NAME}/etc/env"
+else
+  _schemaf_load_env "$HOME/.${PROJECT_NAME}/dev/etc/env"
+fi
 
 SCHEMAF_VER=$(cd go && go list -m -f '{{.Version}}' github.com/flocko-motion/schemaf 2>/dev/null || echo "unknown")
 echo "schemaf ${SCHEMAF_VER} — ${PROJECT_NAME}"
@@ -74,6 +79,7 @@ case "$CMD" in
       echo "compose.gen.yml not found — running codegen first..."
       go run github.com/flocko-motion/schemaf/cmd/schemaf codegen all
     fi
+    go run github.com/flocko-motion/schemaf/cmd/schemaf prerun
     exec docker compose -f compose.gen.yml up "$@"
     ;;
   dev)
@@ -100,6 +106,16 @@ case "$CMD" in
       echo "Already at ${NEW_VER}"
     else
       echo "Upgraded: $OLD_VER → $NEW_VER"
+    fi
+    # Sync framework docs from the installed module into docs/schemaf/.
+    SCHEMAF_DIR=$(cd go && go list -m -f '{{.Dir}}' github.com/flocko-motion/schemaf 2>/dev/null || true)
+    if [ -n "$SCHEMAF_DIR" ] && [ -d "$SCHEMAF_DIR" ]; then
+      mkdir -p docs/schemaf
+      rm -f docs/schemaf/CLAUDE.md
+      for f in README.md INSTALL.md EXTEND.md; do
+        [ -f "$SCHEMAF_DIR/$f" ] && rm -f "docs/schemaf/$f" && cp "$SCHEMAF_DIR/$f" "docs/schemaf/$f" && chmod 644 "docs/schemaf/$f"
+      done
+      echo "Synced framework docs → docs/schemaf/"
     fi
     echo "Running codegen..."
     exec go run github.com/flocko-motion/schemaf/cmd/schemaf codegen all

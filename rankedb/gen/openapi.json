@@ -519,6 +519,16 @@
     "/api/edges/{id}": {
       "get": {
         "operationId": "getApiEdgesId",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -543,6 +553,16 @@
     "/api/edges/{id}/provenance": {
       "get": {
         "operationId": "getApiEdgesIdProvenance",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -591,6 +611,16 @@
     "/api/entities/{id}": {
       "get": {
         "operationId": "getApiEntitiesId",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -615,6 +645,16 @@
     "/api/entities/{id}/timeline": {
       "get": {
         "operationId": "getApiEntitiesIdTimeline",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -679,6 +719,16 @@
     "/api/nodes/{id}": {
       "get": {
         "operationId": "getApiNodesId",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -704,6 +754,16 @@
       "get": {
         "description": "Serves from Postgres cache if available, otherwise proxies from S3.",
         "operationId": "getApiNodesIdContent",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "OK"
@@ -721,6 +781,16 @@
     "/api/nodes/{id}/edges": {
       "get": {
         "operationId": "getApiNodesIdEdges",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -745,6 +815,16 @@
     "/api/nodes/{id}/provenance": {
       "get": {
         "operationId": "getApiNodesIdProvenance",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {

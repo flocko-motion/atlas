@@ -2,18 +2,18 @@
 
 ## Project overview
 
-RankeDB is a provenance-first knowledge graph. Paper 1 (`papers/01-rankedb/rankedb.md`) defines the architecture; `implementation/` contains the Go server, Postgres schema, and API.
+RankeDB is a provenance-first knowledge graph. Paper 1 (`papers/01-rankedb/rankedb.md`) defines the architecture; `rankedb/` contains the Go server, Postgres schema, and API.
 
 ## Framework: schemaf
 
 This project uses **schemaf** for all infrastructure (server, database, Docker, codegen, frontend embedding).
 
-**Before implementing anything in `implementation/`, you MUST read the schemaf documentation:**
+**Before implementing anything in `rankedb/`, you MUST read the schemaf documentation:**
 
 - README: https://raw.githubusercontent.com/flocko-motion/schemaf/refs/heads/main/README.md
 - EXTEND: https://raw.githubusercontent.com/flocko-motion/schemaf/refs/heads/main/EXTEND.md
 
-**Golden rule:** "If it can be generalized, put it in schemaf. If arbitrary decisions need to be made: decide them normatively in the framework. Leave only creative decisions to the application layer." — If you find yourself building infrastructure that any schemaf project would need (DB reset, new compose patterns, codegen improvements), file a GitHub issue at `flocko-motion/schemaf` instead of solving it locally.
+**Golden rule:** "If it can be generalized, put it in schemaf. If arbitrary decisions need to be made: decide them normatively in the framework. Leave only creative decisions to the application layer." — If you find yourself building infrastructure that any schemaf project would need, file a GitHub issue at `flocko-motion/schemaf` instead of solving it locally. **Never work around a schemaf gap with a local hack.** The schemaf team typically provides fixes within minutes — wait for the proper fix rather than accumulating technical debt.
 
 Key schemaf rules:
 - **Normative structure:** Go code in `go/`, migrations in `go/db/migrations/`, queries in `go/db/queries/`, API handlers in `go/api/`, frontend in `frontend/`.
@@ -37,6 +37,6 @@ Key schemaf rules:
 ## Key files
 
 - `papers/01-rankedb/rankedb.md` — the paper (architecture spec)
-- `implementation/API-DRAFT.md` — API endpoint design
-- `implementation/go/db/migrations/0001_graph.sql` — canonical Postgres schema
-- `implementation/go/main.go` — server entry point
+- `rankedb/API-DRAFT.md` — API endpoint design
+- `rankedb/go/db/migrations/0001_graph.sql` — canonical Postgres schema
+- `rankedb/go/main.go` — server entry point

@@ -1,6 +1,7 @@
 package rankedb
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 )
@@ -12,21 +13,17 @@ type WorkerConfig struct {
 	Params  map[string]string `json:"params,omitempty"`
 }
 
-// EnsureWorkerConfig creates a worker/config node (L1) if it doesn't already exist,
-// and returns its node ID. The node is idempotent by content — same config JSON
-// produces the same sha256, and L0-style dedup catches it.
-//
-// Note: worker/config nodes are special — they're L1 nodes that serve as roots
-// (no provenance edges). The server allows this for content_class=worker.
-func (c *Client) EnsureWorkerConfig(cfg WorkerConfig) (string, error) {
+// EnsureWorkerConfig creates a worker/config node if it doesn't already exist,
+// and returns its node ID. Idempotent by content hash.
+func (c *Client) EnsureWorkerConfig(ctx context.Context, cfg WorkerConfig) (string, error) {
 	content, err := json.Marshal(cfg)
 	if err != nil {
 		return "", fmt.Errorf("marshal worker config: %w", err)
 	}
 	contentStr := string(content)
 
-	resp, err := c.CreateNode(CreateNodeRequest{
-		Level:          0, // treated as root (idempotent by hash)
+	resp, err := c.CreateNode(ctx, CreateNodeRequest{
+		Level:          0,
 		ContentClass:   "worker",
 		ContentType:    "config",
 		EncodingClass:  "text",
@@ -36,16 +33,16 @@ func (c *Client) EnsureWorkerConfig(cfg WorkerConfig) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("create worker config node: %w", err)
 	}
-	return resp.ID, nil
+	return resp.Id, nil
 }
 
 // StartRun registers a worker config and starts a new run, returning both IDs.
-func (c *Client) StartRun(cfg WorkerConfig) (configID string, runID string, err error) {
-	configID, err = c.EnsureWorkerConfig(cfg)
+func (c *Client) StartRun(ctx context.Context, cfg WorkerConfig) (configID string, runID string, err error) {
+	configID, err = c.EnsureWorkerConfig(ctx, cfg)
 	if err != nil {
 		return "", "", err
 	}
-	runID, err = c.CreateRun(configID)
+	runID, err = c.CreateRun(ctx, configID)
 	if err != nil {
 		return "", "", err
 	}
