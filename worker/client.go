@@ -14,9 +14,10 @@ import (
 
 // Client wraps the generated API client with worker convenience methods.
 type Client struct {
-	api    *apiclient.ClientWithResponses
-	server string
-	DryRun bool // when true, print write calls instead of sending them
+	api       *apiclient.ClientWithResponses
+	server    string
+	DryRun    bool     // when true, print write calls instead of sending them
+	Verbosity LogLevel // LogInfo (default), LogDebug, or LogWarn
 
 	// Set by StartRun — used by Done() to stamp provenance automatically.
 	configID string
@@ -29,7 +30,9 @@ func NewClient(server string) (*Client, error) {
 	if err != nil {
 		return nil, fmt.Errorf("create api client: %w", err)
 	}
-	return &Client{api: api, server: server}, nil
+	c := &Client{api: api, server: server, Verbosity: LogInfo}
+	c.log(LogInfo, "connected to %s", server)
+	return c, nil
 }
 
 // CreateNode creates a node with edges in a single atomic transaction.
@@ -43,11 +46,14 @@ func (c *Client) CreateNode(ctx context.Context, req CreateNodeRequest) (*apicli
 	}
 
 	if c.DryRun {
-		fmt.Printf("[DRY RUN] POST /api/nodes\n%s\n\n", body)
+		c.log(LogInfo, "[dry-run] POST /api/nodes %s/%s", req.ContentClass, req.ContentType)
+		c.log(LogDebug, "[dry-run] %s", body)
 		id := fmt.Sprintf("dry-run-%d", dryRunCounter)
 		dryRunCounter++
 		return &apiclient.NodeResponse{Id: id}, nil
 	}
+
+	c.log(LogDebug, "POST /api/nodes %s/%s (%d bytes)", req.ContentClass, req.ContentType, len(body))
 
 	resp, err := http.Post(c.server+"/api/nodes", "application/json", bytes.NewReader(body))
 	if err != nil {
@@ -64,6 +70,7 @@ func (c *Client) CreateNode(ctx context.Context, req CreateNodeRequest) (*apicli
 	if err := json.NewDecoder(resp.Body).Decode(&node); err != nil {
 		return nil, fmt.Errorf("decode response: %w", err)
 	}
+	c.log(LogDebug, "created node %s (%s/%s)", node.Id, req.ContentClass, req.ContentType)
 	return &node, nil
 }
 
@@ -94,14 +101,22 @@ func (c *Client) Queue(ctx context.Context, params QueueParams) ([]apiclient.Nod
 	query := fmt.Sprintf("/api/queue?content_class=%s&content_type=%s&limit=%d",
 		params.ContentClass, params.ContentType, limit)
 
+	var filterDesc string
 	switch {
 	case params.ByClass != "":
 		query += "&by_class=" + params.ByClass
+		filterDesc = "by_class=" + params.ByClass
 	case params.ByWorker != "":
 		query += "&by_worker=" + params.ByWorker
+		filterDesc = "by_worker=" + params.ByWorker
 	case c.configID != "":
 		query += "&by_config=" + c.configID
+		filterDesc = "by_config"
+	default:
+		filterDesc = "none"
 	}
+
+	c.log(LogDebug, "GET /api/queue %s/%s filter=%s limit=%d", params.ContentClass, params.ContentType, filterDesc, limit)
 
 	resp, err := http.Get(c.server + query)
 	if err != nil {
@@ -120,6 +135,7 @@ func (c *Client) Queue(ctx context.Context, params QueueParams) ([]apiclient.Nod
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return nil, fmt.Errorf("decode queue response: %w", err)
 	}
+	c.log(LogInfo, "queue: %d %s/%s nodes to process", len(result.Nodes), params.ContentClass, params.ContentType)
 	return result.Nodes, nil
 }
 
@@ -133,8 +149,10 @@ func (c *Client) Done(ctx context.Context, source *apiclient.NodeResponse) error
 		return fmt.Errorf("Done called before StartRun")
 	}
 	if source.ContentType != "bulk" {
-		return nil // non-bulk: L1 outputs already mark the source as processed
+		c.log(LogDebug, "done with %s (non-bulk, no marker needed)", source.Id)
+		return nil
 	}
+	c.log(LogInfo, "marking bulk source %s as processed", source.Id)
 	return c.markProcessed(ctx, source.Id)
 }
 
@@ -188,7 +206,7 @@ func (c *Client) GetNodeContent(ctx context.Context, id string) ([]byte, error) 
 // In DryRun mode, returns a placeholder run ID.
 func (c *Client) CreateRun(ctx context.Context, workerConfigID string) (string, error) {
 	if c.DryRun {
-		fmt.Printf("[DRY RUN] POST /api/runs {worker_config_id: %s}\n\n", workerConfigID)
+		c.log(LogInfo, "[dry-run] create run for config %s", workerConfigID)
 		return "dry-run-id", nil
 	}
 
@@ -201,5 +219,6 @@ func (c *Client) CreateRun(ctx context.Context, workerConfigID string) (string, 
 	if resp.JSON200 == nil {
 		return "", fmt.Errorf("create run: status %d", resp.StatusCode())
 	}
+	c.log(LogDebug, "created run %s", resp.JSON200.RunId)
 	return resp.JSON200.RunId, nil
 }

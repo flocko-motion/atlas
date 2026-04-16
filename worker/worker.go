@@ -16,6 +16,7 @@ type WorkerConfig struct {
 // EnsureWorkerConfig creates a worker/config node if it doesn't already exist,
 // and returns its node ID. Idempotent by content hash.
 func (c *Client) EnsureWorkerConfig(ctx context.Context, cfg WorkerConfig) (string, error) {
+	c.log(LogDebug, "ensuring worker config %s v%s", cfg.Name, cfg.Version)
 	content, err := json.Marshal(cfg)
 	if err != nil {
 		return "", fmt.Errorf("marshal worker config: %w", err)
@@ -33,12 +34,14 @@ func (c *Client) EnsureWorkerConfig(ctx context.Context, cfg WorkerConfig) (stri
 	if err != nil {
 		return "", fmt.Errorf("create worker config node: %w", err)
 	}
+	c.log(LogDebug, "worker config node: %s", resp.Id)
 	return resp.Id, nil
 }
 
 // StartRun registers a worker config and starts a new run, returning both IDs.
 // The IDs are also stored on the client for use by Done().
 func (c *Client) StartRun(ctx context.Context, cfg WorkerConfig) (configID string, runID string, err error) {
+	c.log(LogInfo, "starting run for %s v%s", cfg.Name, cfg.Version)
 	configID, err = c.EnsureWorkerConfig(ctx, cfg)
 	if err != nil {
 		return "", "", err
@@ -49,5 +52,6 @@ func (c *Client) StartRun(ctx context.Context, cfg WorkerConfig) (configID strin
 	}
 	c.configID = configID
 	c.runID = runID
+	c.log(LogInfo, "run started (config=%s run=%s)", configID, runID)
 	return configID, runID, nil
 }
