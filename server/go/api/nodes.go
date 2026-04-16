@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"time"
 
@@ -336,24 +337,26 @@ func (e GetNodeContentEndpoint) HandleRaw(w http.ResponseWriter, r *http.Request
 		return err
 	}
 
-	if !node.ContentCached.Valid {
-		http.Error(w, "content not cached and S3 not yet implemented", http.StatusNotFound)
+	// Serve from Postgres cache if available, otherwise proxy from S3
+	if node.ContentCached.Valid {
+		contentType := node.EncodingClass + "/" + node.EncodingFormat
+		w.Header().Set("Content-Type", contentType)
+		w.WriteHeader(http.StatusOK)
+		_, err = w.Write([]byte(node.ContentCached.String))
+		return err
+	}
+
+	reader, size, contentType, err := s3.Get(r.Context(), node.ContentSha256)
+	if err != nil {
+		http.Error(w, "content not found in S3: "+err.Error(), http.StatusNotFound)
 		return nil
 	}
-
-	// Set content type based on encoding
-	contentType := "application/octet-stream"
-	if node.EncodingFormat == "json" || node.EncodingFormat == "json-ld" {
-		contentType = "application/json"
-	} else if node.EncodingFormat == "text" || node.EncodingFormat == "plain" {
-		contentType = "text/plain"
-	} else if node.EncodingFormat == "html" {
-		contentType = "text/html"
-	}
+	defer reader.Close()
 
 	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Content-Length", fmt.Sprintf("%d", size))
 	w.WriteHeader(http.StatusOK)
-	_, err = w.Write([]byte(node.ContentCached.String))
+	_, err = io.Copy(w, reader)
 	return err
 }
 
