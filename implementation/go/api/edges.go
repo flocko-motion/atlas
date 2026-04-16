@@ -1,27 +1,14 @@
 package api
 
-import "context"
+import (
+	"context"
+	"database/sql"
+	"fmt"
 
-// ─── Create edge ──────────────────────────────────────────────────────────────
+	db "rankedb/db"
 
-// CreateEdgeEndpoint creates a provenance or semantic edge.
-type CreateEdgeEndpoint struct{}
-
-func (e CreateEdgeEndpoint) Method() string { return "POST" }
-func (e CreateEdgeEndpoint) Path() string   { return "/api/edges" }
-func (e CreateEdgeEndpoint) Auth() bool     { return false }
-func (e CreateEdgeEndpoint) Handle(ctx context.Context, req CreateEdgeReq) (EdgeResponse, error) {
-	// TODO: validate edge type, insert provenance or semantic edge
-	return EdgeResponse{}, errNotImplemented
-}
-
-type CreateEdgeReq struct {
-	SourceID   string   `json:"source_id"`
-	TargetID   string   `json:"target_id"`
-	Type       string   `json:"type"`       // provenance, head, tail
-	RunID      string   `json:"run_id"`
-	Confidence *float64 `json:"confidence"`
-}
+	schemafdb "github.com/flocko-motion/schemaf/db"
+)
 
 // ─── Get edge ─────────────────────────────────────────────────────────────────
 
@@ -32,8 +19,15 @@ func (e GetEdgeEndpoint) Method() string { return "GET" }
 func (e GetEdgeEndpoint) Path() string   { return "/api/edges/{id}" }
 func (e GetEdgeEndpoint) Auth() bool     { return false }
 func (e GetEdgeEndpoint) Handle(ctx context.Context, req GetEdgeReq) (EdgeResponse, error) {
-	// TODO: look up edge by ID in both tables
-	return EdgeResponse{}, errNotImplemented
+	queries := db.New(schemafdb.DB())
+	edge, err := queries.GetEdge(ctx, req.ID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return EdgeResponse{}, fmt.Errorf("edge not found: %s", req.ID)
+		}
+		return EdgeResponse{}, err
+	}
+	return edgeToResponse(edge), nil
 }
 
 type GetEdgeReq struct {
@@ -42,15 +36,41 @@ type GetEdgeReq struct {
 
 // ─── Get edge provenance ──────────────────────────────────────────────────────
 
-// GetEdgeProvenanceEndpoint returns the provenance context of an edge: run, tool node, config.
+// GetEdgeProvenanceEndpoint returns the provenance context of an edge: run, worker config node.
 type GetEdgeProvenanceEndpoint struct{}
 
 func (e GetEdgeProvenanceEndpoint) Method() string { return "GET" }
 func (e GetEdgeProvenanceEndpoint) Path() string   { return "/api/edges/{id}/provenance" }
 func (e GetEdgeProvenanceEndpoint) Auth() bool     { return false }
 func (e GetEdgeProvenanceEndpoint) Handle(ctx context.Context, req GetEdgeProvenanceReq) (EdgeProvenanceResp, error) {
-	// TODO: follow run_id to tool node
-	return EdgeProvenanceResp{}, errNotImplemented
+	queries := db.New(schemafdb.DB())
+
+	edge, err := queries.GetEdge(ctx, req.ID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return EdgeProvenanceResp{}, fmt.Errorf("edge not found: %s", req.ID)
+		}
+		return EdgeProvenanceResp{}, err
+	}
+
+	resp := EdgeProvenanceResp{
+		Edge: edgeToResponse(edge),
+	}
+
+	// If the edge has a run_id, fetch the run and worker config node
+	if edge.RunID.Valid {
+		resp.RunID = edge.RunID.String
+		run, err := queries.GetRun(ctx, edge.RunID.String)
+		if err == nil {
+			workerNode, err := queries.GetNode(ctx, run.WorkerConfigID)
+			if err == nil {
+				nr := nodeToResponse(workerNode)
+				resp.WorkerConfigNode = &nr
+			}
+		}
+	}
+
+	return resp, nil
 }
 
 type GetEdgeProvenanceReq struct {
@@ -58,7 +78,7 @@ type GetEdgeProvenanceReq struct {
 }
 
 type EdgeProvenanceResp struct {
-	Edge     EdgeResponse  `json:"edge"`
-	RunID    string        `json:"run_id"`
-	ToolNode *NodeResponse `json:"tool_node,omitempty"`
+	Edge             EdgeResponse  `json:"edge"`
+	RunID            string        `json:"run_id,omitempty"`
+	WorkerConfigNode *NodeResponse `json:"worker_config_node,omitempty"`
 }

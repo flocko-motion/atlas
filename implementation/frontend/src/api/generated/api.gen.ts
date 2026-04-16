@@ -10,16 +10,8 @@
  * ---------------------------------------------------------------
  */
 
-export interface CreateEdgeReq {
-  confidence: number;
-  run_id: string;
-  source_id: string;
-  target_id: string;
-  type: string;
-}
-
 export interface CreateRunReq {
-  tool_node_id: string;
+  worker_config_id: string;
 }
 
 export interface CreateRunResp {
@@ -29,19 +21,16 @@ export interface CreateRunResp {
 export interface EdgeProvenanceResp {
   edge: EdgeResponse;
   run_id: string;
-  tool_node: NodeResponse;
+  worker_config_node: NodeResponse;
 }
 
 export interface EdgeResponse {
   confidence: number;
   created_at: string;
-  head_id: string;
   id: string;
-  relation_id: string;
   run_id: string;
-  source_id: string;
-  tail_id: string;
-  target_id: string;
+  source_node_id: string;
+  target_node_id: string;
   type: string;
 }
 
@@ -92,8 +81,8 @@ export interface GetNodeReq {
 }
 
 export interface GetQueueReq {
+  contentClass: string;
   contentType: string;
-  encoding: string;
   limit: number;
   notConsumedBy: string;
 }
@@ -103,14 +92,11 @@ export interface GetQueueResp {
 }
 
 export interface ListNodesReq {
+  contentClass: string;
   contentType: string;
-  createdAfter: string;
-  createdBefore: string;
-  encoding: string;
   level: number;
   limit: number;
   offset: number;
-  runID: string;
 }
 
 export interface ListNodesResp {
@@ -133,11 +119,13 @@ export interface NodeResponse {
   artifact_created_at_blur: string;
   confidence: number;
   content: string;
+  content_class: string;
   content_len: number;
   content_sha256: string;
   content_type: string;
   created_at: string;
-  encoding: string;
+  encoding_class: string;
+  encoding_format: string;
   id: string;
   level: number;
   origin: string;
@@ -148,23 +136,15 @@ export interface NodeResponse {
   valid_until_blur: string;
 }
 
-export interface ProvenanceEdgeResponse {
-  created_at: string;
-  id: string;
-  run_id: string;
-  source_id: string;
-  target_id: string;
-}
-
 export interface ProvenanceSubgraph {
-  edges: ProvenanceEdgeResponse[];
+  edges: EdgeResponse[];
   nodes: NodeResponse[];
 }
 
 export interface RelationResponse {
-  head_id: string;
+  head_edges: EdgeResponse[];
   node: NodeResponse;
-  tail_id: string;
+  tail_edges: EdgeResponse[];
 }
 
 export interface SearchEntitiesReq {
@@ -444,23 +424,6 @@ export class Api<
     /**
      * No description
      *
-     * @name PostApiEdges
-     * @summary Creates a provenance or semantic edge.
-     * @request POST:/api/edges
-     */
-    postApiEdges: (data: CreateEdgeReq, params: RequestParams = {}) =>
-      this.request<EdgeResponse, void>({
-        path: `/api/edges`,
-        method: "POST",
-        body: data,
-        type: ContentType.Json,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * No description
-     *
      * @name GetApiEdgesId
      * @summary Returns an edge by ID with its metadata.
      * @request GET:/api/edges/{id}
@@ -477,7 +440,7 @@ export class Api<
      * No description
      *
      * @name GetApiEdgesIdProvenance
-     * @summary Returns the provenance context of an edge: run, tool node, config.
+     * @summary Returns the provenance context of an edge: run, worker config node.
      * @request GET:/api/edges/{id}/provenance
      */
     getApiEdgesIdProvenance: (id: string, params: RequestParams = {}) =>

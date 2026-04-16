@@ -4,6 +4,9 @@
 
 name: rankedb
 
+include:
+  - compose/minio.yml
+
 services:
   postgres:
     image: postgres:17-alpine

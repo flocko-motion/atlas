@@ -239,3 +239,84 @@ func (q *Queries) InsertEdge(ctx context.Context, arg InsertEdgeParams) error {
 	)
 	return err
 }
+
+const listEdges = `-- name: ListEdges :many
+SELECT id, source_node_id, target_node_id, type, confidence, run_id, created_at FROM edges ORDER BY created_at DESC LIMIT $1 OFFSET $2
+`
+
+type ListEdgesParams struct {
+	Limit  int32 `json:"limit"`
+	Offset int32 `json:"offset"`
+}
+
+func (q *Queries) ListEdges(ctx context.Context, arg ListEdgesParams) ([]Edge, error) {
+	rows, err := q.db.QueryContext(ctx, listEdges, arg.Limit, arg.Offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Edge
+	for rows.Next() {
+		var i Edge
+		if err := rows.Scan(
+			&i.ID,
+			&i.SourceNodeID,
+			&i.TargetNodeID,
+			&i.Type,
+			&i.Confidence,
+			&i.RunID,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listEdgesByType = `-- name: ListEdgesByType :many
+SELECT id, source_node_id, target_node_id, type, confidence, run_id, created_at FROM edges WHERE type = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3
+`
+
+type ListEdgesByTypeParams struct {
+	Type   string `json:"type"`
+	Limit  int32  `json:"limit"`
+	Offset int32  `json:"offset"`
+}
+
+func (q *Queries) ListEdgesByType(ctx context.Context, arg ListEdgesByTypeParams) ([]Edge, error) {
+	rows, err := q.db.QueryContext(ctx, listEdgesByType, arg.Type, arg.Limit, arg.Offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Edge
+	for rows.Next() {
+		var i Edge
+		if err := rows.Scan(
+			&i.ID,
+			&i.SourceNodeID,
+			&i.TargetNodeID,
+			&i.Type,
+			&i.Confidence,
+			&i.RunID,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}

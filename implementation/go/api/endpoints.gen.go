@@ -8,11 +8,10 @@ import schemafapi "github.com/flocko-motion/schemaf/api"
 // Provider registers all API endpoints with the schemaf framework.
 // Wire up in go/main.go: app.AddApi(api.Provider)
 func Provider() {
-	schemafapi.Register(schemafapi.NewRoute[CreateEdgeReq, EdgeResponse](CreateEdgeEndpoint{}, "Creates a provenance or semantic edge.", ""))
 	schemafapi.Register(schemafapi.NewRawRoute(CreateNodeEndpoint{}, "Creates a graph node.", "L0 sources use multipart form upload; L1/L2 use JSON.\nL0 root creation is idempotent via content_sha256."))
 	schemafapi.Register(schemafapi.NewRoute[CreateRunReq, CreateRunResp](CreateRunEndpoint{}, "Registers a new worker run and returns a run_id.", ""))
 	schemafapi.Register(schemafapi.NewRoute[GetEdgeReq, EdgeResponse](GetEdgeEndpoint{}, "Returns an edge by ID with its metadata.", ""))
-	schemafapi.Register(schemafapi.NewRoute[GetEdgeProvenanceReq, EdgeProvenanceResp](GetEdgeProvenanceEndpoint{}, "Returns the provenance context of an edge: run, tool node, config.", ""))
+	schemafapi.Register(schemafapi.NewRoute[GetEdgeProvenanceReq, EdgeProvenanceResp](GetEdgeProvenanceEndpoint{}, "Returns the provenance context of an edge: run, worker config node.", ""))
 	schemafapi.Register(schemafapi.NewRoute[GetEntityReq, GetEntityResp](GetEntityEndpoint{}, "Returns an entity with all its relations, sorted by temporal validity.", ""))
 	schemafapi.Register(schemafapi.NewRoute[GetEntityTimelineReq, GetEntityTimelineResp](GetEntityTimelineEndpoint{}, "Returns all relations of an entity sorted chronologically by valid_from.", ""))
 	schemafapi.Register(schemafapi.NewRawRoute(GetNodeContentEndpoint{}, "Returns the raw content bytes of a node.", "Serves from Postgres cache if available, otherwise proxies from S3."))

@@ -19,3 +19,9 @@ SELECT * FROM edges WHERE target_node_id = $1 AND type = $2 ORDER BY created_at;
 
 -- name: GetEdgesByRun :many
 SELECT * FROM edges WHERE run_id = $1 ORDER BY created_at;
+
+-- name: ListEdges :many
+SELECT * FROM edges ORDER BY created_at DESC LIMIT $1 OFFSET $2;
+
+-- name: ListEdgesByType :many
+SELECT * FROM edges WHERE type = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3;

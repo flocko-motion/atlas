@@ -100,6 +100,58 @@ func (q *Queries) InsertNode(ctx context.Context, arg InsertNodeParams) error {
 	return err
 }
 
+const listNodes = `-- name: ListNodes :many
+SELECT id, level, content_class, content_type, encoding_class, encoding_format, content_sha256, content_len, content_cached, created_at, artifact_created_at, artifact_created_at_blur, origin, original_name, valid_from, valid_from_blur, valid_until, valid_until_blur, confidence FROM nodes ORDER BY created_at DESC LIMIT $1 OFFSET $2
+`
+
+type ListNodesParams struct {
+	Limit  int32 `json:"limit"`
+	Offset int32 `json:"offset"`
+}
+
+func (q *Queries) ListNodes(ctx context.Context, arg ListNodesParams) ([]Node, error) {
+	rows, err := q.db.QueryContext(ctx, listNodes, arg.Limit, arg.Offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Node
+	for rows.Next() {
+		var i Node
+		if err := rows.Scan(
+			&i.ID,
+			&i.Level,
+			&i.ContentClass,
+			&i.ContentType,
+			&i.EncodingClass,
+			&i.EncodingFormat,
+			&i.ContentSha256,
+			&i.ContentLen,
+			&i.ContentCached,
+			&i.CreatedAt,
+			&i.ArtifactCreatedAt,
+			&i.ArtifactCreatedAtBlur,
+			&i.Origin,
+			&i.OriginalName,
+			&i.ValidFrom,
+			&i.ValidFromBlur,
+			&i.ValidUntil,
+			&i.ValidUntilBlur,
+			&i.Confidence,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listNodesByContentClass = `-- name: ListNodesByContentClass :many
 SELECT id, level, content_class, content_type, encoding_class, encoding_format, content_sha256, content_len, content_cached, created_at, artifact_created_at, artifact_created_at_blur, origin, original_name, valid_from, valid_from_blur, valid_until, valid_until_blur, confidence FROM nodes WHERE content_class = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3
 `
@@ -274,4 +326,57 @@ func (q *Queries) NodeExistsBySha256(ctx context.Context, contentSha256 string) 
 	var id string
 	err := row.Scan(&id)
 	return id, err
+}
+
+const searchNodesByContent = `-- name: SearchNodesByContent :many
+SELECT id, level, content_class, content_type, encoding_class, encoding_format, content_sha256, content_len, content_cached, created_at, artifact_created_at, artifact_created_at_blur, origin, original_name, valid_from, valid_from_blur, valid_until, valid_until_blur, confidence FROM nodes WHERE content_cached IS NOT NULL AND content_tsv @@ plainto_tsquery('english', $1) ORDER BY created_at DESC LIMIT $2 OFFSET $3
+`
+
+type SearchNodesByContentParams struct {
+	PlaintoTsquery string `json:"plainto_tsquery"`
+	Limit          int32  `json:"limit"`
+	Offset         int32  `json:"offset"`
+}
+
+func (q *Queries) SearchNodesByContent(ctx context.Context, arg SearchNodesByContentParams) ([]Node, error) {
+	rows, err := q.db.QueryContext(ctx, searchNodesByContent, arg.PlaintoTsquery, arg.Limit, arg.Offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Node
+	for rows.Next() {
+		var i Node
+		if err := rows.Scan(
+			&i.ID,
+			&i.Level,
+			&i.ContentClass,
+			&i.ContentType,
+			&i.EncodingClass,
+			&i.EncodingFormat,
+			&i.ContentSha256,
+			&i.ContentLen,
+			&i.ContentCached,
+			&i.CreatedAt,
+			&i.ArtifactCreatedAt,
+			&i.ArtifactCreatedAtBlur,
+			&i.Origin,
+			&i.OriginalName,
+			&i.ValidFrom,
+			&i.ValidFromBlur,
+			&i.ValidUntil,
+			&i.ValidUntilBlur,
+			&i.Confidence,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }

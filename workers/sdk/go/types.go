@@ -1,0 +1,67 @@
+package rankedb
+
+// CreateNodeRequest is the JSON body for POST /api/nodes.
+type CreateNodeRequest struct {
+	Level                 int        `json:"level"`
+	ContentClass          string     `json:"content_class"`
+	ContentType           string     `json:"content_type"`
+	EncodingClass         string     `json:"encoding_class"`
+	EncodingFormat        string     `json:"encoding_format"`
+	Content               *string    `json:"content,omitempty"`
+	ArtifactCreatedAt     *string    `json:"artifact_created_at,omitempty"`
+	ArtifactCreatedAtBlur *string    `json:"artifact_created_at_blur,omitempty"`
+	Origin                *string    `json:"origin,omitempty"`
+	OriginalName          *string    `json:"original_name,omitempty"`
+	ValidFrom             *string    `json:"valid_from,omitempty"`
+	ValidFromBlur         *string    `json:"valid_from_blur,omitempty"`
+	ValidUntil            *string    `json:"valid_until,omitempty"`
+	ValidUntilBlur        *string    `json:"valid_until_blur,omitempty"`
+	Confidence            *float64   `json:"confidence,omitempty"`
+	Edges                 []EdgeSpec `json:"edges,omitempty"`
+}
+
+// EdgeSpec defines an edge to create alongside a node.
+type EdgeSpec struct {
+	SourceNodeID string   `json:"source_node_id,omitempty"`
+	TargetNodeID string   `json:"target_node_id,omitempty"`
+	Type         string   `json:"type"`
+	Confidence   *float64 `json:"confidence,omitempty"`
+	RunID        *string  `json:"run_id,omitempty"`
+}
+
+// NodeResponse is the API representation of a graph node.
+type NodeResponse struct {
+	ID                    string   `json:"id"`
+	Level                 int      `json:"level"`
+	ContentClass          string   `json:"content_class"`
+	ContentType           string   `json:"content_type"`
+	EncodingClass         string   `json:"encoding_class"`
+	EncodingFormat        string   `json:"encoding_format"`
+	ContentSha256         string   `json:"content_sha256"`
+	ContentLen            int64    `json:"content_len"`
+	Content               *string  `json:"content,omitempty"`
+	CreatedAt             string   `json:"created_at"`
+	ArtifactCreatedAt     *string  `json:"artifact_created_at,omitempty"`
+	ArtifactCreatedAtBlur *string  `json:"artifact_created_at_blur,omitempty"`
+	Origin                *string  `json:"origin,omitempty"`
+	OriginalName          *string  `json:"original_name,omitempty"`
+	ValidFrom             *string  `json:"valid_from,omitempty"`
+	ValidFromBlur         *string  `json:"valid_from_blur,omitempty"`
+	ValidUntil            *string  `json:"valid_until,omitempty"`
+	ValidUntilBlur        *string  `json:"valid_until_blur,omitempty"`
+	Confidence            *float64 `json:"confidence,omitempty"`
+}
+
+// ListNodesParams are query parameters for GET /api/nodes.
+type ListNodesParams struct {
+	ContentClass  string
+	ContentType   string
+	ContentSha256 string
+	Limit         int
+}
+
+// Ptr returns a pointer to the given string. Convenience for building requests.
+func Ptr(s string) *string { return &s }
+
+// PtrF returns a pointer to the given float64.
+func PtrF(f float64) *float64 { return &f }

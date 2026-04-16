@@ -13,6 +13,12 @@ SELECT * FROM nodes WHERE content_class = $1 AND content_type = $2 ORDER BY crea
 -- name: NodeExistsBySha256 :one
 SELECT id FROM nodes WHERE level = 0 AND content_sha256 = $1 LIMIT 1;
 
+-- name: ListNodes :many
+SELECT * FROM nodes ORDER BY created_at DESC LIMIT $1 OFFSET $2;
+
+-- name: SearchNodesByContent :many
+SELECT * FROM nodes WHERE content_cached IS NOT NULL AND content_tsv @@ plainto_tsquery('english', $1) ORDER BY created_at DESC LIMIT $2 OFFSET $3;
+
 -- name: InsertNode :exec
 INSERT INTO nodes (
     id, level, content_class, content_type, encoding_class, encoding_format,
