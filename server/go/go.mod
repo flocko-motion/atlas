@@ -3,7 +3,7 @@ module rankedb
 go 1.26.2
 
 require (
-	github.com/flocko-motion/schemaf v1.7.3
+	github.com/flocko-motion/schemaf v1.7.5
 	github.com/google/uuid v1.6.0
 )
 

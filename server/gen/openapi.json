@@ -222,6 +222,15 @@
       },
       "GetQueueReq": {
         "properties": {
+          "byClass": {
+            "type": "string"
+          },
+          "byConfig": {
+            "type": "string"
+          },
+          "byWorker": {
+            "type": "string"
+          },
           "contentClass": {
             "type": "string"
           },
@@ -230,15 +239,14 @@
           },
           "limit": {
             "type": "integer"
-          },
-          "notConsumedBy": {
-            "type": "string"
           }
         },
         "required": [
           "contentClass",
           "contentType",
-          "notConsumedBy",
+          "byClass",
+          "byWorker",
+          "byConfig",
           "limit"
         ],
         "type": "object"

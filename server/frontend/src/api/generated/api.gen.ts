@@ -81,10 +81,12 @@ export interface GetNodeReq {
 }
 
 export interface GetQueueReq {
+  byClass: string;
+  byConfig: string;
+  byWorker: string;
   contentClass: string;
   contentType: string;
   limit: number;
-  notConsumedBy: string;
 }
 
 export interface GetQueueResp {
