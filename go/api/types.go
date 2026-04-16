@@ -5,7 +5,7 @@ import (
 	"errors"
 	"time"
 
-	db "rankedb/db"
+	db "github.com/flocko-motion/rankedb/db"
 )
 
 // errNotImplemented is returned by stub endpoints during scaffolding.

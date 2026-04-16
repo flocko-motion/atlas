@@ -1,4 +1,4 @@
-module rankedb
+module github.com/flocko-motion/rankedb
 
 go 1.26.2
 

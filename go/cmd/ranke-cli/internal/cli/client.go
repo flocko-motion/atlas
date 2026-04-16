@@ -1,6 +1,6 @@
 package cli
 
-import "rankedb/apiclient"
+import "github.com/flocko-motion/rankedb/apiclient"
 
 func Client() (*apiclient.ClientWithResponses, error) {
 	return apiclient.NewClientWithResponses(Cfg.Server)

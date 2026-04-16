@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	schemafapi "github.com/flocko-motion/schemaf/api"
-	"rankedb/api"
+	"github.com/flocko-motion/rankedb/api"
 )
 
 func newTSTestServer(t *testing.T) *httptest.Server {

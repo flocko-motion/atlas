@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"rankedb/cmd/ranke-cli/internal/cli"
+	"github.com/flocko-motion/rankedb/cmd/ranke-cli/internal/cli"
 	"github.com/spf13/cobra"
 )
 
