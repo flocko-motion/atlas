@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"bytes"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
@@ -9,6 +10,8 @@ import (
 	"fmt"
 	"net/http"
 	"time"
+
+	"rankedb/s3"
 
 	"github.com/google/uuid"
 
@@ -68,9 +71,13 @@ func (e CreateNodeEndpoint) HandleRaw(w http.ResponseWriter, r *http.Request) er
 	if req.Content != nil {
 		contentStr = *req.Content
 	}
-	hash := sha256.Sum256([]byte(contentStr))
+	contentBytes := []byte(contentStr)
+	hash := sha256.Sum256(contentBytes)
 	contentSha256 := hex.EncodeToString(hash[:])
-	contentLen := int64(len(contentStr))
+	contentLen := int64(len(contentBytes))
+
+	// Only cache text content inline; binary goes to S3 only
+	isText := req.EncodingClass == "text"
 
 	// Determine node ID
 	var nodeID string
@@ -148,6 +155,15 @@ func (e CreateNodeEndpoint) HandleRaw(w http.ResponseWriter, r *http.Request) er
 		}
 	}
 
+	// Upload content to S3
+	if contentLen > 0 {
+		mimeType := req.EncodingClass + "/" + req.EncodingFormat
+		if err := s3.Put(ctx, contentSha256, bytes.NewReader(contentBytes), contentLen, mimeType); err != nil {
+			http.Error(w, "failed to upload content to S3: "+err.Error(), http.StatusInternalServerError)
+			return nil
+		}
+	}
+
 	// Begin transaction
 	tx, err := schemafdb.BeginTx(ctx, nil)
 	if err != nil {
@@ -170,7 +186,7 @@ func (e CreateNodeEndpoint) HandleRaw(w http.ResponseWriter, r *http.Request) er
 		ContentLen:     contentLen,
 		ContentCached: sql.NullString{
 			String: contentStr,
-			Valid:  req.Content != nil,
+			Valid:  req.Content != nil && isText,
 		},
 		ArtifactCreatedAt: artifactCreatedAt,
 		ArtifactCreatedAtBlur: sql.NullString{
