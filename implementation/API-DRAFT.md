@@ -2,171 +2,303 @@
 
 Working draft. Not a spec — a starting point for implementation.
 
+Edge types: `provenance/input`, `provenance/worker`, `relation/head`, `relation/tail`.
+Edges always connect nodes to nodes.
+
 ---
 
-## Nodes
+## URL hierarchy
+
+The graph is one collection. Paths are views into it.
 
 ```
-POST   /api/nodes              — Create node (multipart for L0 with file, JSON for L1/L2;
-                                  idempotent via content_sha256 for L0 roots)
-GET    /api/nodes/:id          — Node with content
-GET    /api/nodes/:id/content  — Raw content (redirect to S3 or inline from cache)
-GET    /api/nodes/:id/provenance — Upstream DAG to L0 roots
-GET    /api/nodes              — List/filter (level, content_type, encoding, created_at range,
-                                  worker/run_id)
+/api/nodes                 — all nodes (power-user catch-all)
+/api/nodes/sources         — L0 sources
+/api/nodes/cognition       — L1 cognitive derivations
+/api/nodes/entities        — L2 entities
+/api/nodes/relations       — L2 relations
+
+/api/edges                 — all edges
+/api/edges/provenance      — provenance edges (provenance/input + provenance/worker)
+/api/edges/relations       — semantic edges (relation/head + relation/tail)
+
+/api/content/:sha256       — raw content bytes by hash (read-only, no POST)
+
+/api/workers/runs          — worker run registration
+/api/workers/queue         — unprocessed nodes for a worker
 ```
+
+POST on node paths creates a node (with edges). The specialized paths pre-fill `level` and `content_class` and add path-specific validation.
+GET on any path lists/filters the corresponding subset. Same query params work everywhere.
+Edges are created via node creation (atomic), not via standalone POST on edge paths.
+
+---
+
+## Creating nodes
 
 ### POST /api/nodes
 
-Creates a node. Returns existing node if idempotent match (L0 root: same `content_sha256`).
+Power-user catch-all. Creates any node with any edges.
 
-**L0 (source):** multipart form — file upload + metadata fields (`content_type`, `encoding`, `origin`, `original_name`, `artifact_created_at`, `artifact_created_at_blur`).
+**JSON body:**
 
-**L1 (cognition):** JSON body — `content` (text), `content_type`, `encoding`, plus provenance edges (list of input node IDs + tool node ID + run_id).
+```json
+{
+  "level": 2,
+  "content_class": "relation",
+  "content_type": "family",
+  "encoding_class": "text",
+  "encoding_format": "plain",
+  "content": "sister of",
+  "run_id": "run-789",
+  "valid_from": "2000-01-01T00:00:00Z",
+  "valid_from_blur": "365d",
+  "edges": [
+    { "type": "provenance/input", "target_node_id": "fact-node-F" },
+    { "type": "provenance/worker", "target_node_id": "worker-config-T" },
+    { "type": "relation/tail", "target_node_id": "alice-123", "confidence": 1.0 },
+    { "type": "relation/head", "target_node_id": "bob-456", "confidence": 1.0 }
+  ]
+}
+```
 
-**L2 (semantics):** JSON body — `content` (e.g. relation label), `content_type`, `encoding`, `valid_from`, `valid_from_blur`, `valid_until`, `valid_until_blur`, `confidence`, plus provenance edges.
+**Multipart (for binary/large content):**
+
+File in one part, metadata JSON (same structure minus `content`) in another.
+
+**Validation:**
+- L0 roots: no edges required, idempotent via `content_sha256` (deterministic ID).
+- Everything else: at least one `provenance/input` edge, exactly one `provenance/worker` edge.
+- `relation/head` and `relation/tail` edges optional (only meaningful for relation nodes).
+- All edges carry the provided `run_id`.
+
+**Returns:** the created node with its ID and all edges.
+
+### POST /api/nodes/sources
+
+Convenience for L0 source ingestion. Pre-fills `level: 0`, `content_class: "source"`.
+
+Two creation modes:
+
+**With payload (normal ingestion):** Multipart form — file upload + metadata fields (`content_type`, `encoding_class`, `encoding_format`, `origin`, `original_name`, `artifact_created_at`, `artifact_created_at_blur`). API stores the blob in S3 and creates the node. Idempotent for root sources: same bytes → same node (deterministic ID from content hash).
+
+**By reference (recovery):** JSON body with `content_sha256` + metadata fields, no file. For when a node was lost (pruning, reset, crash, fork) but the blob is still in S3. API verifies the blob exists via HEAD to S3, fills `content_len` from the response, and creates the node pointing to the existing blob. This is a recovery mechanism — blobs only reach S3 through normal node creation, never via standalone upload.
+
+No edges for root sources. For derived sources (format conversions, normalizations), include provenance edges in the request.
+
+### POST /api/nodes/cognition
+
+Convenience for L1 derivations. Pre-fills `level: 1`.
+
+```json
+{
+  "content_class": "classification",
+  "content_type": "entity",
+  "encoding_class": "text",
+  "encoding_format": "plain",
+  "content": "Person: Alice Müller",
+  "run_id": "run-789",
+  "edges": [
+    { "type": "provenance/input", "target_node_id": "source-node-S" },
+    { "type": "provenance/worker", "target_node_id": "worker-config-T" }
+  ]
+}
+```
+
+Validation: at least one `provenance/input`, exactly one `provenance/worker`.
+
+### POST /api/nodes/entities
+
+Convenience for L2 entity creation. Pre-fills `level: 2`, `content_class: "entity"`.
+
+```json
+{
+  "content_type": "person",
+  "encoding_class": "text",
+  "encoding_format": "plain",
+  "content": "Alice Müller",
+  "run_id": "run-789",
+  "edges": [
+    { "type": "provenance/input", "target_node_id": "classification-node-C" },
+    { "type": "provenance/worker", "target_node_id": "worker-config-T" }
+  ]
+}
+```
+
+### POST /api/nodes/relations
+
+Convenience for L2 relation creation. Pre-fills `level: 2`, `content_class: "relation"`.
+Accepts `heads` and `tails` as top-level fields instead of raw edges (sugar).
+
+```json
+{
+  "content_type": "family",
+  "encoding_class": "text",
+  "encoding_format": "plain",
+  "content": "sister of",
+  "run_id": "run-789",
+  "valid_from": "2000-01-01T00:00:00Z",
+  "valid_from_blur": "365d",
+  "tails": [
+    { "entity_id": "alice-123", "confidence": 1.0 }
+  ],
+  "heads": [
+    { "entity_id": "bob-456", "confidence": 1.0 }
+  ],
+  "inputs": ["fact-node-F"],
+  "worker": "worker-config-T"
+}
+```
+
+Reading convention: **"tail IS relation TOWARDS head"** — Alice(tail) is sister_of towards Bob(head).
+
+Validation: at least one input, exactly one worker. Heads and tails may be empty (structural unknowns).
+
+---
+
+## Reading nodes
 
 ### GET /api/nodes/:id
 
-Returns full node metadata + content (inline if cached, otherwise fetched from S3).
+Returns full node metadata. Content is inline if cached (`content_cached` populated); otherwise the client should fetch via `/content`.
 
 ### GET /api/nodes/:id/content
 
-Returns raw content bytes. If content is cached in Postgres, serves directly; otherwise redirects to S3 (or proxies the blob).
+Returns raw content bytes. Served from Postgres cache if available; otherwise proxied from S3.
 
 ### GET /api/nodes/:id/provenance
 
-Returns the upstream provenance chain from this node back to L0 roots. Traverses provenance edges recursively. Response is a subgraph (nodes + edges).
+Returns the upstream provenance chain from this node back to L0 roots. Traverses `provenance/input` and `provenance/worker` edges recursively. Response is a subgraph (nodes + edges).
 
-### GET /api/nodes
+### GET /api/nodes/:id/edges
 
-Filtered listing. Query parameters:
+Returns edges connected to a node. Query parameters:
 
-| Parameter      | Type     | Description                                    |
-| -------------- | -------- | ---------------------------------------------- |
-| `level`        | int      | 0, 1, or 2                                     |
-| `content_type` | string   | e.g. `source/conversation`, `classification/*` |
-| `encoding`     | string   | e.g. `text/plain`, `text/eml`                  |
-| `created_after`| datetime | Lower bound on `created_at`                    |
-| `created_before`| datetime | Upper bound on `created_at`                   |
-| `run_id`       | string   | Filter by worker run                           |
-| `limit`        | int      | Pagination limit                               |
-| `offset`       | int      | Pagination offset                              |
+| Parameter   | Type   | Description                                                                           |
+| ----------- | ------ | ------------------------------------------------------------------------------------- |
+| `direction` | string | `incoming`, `outgoing`, or `both`                                                     |
+| `type`      | string | `provenance/input`, `provenance/worker`, `relation/head`, `relation/tail`, or `all`   |
+| `limit`     | int    | Pagination limit                                                                      |
+| `offset`    | int    | Pagination offset                                                                     |
+
+---
+
+## Listing and filtering
+
+All listing endpoints accept the same query parameters:
+
+| Parameter         | Type     | Description                                    |
+| ----------------- | -------- | ---------------------------------------------- |
+| `content_sha256`  | string   | Filter by content hash                           |
+| `content_class`   | string   | e.g. `source`, `entity`, `relation`            |
+| `content_type`    | string   | e.g. `conversation`, `person`, `family`        |
+| `encoding_class`  | string   | e.g. `text`, `image`                           |
+| `encoding_format` | string   | e.g. `plain`, `eml`, `png`                     |
+| `created_after`   | datetime | Lower bound on `created_at`                    |
+| `created_before`  | datetime | Upper bound on `created_at`                    |
+| `run_id`          | string   | Filter by worker run                           |
+| `limit`           | int      | Pagination limit                               |
+| `offset`          | int      | Pagination offset                              |
+
+```
+GET /api/nodes                — all nodes
+GET /api/nodes/sources        — pre-filtered to level=0, content_class=source
+GET /api/nodes/cognition      — pre-filtered to level=1
+GET /api/nodes/entities       — pre-filtered to level=2, content_class=entity
+GET /api/nodes/relations      — pre-filtered to level=2, content_class=relation
+```
+
+### GET /api/nodes/relations (additional params)
+
+| Parameter    | Type   | Description                                                              |
+| ------------ | ------ | ------------------------------------------------------------------------ |
+| `unresolved` | bool   | Relations with 0 or >1 tails (open questions, ambiguity)                 |
+| `type`       | string | e.g. `alias`, `family`, `has_role`                                       |
+
+### GET /api/nodes/entities/:id
+
+Returns entity node + all connected relation nodes with their head/tail edges, sorted by temporal validity, filtered by minimum confidence (query param `min_confidence`, default 0).
+
+### GET /api/nodes/entities/:id/timeline
+
+Returns all relations of an entity sorted chronologically by `valid_from`.
+
+---
+
+## Content
+
+```
+HEAD /api/content/:sha256        — existence check + Content-Length header
+GET  /api/content/:sha256        — raw content bytes by hash
+```
+
+### HEAD /api/content/:sha256
+
+Returns 200 with `Content-Length` header if the blob exists, 404 if not. No body. This is the ingest worker's "should I upload?" check — one round-trip, zero bytes transferred.
+
+### GET /api/content/:sha256
+
+Returns raw content bytes. Served from Postgres cache if available; otherwise proxied from S3. The response `Content-Type` header reflects the encoding of the content.
+
+Content is addressed by hash, independent of nodes. Multiple nodes may share the same hash — one blob serves all of them.
 
 ---
 
 ## Edges
 
 ```
-POST   /api/edges              — Create edge (provenance or semantic, with run_id)
-GET    /api/edges/:id          — Edge with run_id, tool reference
-GET    /api/edges/:id/provenance — Which run, which tool, which config
-GET    /api/nodes/:id/edges    — Edges of a node (filterable: direction, type)
+GET /api/edges                    — all edges (filterable)
+GET /api/edges/provenance         — provenance edges only (provenance/input + provenance/worker)
+GET /api/edges/relations          — semantic edges only (relation/head + relation/tail)
+GET /api/edges/:id                — single edge metadata
 ```
 
-### POST /api/edges
+### GET /api/edges
 
-Creates an edge. Body:
+All listing endpoints accept the same query parameters:
 
-```json
-{
-  "source_id": "node-or-edge-id",
-  "target_id": "node-or-edge-id",
-  "type": "provenance | head | tail",
-  "run_id": "run-abc-123",
-  "confidence": 0.85
-}
+| Parameter        | Type   | Description                                                                         |
+| ---------------- | ------ | ----------------------------------------------------------------------------------- |
+| `type`           | string | `provenance/input`, `provenance/worker`, `relation/head`, `relation/tail`, or `all` |
+| `source_node_id` | string | Edges originating from this node                                                    |
+| `target_node_id` | string | Edges pointing to this node                                                         |
+| `run_id`         | string | Filter by worker run                                                                |
+| `min_confidence` | float  | Minimum confidence (for semantic edges)                                             |
+| `limit`          | int    | Pagination limit                                                                    |
+| `offset`         | int    | Pagination offset                                                                   |
+
+Deeper paths are tighter pre-filters:
+
+```
+/api/edges/provenance              — type IN (provenance/input, provenance/worker)
+/api/edges/provenance/inputs       — type = provenance/input
+/api/edges/provenance/workers      — type = provenance/worker
+/api/edges/relations               — type IN (relation/head, relation/tail)
 ```
 
-Note: `source_id` / `target_id` can reference nodes OR edges (provenance can target edges per §3.2).
+All accept the same query params as GET /api/edges. Each deeper path just narrows the type filter.
+
+Note: filtering by relation TYPE (e.g. "all family relations") is a node-level query — the type lives on the relation node, not on the edges: `GET /api/nodes/relations?content_type=family`.
 
 ### GET /api/edges/:id
 
-Returns edge metadata: source, target, type, run_id, confidence, timestamps.
+Returns single edge: source_node_id, target_node_id, type, run_id, confidence, created_at.
 
-### GET /api/edges/:id/provenance
-
-Returns the provenance context of this edge: which run produced it, which tool node was in effect, which config. Follows the run_id to the tool node.
-
-### GET /api/nodes/:id/edges
-
-Returns edges connected to a node. Query parameters:
-
-| Parameter   | Type   | Description                              |
-| ----------- | ------ | ---------------------------------------- |
-| `direction` | string | `incoming`, `outgoing`, or `both`        |
-| `type`      | string | `provenance`, `head`, `tail`, or `all`   |
-| `limit`     | int    | Pagination limit                         |
-| `offset`    | int    | Pagination offset                        |
-
----
-
-## Semantic Graph (L2)
-
-```
-GET    /api/entities/:id           — Entity with all relations, temporal sorted, confidence filtered
-GET    /api/entities               — Full-text search over entity names/aliases
-GET    /api/entities/:id/timeline  — Chronological relations of an entity
-GET    /api/relations              — Filter relations (e.g. unresolved, by type)
-```
-
-### GET /api/entities/:id
-
-Returns entity node + all connected relation nodes with their head/tail edges, sorted by temporal validity, filtered by minimum confidence (query param `min_confidence`, default 0).
-
-### GET /api/entities
-
-Search entities. Query parameters:
-
-| Parameter | Type   | Description                                |
-| --------- | ------ | ------------------------------------------ |
-| `q`       | string | Full-text search over entity names/aliases |
-| `type`    | string | e.g. `entity/person`, `entity/organization`|
-| `limit`   | int    | Pagination limit                           |
-| `offset`  | int    | Pagination offset                          |
-
-### GET /api/entities/:id/timeline
-
-Returns all relations of an entity sorted chronologically by `valid_from`. Useful for building a narrative timeline of an entity's history.
-
-### GET /api/relations
-
-Filter relations. Query parameters:
-
-| Parameter    | Type   | Description                                                 |
-| ------------ | ------ | ----------------------------------------------------------- |
-| `unresolved` | bool   | If true, return relations with 0 or >1 heads (open questions, knowledge gaps) |
-| `type`       | string | e.g. `relation/alias`, `relation/has_role`                  |
-| `limit`      | int    | Pagination limit                                            |
-| `offset`     | int    | Pagination offset                                           |
+Edges are created via POST /api/nodes (as part of the edges array or heads/tails fields). There is no standalone POST /api/edges.
 
 ---
 
 ## Workers
 
-```
-GET    /api/queue     — Unprocessed nodes for a given content_type/encoding filter
-POST   /api/runs      — Register a worker run (tool node reference, returns run_id)
-```
+### POST /api/workers/runs
 
-### GET /api/queue
+Registers a new worker run. The worker must first have created a `worker/config` node (content_class: `worker`, content_type: `config`, encoding: `text/json`) via POST /api/nodes.
 
-Returns nodes that have not yet been processed by a specific worker type. Query parameters:
-
-| Parameter      | Type   | Description                                       |
-| -------------- | ------ | ------------------------------------------------- |
-| `content_type` | string | Content type the worker consumes (e.g. `source/conversation`) |
-| `encoding`     | string | Encoding the worker consumes (e.g. `text/plain`)  |
-| `not_consumed_by` | string | Tool content_type that should NOT already have derived from this node |
-| `limit`        | int    | Pagination limit                                  |
-
-### POST /api/runs
-
-Registers a new worker run. Body:
+Body:
 
 ```json
 {
-  "tool_node_id": "node-id-of-tool-config"
+  "worker_config_id": "worker-config-node-id"
 }
 ```
 
@@ -174,18 +306,45 @@ Returns:
 
 ```json
 {
-  "run_id": "run-abc-123"
+  "run_id": "01961a2b-..."
 }
 ```
 
-The `run_id` is then used on all edges created during this run.
+The `run_id` (UUID v7, time-sortable) is used on all edges created during this run.
+
+### GET /api/workers/runs/:id
+
+Returns the run's metadata (worker_config_id, created_at) plus all nodes and edges created during this run. Useful for inspecting a worker's output, reviewing before committing, or identifying what to prune.
+
+### GET /api/workers/queue
+
+Returns nodes that have not yet been processed by a specific worker type. Query parameters:
+
+| Parameter         | Type   | Description                                                           |
+| ----------------- | ------ | --------------------------------------------------------------------- |
+| `content_class`   | string | Content class the worker consumes (e.g. `source`)                     |
+| `content_type`    | string | Content type the worker consumes (e.g. `conversation`)                |
+| `encoding_class`  | string | Encoding class (e.g. `text`)                                          |
+| `encoding_format` | string | Encoding format (e.g. `plain`)                                        |
+| `not_consumed_by` | string | Content class that should NOT already have been derived from this node|
+| `limit`           | int    | Pagination limit                                                      |
+
+---
+
+## Worker workflow
+
+1. **Create worker/config node (once):** POST /api/nodes with `content_class: "worker"`, `content_type: "config"`, `encoding_class: "text"`, `encoding_format: "json"`, content = JSON with worker identity, version, parameters.
+2. **Start a run:** POST /api/workers/runs with the config node ID. Returns `run_id`.
+3. **Query for work:** GET /api/workers/queue with the content class/type the worker consumes.
+4. **Process and write:** For each input, create output nodes via POST /api/nodes (or the convenience paths) with `run_id` and provenance edges referencing both the input nodes and the worker/config node.
 
 ---
 
 ## Design notes
 
-- **Idempotency:** L0 root node creation is idempotent via `content_sha256`. Re-uploading the same bytes returns the existing node. Derived nodes (L0 derived, L1, L2) are NOT idempotent — same content with different provenance creates a new node.
+- **Idempotency:** L0 root source creation is idempotent via `content_sha256` (deterministic ID). Everything else creates a new node.
 - **Content serving:** The API resolves content from Postgres cache or S3 transparently. Consumers never interact with S3 directly.
-- **Provenance enforcement:** POST /api/nodes for L1/L2 requires at least one input edge. The API refuses to create a derivation without provenance.
-- **Immutability enforcement:** No PUT, no PATCH, no DELETE on nodes or edges. Corrections are new nodes that reference what they correct.
-- **Edge targets:** Edges can target both nodes and edges (per §3.2 of the paper). The `source_id` and `target_id` fields accept either.
+- **Provenance enforcement:** Every non-root node requires at least one `provenance/input` edge and exactly one `provenance/worker` edge. The API refuses incomplete creations.
+- **Immutability:** No PUT, no PATCH, no DELETE on nodes or edges. Corrections are new nodes with provenance referencing what they correct.
+- **Atomic creation:** Every POST creates a node + all its edges in one transaction. No dangling nodes, no orphaned edges.
+- **Confidence range:** -1.0 to +1.0. Negative = explicitly rejected ("investigated and ruled out"). Zero = unknown. Positive = affirmed.

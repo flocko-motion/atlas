@@ -156,18 +156,21 @@ Neither will be the final answer; both will be first-generation consumers of a s
 
 ## 3. Architecture
 
-RankeDB is a single connected graph organized into three levels (see Figure 1).
-Each level, viewed in isolation, has its own characteristic shape:
+RankeDB is a single connected graph — the **Knowledge Graph (KG)** — organized into three levels (see Figure 1).
+The KG has two subgraphs, defined by edge type:
 
-- **Level 0 — Sources.** A forest: every source has at most one parent (a format conversion, a normalization, an item extracted from a bulk container), and each originally ingested artifact is a root.
-- **Level 1 — Cognition.** Nodes in Level 1 may combine multiple inputs from Levels 0 and 1.
-  Together with Level 0, Level 1 forms the **Provenance DAG**: the strictly acyclic backbone of the system.
-- **Level 2 — Semantics.** A **Semantic Graph**: a property graph of entities and relations with cyclic semantic connections, optimized for associative retrieval. Each relation in Level 2 is described by a relationship node with zero or more *head* and *tail* edges to entity nodes — supporting ambiguity and structural unknowns. Every node in Level 2 is pointed at from Level 1 nodes, documenting the provenance of each atomic piece of knowledge.
-  Level 2 is populated by projection workers reading Level 1, not a deterministic function of it (§3.1.3).
+- The **Provenance Graph (PG)** contains all nodes (L0, L1, L2) and all provenance edges (`provenance/input`, `provenance/worker`). PG is a strict DAG — always acyclic, regardless of which levels the edges span. It records how every piece of knowledge came to be.
+- The **Semantic Graph (SG)** contains only L2 nodes and relation edges (`relation/head`, `relation/tail`). SG may contain cycles — it is a graph of associations, not of derivation.
 
-The level names (Sources, Cognition, Semantics) classify their content; the functional terms (the Provenance DAG at L0+L1, the Semantic Graph at L2) describe their role in the system.
-Writes flow in one direction across levels: a node at any level may reference nodes at the same or an earlier level, never later.
-This keeps the Provenance DAG acyclic even though the Semantic Graph may contain semantic cycles.
+Together: KG = PG ∪ SG. Every node appears in PG; L2 nodes additionally appear in SG. Every edge belongs to exactly one of the two subgraphs.
+
+The three levels classify content, not processing order:
+
+- **Level 0 — Sources.** A forest within PG: every source has at most one parent (a format conversion, a normalization, an item extracted from a bulk container), and each originally ingested artifact is a root.
+- **Level 1 — Cognition.** Nodes in Level 1 may combine inputs from any level. Together with Level 0, Level 1 populates the bulk of the Provenance Graph.
+- **Level 2 — Semantics.** Entity and relation nodes. Each relation is described by a relationship node with zero or more `relation/tail` edges (subject) and `relation/head` edges (object) — supporting ambiguity and structural unknowns. Level 2 is populated by projection workers, not a deterministic function of Level 1 (§3.1.3).
+
+Levels classify content, not processing order: a worker may cite nodes from any level as provenance inputs.
 
 ![Figure 1: The three storage levels of RankeDB.](drawio/layers.svg "Figure 1: The three storage levels of RankeDB. Node types such as Email, Conversation, Fact, and Summary are application-defined examples; RankeDB provides type categories (e.g. source, conversation) but leaves concrete types to the application.")
 
@@ -270,7 +273,7 @@ Where Level 0 provides the roots — the sources — Level 1 stores the derivati
 This history is itself knowledge: queryable, traversable, and available as context for downstream consumers.
 
 L1 nodes use only the common fields (§3.1); there are no L1-specific node fields.
-A derivation produced by a 2024 language model and one produced by a 2028 model from the same source are both preserved as competing interpretations, each with a full provenance chain that includes the tool node in effect at the time.
+A derivation produced by a 2024 language model and one produced by a 2028 model from the same source are both preserved as competing interpretations, each with a full provenance chain that includes the worker configuration in effect at the time.
 
 **Content types:**
 
@@ -310,7 +313,7 @@ It is a first-class level of the graph, populated by projection workers that rea
 If Level 2 were merely a deterministic view of Level 1, it would be redundant; it exists as its own level because associative traversal over the full Provenance DAG would be prohibitively expensive at scale, and because the cognitive work of deciding *what* to project is itself a worker activity.
 
 Every node in Level 2 has a provenance edge back into Level 1.
-Relation nodes carry zero or more `head` edges and zero or more `tail` edges to the entity nodes they connect — each with its own `confidence` and provenance.
+Relation nodes carry zero or more `tail` edges (subject) and zero or more `head` edges (object) to the entity nodes they connect — each with its own `confidence`.
 Semantic connections within Level 2 may be cyclic; the acyclicity of the Provenance DAG applies only to provenance edges (§3.2).
 
 Relation labels are natural-language strings, not formal ontology predicates.
@@ -334,7 +337,7 @@ Entity subtypes name a minimal upper-ontology that many applications will share;
 | Category     | Purpose                                                            | Foundational subtypes (applications may extend)                                                                                                                          |
 | ------------ | ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `entity/*`   | Projected nodes representing identifiable things in the world.     | `entity/person`, `entity/organization`, `entity/place`, `entity/thing`, `entity/work`, `entity/idea`, `entity/event`, `entity/role`                                      |
-| `relation/*` | Reified semantic relations between entities, with head/tail edges. | `relation/alias` (two entities refer to the same thing), `relation/part_of` (structural composition), `relation/has_role` (entity holds a role, time-bounded)            |
+| `relation/*` | Reified semantic relations between entities, with head/tail edges. | `relation/alias` (two entities refer to the same thing), `relation/part_of` (structural composition), `relation/has_role` (entity holds a role, time-bounded), `relation/family` (familial relationship)            |
 
 The foundational subtypes are a *shared vocabulary*, not a privileged class.
 RankeDB does not enforce or validate them at the storage layer — an application that ignores them and defines its own types is architecturally equivalent.
@@ -342,40 +345,57 @@ What the foundational set provides is a coordination point: consumers walking th
 Apps adopting this vocabulary become interoperable with tools built against it; apps inventing their own are responsible for interoperability themselves.
 Like every other L2 relation, aliases carry confidence and compete with other claims — consumers decide how to weight them, not the architecture.
 
+**Atomic creation of relations.**
+
+A relation node and all its head/tail edges are created as one atomic unit by a single worker from a single L1 fact.
+The relation node's provenance edge to the L1 fact covers the entire creation — node and edges together.
+No head or tail edge is ever added to an existing relation node later; new information produces a new relation node (immutability, §2.2).
+
+This convention eliminates the need for per-edge provenance: since edges are never created independently of their relation node, the node's provenance is sufficient.
+
+A relation node has zero or more `tail` edges and zero or more `head` edges, each to an entity node, each carrying its own `confidence`.
+The reading convention is: **"tail IS relation TOWARDS head"** — the tail is the subject, the head is the object.
+For example: Alice(tail) --[sister_of]--> Bob(head) reads as "Alice is sister of Bob."
+
+This models four cases naturally:
+
+- **Definite.** "Alice is Bob's sister." One tail (Alice), one head (Bob), both at full confidence.
+- **Ambiguity.** "Bob or Charlie is Alice's brother." One tail (Bob at 0.7 / Charlie at 0.3), one head (Alice) — competing candidates within one claim.
+- **N-ary.** "Susi and Tina like dancing tango." Two tails (Susi, Tina, both at full confidence), one head (tango) — an inherently multi-party relationship.
+- **Structural unknown.** "Someone is Alice's brother, but we don't know who." Zero tails, one head (Alice) — the graph knows what it doesn't know.
+
 **Invariants:**
 
 - Every L2 node has a provenance edge to Level 1.
-- A relation node has zero or more `head` edges and zero or more `tail` edges, each to an entity node. Zero heads or tails are valid — they represent structural unknowns ("X has a brother, but we don't know who"). Multiple heads at different confidence model ambiguity ("X's brother is either A or B").
+- Relation nodes and their head/tail edges are created atomically. Edges are never added to an existing relation node.
 - Relation labels are natural-language; no formal ontology is required.
-- Provenance edges are not stored in Level 2 — they belong to the Provenance DAG.
 
 ### 3.2 Edges
 
-Two classes of edges coexist in the graph.
+Every edge in the graph has a `type`. Four types exist, in two classes:
 
-**Provenance edges** connect every derived node to its inputs.
-They form the strict DAG that spans Level 0 and Level 1, and they carry the provenance references that connect Level 2 back into Level 1.
-Provenance edges are acyclic by construction: a node cannot transitively depend on itself.
+**Provenance edges** form the strict DAG — always acyclic, regardless of which levels they span.
+
+- **`provenance/input`** — connects a derived node to an input it was derived from (a source, a fact, a relation, or any other existing node). Every non-root node must have at least one.
+- **`provenance/worker`** — connects a derived node to the `worker/config` node that produced it. Exactly one per derivation. This is how the graph records who created what, with which configuration.
 
 Each provenance edge carries a `run_id` property identifying the worker run that produced it.
-The `run_id` is not a node field; it lives on the edge.
 This is what enables administrative operations such as purging a defective run — the edges produced by that run are removed, orphaned nodes follow.
 
-**Semantic edges** live in Level 2 only and connect reified relation nodes to their head and tail entities.
-They are permitted to form cycles, because the Semantic Graph is a graph of associations, not a graph of derivation.
-Each semantic edge carries its own `confidence` and `run_id`, because head/tail connections are created individually — a worker that identifies a new candidate head for an existing relation writes a new edge, not a new relation node.
+**Semantic edges** connect reified relation nodes to their head and tail entities.
+They live in Level 2 only and are permitted to form cycles, because the Semantic Graph is a graph of associations, not a graph of derivation.
+Each semantic edge carries its own `confidence` and `run_id`.
 
-**Provenance can target edges, not just nodes.**
-We reified relations as nodes so that provenance can point at them.
-But the head/tail edges of a relation node are also created artifacts — a fact node in Level 1 may be the reason a particular head-edge exists.
-Rather than reifying head-edges as nodes (which would recurse the same problem one level deeper), we accept that provenance edges can target both nodes and edges.
-In Postgres this is trivially a foreign key to the edges table; at the concept level it is a pragmatic relaxation of graph-theoretic purity in service of what provenance actually needs: the ability to say *who created this*.
+- **`head`** — connects a relation node to an entity that is the object of the relation.
+- **`tail`** — connects a relation node to an entity that is the subject of the relation.
+
+Semantic edges are always created atomically with their relation node (§3.1.3) — provenance on the relation node covers the entire unit.
 
 Three further design decisions follow from treating the graph as a single data structure:
 
 - **Parent relationships are edges.** An L0 node derived from another L0 node (a format conversion, a normalization, an item unpacked from a bulk container) is connected by a provenance edge, not a `parent` field. Denormalization may appear at the storage layer as an optimization; it is not part of the node format.
-- **Tool and tool config are themselves nodes.** A worker's identity and configuration at a point in time are stored as L1 nodes (content type `tool/*`), which a derivation links to as an input. This gives tool configurations their own provenance and lineage, and puts "which tool produced this?" in the same graph as everything else.
-- **Every node has provenance.** No node exists without at least one incoming provenance edge (except L0 root artifacts, which are roots by definition) and, where applicable, at least one input edge to a tool node.
+- **Worker configurations are themselves nodes.** A worker's identity and configuration at a point in time are stored as L1 nodes (content_class `worker`, content_type `config`), which a derivation links to via a `provenance/worker` edge. This gives worker configurations their own provenance and lineage.
+- **Every node has provenance.** No node exists without at least one incoming `provenance/input` edge and exactly one `provenance/worker` edge (except L0 root artifacts, which are roots by definition).
 
 ## 4. Reference Implementation
 
@@ -399,7 +419,7 @@ Every ingested source, every derivation, and every projected entity or relation 
 
 Postgres also holds:
 
-- A `content_cached` column with inlined content for nodes that are eligible under a caching policy (for example, `encoding LIKE 'text/%' AND content_size <= :threshold`). The policy is a config knob and can be raised or lowered at runtime; a background worker fills or evicts the cache accordingly. Correctness does not depend on cache state — the API falls back to S3 on miss.
+- A `content_cached` column with inlined content for nodes that are eligible under a caching policy (for example, `encoding_class = 'text' AND content_len <= :threshold`). The policy is a config knob and can be raised or lowered at runtime; a background worker fills or evicts the cache accordingly. Correctness does not depend on cache state — the API falls back to S3 on miss.
 - Full-text search indices via `tsvector` over cached text.
 - Vector embeddings via pgvector, in a separate table with a foreign key to the content; embeddings are regenerable at any time with a different model or chunking strategy.
 
@@ -418,7 +438,7 @@ The API resolves every blob read from Postgres's `content_sha256` field; a compr
 The API is the only way into RankeDB. It enforces two core properties:
 
 - **Immutability.** Once written, a node is never modified. Corrections are new nodes that reference what they correct.
-- **Provenance.** Every derivation has edges to its inputs, including the tool node that produced it — no derivation exists in the graph without them. What a worker records about itself (its configuration, version, parameters) is up to the application; storing these as graph nodes is recommended so that worker details themselves gain provenance. The guarantee is naturally scoped to what was given to the system — it cannot attest to what was never recorded.
+- **Provenance.** Every derivation has edges to its inputs, including the worker configuration node that produced it — no derivation exists in the graph without them. Worker configurations are stored as graph nodes (`worker/config`) so that worker details themselves gain provenance. The guarantee is naturally scoped to what was given to the system — it cannot attest to what was never recorded.
 
 #### 4.1.4 Forking and backups
 
@@ -455,7 +475,7 @@ We expect two broad categories to emerge in practice.
 Both would interact through the same API; the distinction is in their traversal strategy.
 
 Workers could be LLM-based (entity extraction, summarization, synthesis), deterministic (format conversion, deduplication, normalization), or hybrid.
-RankeDB is agnostic to the nature of a worker — it records only the provenance of what the worker produces: which inputs were consumed, which tool node was in effect (§3.1.2), and the run identifier carried on the edges the worker created (§3.2).
+RankeDB is agnostic to the nature of a worker — it records only the provenance of what the worker produces: which inputs were consumed, which worker configuration was in effect (linked via `provenance/worker` edge), and the run identifier carried on the edges the worker created (§3.2).
 
 A single node could be processed by multiple workers, or by successive versions of the same worker.
 Old and new outputs coexist with full provenance (§2.2); consumers would select between them through query parameters — for example, filtering on the most recent worker run.
