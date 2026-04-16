@@ -7,6 +7,16 @@ if [[ -z "$BUMP" || ! "$BUMP" =~ ^(major|minor|patch)$ ]]; then
   exit 1
 fi
 
+# Copy generated apiclient from server into worker package
+echo "  syncing apiclient → worker/apiclient/"
+cp server/go/apiclient/client.gen.go worker/apiclient/client.gen.go
+
+# Commit if changed
+if ! git diff --quiet worker/apiclient/; then
+  git add worker/apiclient/
+  git commit -m "sync: copy generated apiclient to worker package"
+fi
+
 # Get latest tag
 LATEST=$(git tag -l 'v*' --sort=-v:refname | head -1)
 if [[ -z "$LATEST" ]]; then
