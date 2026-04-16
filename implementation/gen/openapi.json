@@ -1,6 +1,571 @@
 {
   "components": {
-    "schemas": {},
+    "schemas": {
+      "CreateEdgeReq": {
+        "properties": {
+          "confidence": {
+            "type": "number"
+          },
+          "run_id": {
+            "type": "string"
+          },
+          "source_id": {
+            "type": "string"
+          },
+          "target_id": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_id",
+          "target_id",
+          "type",
+          "run_id",
+          "confidence"
+        ],
+        "type": "object"
+      },
+      "CreateRunReq": {
+        "properties": {
+          "tool_node_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "tool_node_id"
+        ],
+        "type": "object"
+      },
+      "CreateRunResp": {
+        "properties": {
+          "run_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "run_id"
+        ],
+        "type": "object"
+      },
+      "EdgeProvenanceResp": {
+        "properties": {
+          "edge": {
+            "$ref": "#/components/schemas/EdgeResponse"
+          },
+          "run_id": {
+            "type": "string"
+          },
+          "tool_node": {
+            "$ref": "#/components/schemas/NodeResponse"
+          }
+        },
+        "required": [
+          "edge",
+          "run_id",
+          "tool_node"
+        ],
+        "type": "object"
+      },
+      "EdgeResponse": {
+        "properties": {
+          "confidence": {
+            "type": "number"
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "head_id": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "relation_id": {
+            "type": "string"
+          },
+          "run_id": {
+            "type": "string"
+          },
+          "source_id": {
+            "type": "string"
+          },
+          "tail_id": {
+            "type": "string"
+          },
+          "target_id": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "type",
+          "source_id",
+          "target_id",
+          "relation_id",
+          "head_id",
+          "tail_id",
+          "run_id",
+          "confidence",
+          "created_at"
+        ],
+        "type": "object"
+      },
+      "GetEdgeProvenanceReq": {
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "type": "object"
+      },
+      "GetEdgeReq": {
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "type": "object"
+      },
+      "GetEntityReq": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "minConfidence": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "id",
+          "minConfidence"
+        ],
+        "type": "object"
+      },
+      "GetEntityResp": {
+        "properties": {
+          "entity": {
+            "$ref": "#/components/schemas/NodeResponse"
+          },
+          "relations": {
+            "items": {
+              "$ref": "#/components/schemas/RelationResponse"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "entity",
+          "relations"
+        ],
+        "type": "object"
+      },
+      "GetEntityTimelineReq": {
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "type": "object"
+      },
+      "GetEntityTimelineResp": {
+        "properties": {
+          "relations": {
+            "items": {
+              "$ref": "#/components/schemas/RelationResponse"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "relations"
+        ],
+        "type": "object"
+      },
+      "GetNodeEdgesReq": {
+        "properties": {
+          "direction": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          },
+          "offset": {
+            "type": "integer"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "direction",
+          "type",
+          "limit",
+          "offset"
+        ],
+        "type": "object"
+      },
+      "GetNodeEdgesResp": {
+        "properties": {
+          "edges": {
+            "items": {
+              "$ref": "#/components/schemas/EdgeResponse"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "edges"
+        ],
+        "type": "object"
+      },
+      "GetNodeProvenanceReq": {
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "type": "object"
+      },
+      "GetNodeReq": {
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "type": "object"
+      },
+      "GetQueueReq": {
+        "properties": {
+          "contentType": {
+            "type": "string"
+          },
+          "encoding": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          },
+          "notConsumedBy": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "contentType",
+          "encoding",
+          "notConsumedBy",
+          "limit"
+        ],
+        "type": "object"
+      },
+      "GetQueueResp": {
+        "properties": {
+          "nodes": {
+            "items": {
+              "$ref": "#/components/schemas/NodeResponse"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "nodes"
+        ],
+        "type": "object"
+      },
+      "ListNodesReq": {
+        "properties": {
+          "contentType": {
+            "type": "string"
+          },
+          "createdAfter": {
+            "type": "string"
+          },
+          "createdBefore": {
+            "type": "string"
+          },
+          "encoding": {
+            "type": "string"
+          },
+          "level": {
+            "type": "integer"
+          },
+          "limit": {
+            "type": "integer"
+          },
+          "offset": {
+            "type": "integer"
+          },
+          "runID": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "level",
+          "contentType",
+          "encoding",
+          "createdAfter",
+          "createdBefore",
+          "runID",
+          "limit",
+          "offset"
+        ],
+        "type": "object"
+      },
+      "ListNodesResp": {
+        "properties": {
+          "nodes": {
+            "items": {
+              "$ref": "#/components/schemas/NodeResponse"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "nodes"
+        ],
+        "type": "object"
+      },
+      "ListRelationsReq": {
+        "properties": {
+          "limit": {
+            "type": "integer"
+          },
+          "offset": {
+            "type": "integer"
+          },
+          "type": {
+            "type": "string"
+          },
+          "unresolved": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "unresolved",
+          "type",
+          "limit",
+          "offset"
+        ],
+        "type": "object"
+      },
+      "ListRelationsResp": {
+        "properties": {
+          "relations": {
+            "items": {
+              "$ref": "#/components/schemas/RelationResponse"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "relations"
+        ],
+        "type": "object"
+      },
+      "NodeResponse": {
+        "properties": {
+          "artifact_created_at": {
+            "type": "string"
+          },
+          "artifact_created_at_blur": {
+            "type": "string"
+          },
+          "confidence": {
+            "type": "number"
+          },
+          "content": {
+            "type": "string"
+          },
+          "content_len": {
+            "type": "integer"
+          },
+          "content_sha256": {
+            "type": "string"
+          },
+          "content_type": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "encoding": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "level": {
+            "type": "integer"
+          },
+          "origin": {
+            "type": "string"
+          },
+          "original_name": {
+            "type": "string"
+          },
+          "valid_from": {
+            "type": "string"
+          },
+          "valid_from_blur": {
+            "type": "string"
+          },
+          "valid_until": {
+            "type": "string"
+          },
+          "valid_until_blur": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "level",
+          "content_type",
+          "encoding",
+          "content_sha256",
+          "content_len",
+          "content",
+          "created_at",
+          "artifact_created_at",
+          "artifact_created_at_blur",
+          "origin",
+          "original_name",
+          "valid_from",
+          "valid_from_blur",
+          "valid_until",
+          "valid_until_blur",
+          "confidence"
+        ],
+        "type": "object"
+      },
+      "ProvenanceEdgeResponse": {
+        "properties": {
+          "created_at": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "run_id": {
+            "type": "string"
+          },
+          "source_id": {
+            "type": "string"
+          },
+          "target_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "source_id",
+          "target_id",
+          "run_id",
+          "created_at"
+        ],
+        "type": "object"
+      },
+      "ProvenanceSubgraph": {
+        "properties": {
+          "edges": {
+            "items": {
+              "$ref": "#/components/schemas/ProvenanceEdgeResponse"
+            },
+            "type": "array"
+          },
+          "nodes": {
+            "items": {
+              "$ref": "#/components/schemas/NodeResponse"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "nodes",
+          "edges"
+        ],
+        "type": "object"
+      },
+      "RelationResponse": {
+        "properties": {
+          "head_id": {
+            "type": "string"
+          },
+          "node": {
+            "$ref": "#/components/schemas/NodeResponse"
+          },
+          "tail_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "node",
+          "head_id",
+          "tail_id"
+        ],
+        "type": "object"
+      },
+      "SearchEntitiesReq": {
+        "properties": {
+          "limit": {
+            "type": "integer"
+          },
+          "offset": {
+            "type": "integer"
+          },
+          "q": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "q",
+          "type",
+          "limit",
+          "offset"
+        ],
+        "type": "object"
+      },
+      "SearchEntitiesResp": {
+        "properties": {
+          "entities": {
+            "items": {
+              "$ref": "#/components/schemas/NodeResponse"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "entities"
+        ],
+        "type": "object"
+      }
+    },
     "securitySchemes": {
       "bearerAuth": {
         "bearerFormat": "JWT",
@@ -14,5 +579,372 @@
     "version": "1.0.0"
   },
   "openapi": "3.0.0",
-  "paths": {}
+  "paths": {
+    "/api/edges": {
+      "post": {
+        "operationId": "postApiEdges",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateEdgeReq"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EdgeResponse"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "description": "Bad Request"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Creates a provenance or semantic edge."
+      }
+    },
+    "/api/edges/{id}": {
+      "get": {
+        "operationId": "getApiEdgesId",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EdgeResponse"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "description": "Bad Request"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Returns an edge by ID with its metadata."
+      }
+    },
+    "/api/edges/{id}/provenance": {
+      "get": {
+        "operationId": "getApiEdgesIdProvenance",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EdgeProvenanceResp"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "description": "Bad Request"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Returns the provenance context of an edge: run, tool node, config."
+      }
+    },
+    "/api/entities": {
+      "get": {
+        "operationId": "getApiEntities",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchEntitiesResp"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "description": "Bad Request"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Searches entities by full-text query over names and aliases."
+      }
+    },
+    "/api/entities/{id}": {
+      "get": {
+        "operationId": "getApiEntitiesId",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetEntityResp"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "description": "Bad Request"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Returns an entity with all its relations, sorted by temporal validity."
+      }
+    },
+    "/api/entities/{id}/timeline": {
+      "get": {
+        "operationId": "getApiEntitiesIdTimeline",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetEntityTimelineResp"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "description": "Bad Request"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Returns all relations of an entity sorted chronologically by valid_from."
+      }
+    },
+    "/api/nodes": {
+      "get": {
+        "operationId": "getApiNodes",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListNodesResp"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "description": "Bad Request"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Returns a filtered, paginated list of nodes."
+      },
+      "post": {
+        "description": "L0 sources use multipart form upload; L1/L2 use JSON.\nL0 root creation is idempotent via content_sha256.",
+        "operationId": "postApiNodes",
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "400": {
+            "description": "Bad Request"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Creates a graph node."
+      }
+    },
+    "/api/nodes/{id}": {
+      "get": {
+        "operationId": "getApiNodesId",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NodeResponse"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "description": "Bad Request"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Returns a node by ID with full metadata and inline content."
+      }
+    },
+    "/api/nodes/{id}/content": {
+      "get": {
+        "description": "Serves from Postgres cache if available, otherwise proxies from S3.",
+        "operationId": "getApiNodesIdContent",
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "400": {
+            "description": "Bad Request"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Returns the raw content bytes of a node."
+      }
+    },
+    "/api/nodes/{id}/edges": {
+      "get": {
+        "operationId": "getApiNodesIdEdges",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetNodeEdgesResp"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "description": "Bad Request"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Returns edges connected to a node, filterable by direction and type."
+      }
+    },
+    "/api/nodes/{id}/provenance": {
+      "get": {
+        "operationId": "getApiNodesIdProvenance",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProvenanceSubgraph"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "description": "Bad Request"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Returns the upstream provenance chain from a node back to L0 roots."
+      }
+    },
+    "/api/queue": {
+      "get": {
+        "operationId": "getApiQueue",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetQueueResp"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "description": "Bad Request"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Returns unprocessed nodes for a given worker type."
+      }
+    },
+    "/api/relations": {
+      "get": {
+        "operationId": "getApiRelations",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListRelationsResp"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "description": "Bad Request"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Returns filtered relation nodes."
+      }
+    },
+    "/api/runs": {
+      "post": {
+        "operationId": "postApiRuns",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateRunReq"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateRunResp"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "description": "Bad Request"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Registers a new worker run and returns a run_id."
+      }
+    }
+  }
 }

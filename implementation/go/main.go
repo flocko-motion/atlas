@@ -3,11 +3,10 @@ package main
 import (
 	"context"
 	"log"
-
-	"github.com/flocko-motion/schemaf/schemaf"
-
 	"rankedb/api"
 	"rankedb/db"
+
+	"github.com/flocko-motion/schemaf/schemaf"
 )
 
 func main() {
@@ -18,5 +17,7 @@ func main() {
 	app.AddApi(api.Provider)
 	app.SetFrontend(FrontendFS())
 
-	log.Fatal(app.Run())
+	if err := app.Run(); err != nil {
+		log.Fatal(app.Run())
+	}
 }

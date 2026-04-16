@@ -7,142 +7,48 @@ package db
 
 import (
 	"context"
+	"database/sql"
 )
 
-const getProvenanceByRun = `-- name: GetProvenanceByRun :many
-SELECT id, source_id, target_id, run_id, created_at FROM edges_provenance WHERE run_id = $1 ORDER BY created_at
+const getEdge = `-- name: GetEdge :one
+SELECT id, source_node_id, target_node_id, type, confidence, run_id, created_at FROM edges WHERE id = $1
 `
 
-func (q *Queries) GetProvenanceByRun(ctx context.Context, runID string) ([]EdgesProvenance, error) {
-	rows, err := q.db.QueryContext(ctx, getProvenanceByRun, runID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []EdgesProvenance
-	for rows.Next() {
-		var i EdgesProvenance
-		if err := rows.Scan(
-			&i.ID,
-			&i.SourceID,
-			&i.TargetID,
-			&i.RunID,
-			&i.CreatedAt,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const getProvenanceInputs = `-- name: GetProvenanceInputs :many
-SELECT id, source_id, target_id, run_id, created_at FROM edges_provenance WHERE target_id = $1 ORDER BY created_at
-`
-
-func (q *Queries) GetProvenanceInputs(ctx context.Context, targetID string) ([]EdgesProvenance, error) {
-	rows, err := q.db.QueryContext(ctx, getProvenanceInputs, targetID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []EdgesProvenance
-	for rows.Next() {
-		var i EdgesProvenance
-		if err := rows.Scan(
-			&i.ID,
-			&i.SourceID,
-			&i.TargetID,
-			&i.RunID,
-			&i.CreatedAt,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const getProvenanceOutputs = `-- name: GetProvenanceOutputs :many
-SELECT id, source_id, target_id, run_id, created_at FROM edges_provenance WHERE source_id = $1 ORDER BY created_at
-`
-
-func (q *Queries) GetProvenanceOutputs(ctx context.Context, sourceID string) ([]EdgesProvenance, error) {
-	rows, err := q.db.QueryContext(ctx, getProvenanceOutputs, sourceID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []EdgesProvenance
-	for rows.Next() {
-		var i EdgesProvenance
-		if err := rows.Scan(
-			&i.ID,
-			&i.SourceID,
-			&i.TargetID,
-			&i.RunID,
-			&i.CreatedAt,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const getSemanticEdge = `-- name: GetSemanticEdge :one
-SELECT id, relation_id, head_id, tail_id, created_at FROM edges_semantic WHERE relation_id = $1
-`
-
-func (q *Queries) GetSemanticEdge(ctx context.Context, relationID string) (EdgesSemantic, error) {
-	row := q.db.QueryRowContext(ctx, getSemanticEdge, relationID)
-	var i EdgesSemantic
+func (q *Queries) GetEdge(ctx context.Context, id string) (Edge, error) {
+	row := q.db.QueryRowContext(ctx, getEdge, id)
+	var i Edge
 	err := row.Scan(
 		&i.ID,
-		&i.RelationID,
-		&i.HeadID,
-		&i.TailID,
+		&i.SourceNodeID,
+		&i.TargetNodeID,
+		&i.Type,
+		&i.Confidence,
+		&i.RunID,
 		&i.CreatedAt,
 	)
 	return i, err
 }
 
-const getSemanticEdgesByHead = `-- name: GetSemanticEdgesByHead :many
-SELECT id, relation_id, head_id, tail_id, created_at FROM edges_semantic WHERE head_id = $1
+const getEdgesByRun = `-- name: GetEdgesByRun :many
+SELECT id, source_node_id, target_node_id, type, confidence, run_id, created_at FROM edges WHERE run_id = $1 ORDER BY created_at
 `
 
-func (q *Queries) GetSemanticEdgesByHead(ctx context.Context, headID string) ([]EdgesSemantic, error) {
-	rows, err := q.db.QueryContext(ctx, getSemanticEdgesByHead, headID)
+func (q *Queries) GetEdgesByRun(ctx context.Context, runID sql.NullString) ([]Edge, error) {
+	rows, err := q.db.QueryContext(ctx, getEdgesByRun, runID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []EdgesSemantic
+	var items []Edge
 	for rows.Next() {
-		var i EdgesSemantic
+		var i Edge
 		if err := rows.Scan(
 			&i.ID,
-			&i.RelationID,
-			&i.HeadID,
-			&i.TailID,
+			&i.SourceNodeID,
+			&i.TargetNodeID,
+			&i.Type,
+			&i.Confidence,
+			&i.RunID,
 			&i.CreatedAt,
 		); err != nil {
 			return nil, err
@@ -158,24 +64,26 @@ func (q *Queries) GetSemanticEdgesByHead(ctx context.Context, headID string) ([]
 	return items, nil
 }
 
-const getSemanticEdgesByTail = `-- name: GetSemanticEdgesByTail :many
-SELECT id, relation_id, head_id, tail_id, created_at FROM edges_semantic WHERE tail_id = $1
+const getEdgesBySource = `-- name: GetEdgesBySource :many
+SELECT id, source_node_id, target_node_id, type, confidence, run_id, created_at FROM edges WHERE source_node_id = $1 ORDER BY created_at
 `
 
-func (q *Queries) GetSemanticEdgesByTail(ctx context.Context, tailID string) ([]EdgesSemantic, error) {
-	rows, err := q.db.QueryContext(ctx, getSemanticEdgesByTail, tailID)
+func (q *Queries) GetEdgesBySource(ctx context.Context, sourceNodeID string) ([]Edge, error) {
+	rows, err := q.db.QueryContext(ctx, getEdgesBySource, sourceNodeID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []EdgesSemantic
+	var items []Edge
 	for rows.Next() {
-		var i EdgesSemantic
+		var i Edge
 		if err := rows.Scan(
 			&i.ID,
-			&i.RelationID,
-			&i.HeadID,
-			&i.TailID,
+			&i.SourceNodeID,
+			&i.TargetNodeID,
+			&i.Type,
+			&i.Confidence,
+			&i.RunID,
 			&i.CreatedAt,
 		); err != nil {
 			return nil, err
@@ -191,36 +99,143 @@ func (q *Queries) GetSemanticEdgesByTail(ctx context.Context, tailID string) ([]
 	return items, nil
 }
 
-const insertProvenanceEdge = `-- name: InsertProvenanceEdge :exec
-INSERT INTO edges_provenance (source_id, target_id, run_id)
-VALUES ($1, $2, $3)
-ON CONFLICT (source_id, target_id, run_id) DO NOTHING
+const getEdgesBySourceAndType = `-- name: GetEdgesBySourceAndType :many
+SELECT id, source_node_id, target_node_id, type, confidence, run_id, created_at FROM edges WHERE source_node_id = $1 AND type = $2 ORDER BY created_at
 `
 
-type InsertProvenanceEdgeParams struct {
-	SourceID string `json:"source_id"`
-	TargetID string `json:"target_id"`
-	RunID    string `json:"run_id"`
+type GetEdgesBySourceAndTypeParams struct {
+	SourceNodeID string `json:"source_node_id"`
+	Type         string `json:"type"`
 }
 
-func (q *Queries) InsertProvenanceEdge(ctx context.Context, arg InsertProvenanceEdgeParams) error {
-	_, err := q.db.ExecContext(ctx, insertProvenanceEdge, arg.SourceID, arg.TargetID, arg.RunID)
-	return err
+func (q *Queries) GetEdgesBySourceAndType(ctx context.Context, arg GetEdgesBySourceAndTypeParams) ([]Edge, error) {
+	rows, err := q.db.QueryContext(ctx, getEdgesBySourceAndType, arg.SourceNodeID, arg.Type)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Edge
+	for rows.Next() {
+		var i Edge
+		if err := rows.Scan(
+			&i.ID,
+			&i.SourceNodeID,
+			&i.TargetNodeID,
+			&i.Type,
+			&i.Confidence,
+			&i.RunID,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
-const insertSemanticEdge = `-- name: InsertSemanticEdge :exec
-INSERT INTO edges_semantic (relation_id, head_id, tail_id)
-VALUES ($1, $2, $3)
-ON CONFLICT (relation_id) DO NOTHING
+const getEdgesByTarget = `-- name: GetEdgesByTarget :many
+SELECT id, source_node_id, target_node_id, type, confidence, run_id, created_at FROM edges WHERE target_node_id = $1 ORDER BY created_at
 `
 
-type InsertSemanticEdgeParams struct {
-	RelationID string `json:"relation_id"`
-	HeadID     string `json:"head_id"`
-	TailID     string `json:"tail_id"`
+func (q *Queries) GetEdgesByTarget(ctx context.Context, targetNodeID string) ([]Edge, error) {
+	rows, err := q.db.QueryContext(ctx, getEdgesByTarget, targetNodeID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Edge
+	for rows.Next() {
+		var i Edge
+		if err := rows.Scan(
+			&i.ID,
+			&i.SourceNodeID,
+			&i.TargetNodeID,
+			&i.Type,
+			&i.Confidence,
+			&i.RunID,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
-func (q *Queries) InsertSemanticEdge(ctx context.Context, arg InsertSemanticEdgeParams) error {
-	_, err := q.db.ExecContext(ctx, insertSemanticEdge, arg.RelationID, arg.HeadID, arg.TailID)
+const getEdgesByTargetAndType = `-- name: GetEdgesByTargetAndType :many
+SELECT id, source_node_id, target_node_id, type, confidence, run_id, created_at FROM edges WHERE target_node_id = $1 AND type = $2 ORDER BY created_at
+`
+
+type GetEdgesByTargetAndTypeParams struct {
+	TargetNodeID string `json:"target_node_id"`
+	Type         string `json:"type"`
+}
+
+func (q *Queries) GetEdgesByTargetAndType(ctx context.Context, arg GetEdgesByTargetAndTypeParams) ([]Edge, error) {
+	rows, err := q.db.QueryContext(ctx, getEdgesByTargetAndType, arg.TargetNodeID, arg.Type)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Edge
+	for rows.Next() {
+		var i Edge
+		if err := rows.Scan(
+			&i.ID,
+			&i.SourceNodeID,
+			&i.TargetNodeID,
+			&i.Type,
+			&i.Confidence,
+			&i.RunID,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const insertEdge = `-- name: InsertEdge :exec
+INSERT INTO edges (id, source_node_id, target_node_id, type, confidence, run_id)
+VALUES ($1, $2, $3, $4, $5, $6)
+`
+
+type InsertEdgeParams struct {
+	ID           string          `json:"id"`
+	SourceNodeID string          `json:"source_node_id"`
+	TargetNodeID string          `json:"target_node_id"`
+	Type         string          `json:"type"`
+	Confidence   sql.NullFloat64 `json:"confidence"`
+	RunID        sql.NullString  `json:"run_id"`
+}
+
+func (q *Queries) InsertEdge(ctx context.Context, arg InsertEdgeParams) error {
+	_, err := q.db.ExecContext(ctx, insertEdge,
+		arg.ID,
+		arg.SourceNodeID,
+		arg.TargetNodeID,
+		arg.Type,
+		arg.Confidence,
+		arg.RunID,
+	)
 	return err
 }

@@ -7,31 +7,25 @@ package db
 import (
 	"database/sql"
 	"time"
-
-	"github.com/google/uuid"
 )
 
-type EdgesProvenance struct {
-	ID        uuid.UUID `json:"id"`
-	SourceID  string    `json:"source_id"`
-	TargetID  string    `json:"target_id"`
-	RunID     string    `json:"run_id"`
-	CreatedAt time.Time `json:"created_at"`
-}
-
-type EdgesSemantic struct {
-	ID         uuid.UUID `json:"id"`
-	RelationID string    `json:"relation_id"`
-	HeadID     string    `json:"head_id"`
-	TailID     string    `json:"tail_id"`
-	CreatedAt  time.Time `json:"created_at"`
+type Edge struct {
+	ID           string          `json:"id"`
+	SourceNodeID string          `json:"source_node_id"`
+	TargetNodeID string          `json:"target_node_id"`
+	Type         string          `json:"type"`
+	Confidence   sql.NullFloat64 `json:"confidence"`
+	RunID        sql.NullString  `json:"run_id"`
+	CreatedAt    time.Time       `json:"created_at"`
 }
 
 type Node struct {
 	ID                    string          `json:"id"`
 	Level                 int16           `json:"level"`
+	ContentClass          string          `json:"content_class"`
 	ContentType           string          `json:"content_type"`
-	Encoding              string          `json:"encoding"`
+	EncodingClass         string          `json:"encoding_class"`
+	EncodingFormat        string          `json:"encoding_format"`
 	ContentSha256         string          `json:"content_sha256"`
 	ContentLen            int64           `json:"content_len"`
 	ContentCached         sql.NullString  `json:"content_cached"`
@@ -45,4 +39,10 @@ type Node struct {
 	ValidUntil            sql.NullTime    `json:"valid_until"`
 	ValidUntilBlur        sql.NullString  `json:"valid_until_blur"`
 	Confidence            sql.NullFloat64 `json:"confidence"`
+}
+
+type Run struct {
+	ID             string    `json:"id"`
+	WorkerConfigID string    `json:"worker_config_id"`
+	CreatedAt      time.Time `json:"created_at"`
 }

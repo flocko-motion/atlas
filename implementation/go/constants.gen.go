@@ -7,4 +7,5 @@ import "github.com/flocko-motion/schemaf/constants"
 
 func init() {
 	constants.SetProjectName("rankedb")
+	constants.SetPort(8000)
 }

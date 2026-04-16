@@ -11,7 +11,7 @@ import (
 )
 
 const getNode = `-- name: GetNode :one
-SELECT id, level, content_type, encoding, content_sha256, content_len, content_cached, created_at, artifact_created_at, artifact_created_at_blur, origin, original_name, valid_from, valid_from_blur, valid_until, valid_until_blur, confidence FROM nodes WHERE id = $1
+SELECT id, level, content_class, content_type, encoding_class, encoding_format, content_sha256, content_len, content_cached, created_at, artifact_created_at, artifact_created_at_blur, origin, original_name, valid_from, valid_from_blur, valid_until, valid_until_blur, confidence FROM nodes WHERE id = $1
 `
 
 func (q *Queries) GetNode(ctx context.Context, id string) (Node, error) {
@@ -20,8 +20,10 @@ func (q *Queries) GetNode(ctx context.Context, id string) (Node, error) {
 	err := row.Scan(
 		&i.ID,
 		&i.Level,
+		&i.ContentClass,
 		&i.ContentType,
-		&i.Encoding,
+		&i.EncodingClass,
+		&i.EncodingFormat,
 		&i.ContentSha256,
 		&i.ContentLen,
 		&i.ContentCached,
@@ -41,23 +43,25 @@ func (q *Queries) GetNode(ctx context.Context, id string) (Node, error) {
 
 const insertNode = `-- name: InsertNode :exec
 INSERT INTO nodes (
-    id, level, content_type, encoding,
+    id, level, content_class, content_type, encoding_class, encoding_format,
     content_sha256, content_len, content_cached,
     artifact_created_at, artifact_created_at_blur, origin, original_name,
     valid_from, valid_from_blur, valid_until, valid_until_blur, confidence
 ) VALUES (
-    $1, $2, $3, $4,
-    $5, $6, $7,
-    $8, $9, $10, $11,
-    $12, $13, $14, $15, $16
+    $1, $2, $3, $4, $5, $6,
+    $7, $8, $9,
+    $10, $11, $12, $13,
+    $14, $15, $16, $17, $18
 )
 `
 
 type InsertNodeParams struct {
 	ID                    string          `json:"id"`
 	Level                 int16           `json:"level"`
+	ContentClass          string          `json:"content_class"`
 	ContentType           string          `json:"content_type"`
-	Encoding              string          `json:"encoding"`
+	EncodingClass         string          `json:"encoding_class"`
+	EncodingFormat        string          `json:"encoding_format"`
 	ContentSha256         string          `json:"content_sha256"`
 	ContentLen            int64           `json:"content_len"`
 	ContentCached         sql.NullString  `json:"content_cached"`
@@ -76,8 +80,10 @@ func (q *Queries) InsertNode(ctx context.Context, arg InsertNodeParams) error {
 	_, err := q.db.ExecContext(ctx, insertNode,
 		arg.ID,
 		arg.Level,
+		arg.ContentClass,
 		arg.ContentType,
-		arg.Encoding,
+		arg.EncodingClass,
+		arg.EncodingFormat,
 		arg.ContentSha256,
 		arg.ContentLen,
 		arg.ContentCached,
@@ -94,18 +100,18 @@ func (q *Queries) InsertNode(ctx context.Context, arg InsertNodeParams) error {
 	return err
 }
 
-const listNodesByContentType = `-- name: ListNodesByContentType :many
-SELECT id, level, content_type, encoding, content_sha256, content_len, content_cached, created_at, artifact_created_at, artifact_created_at_blur, origin, original_name, valid_from, valid_from_blur, valid_until, valid_until_blur, confidence FROM nodes WHERE content_type = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3
+const listNodesByContentClass = `-- name: ListNodesByContentClass :many
+SELECT id, level, content_class, content_type, encoding_class, encoding_format, content_sha256, content_len, content_cached, created_at, artifact_created_at, artifact_created_at_blur, origin, original_name, valid_from, valid_from_blur, valid_until, valid_until_blur, confidence FROM nodes WHERE content_class = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3
 `
 
-type ListNodesByContentTypeParams struct {
-	ContentType string `json:"content_type"`
-	Limit       int32  `json:"limit"`
-	Offset      int32  `json:"offset"`
+type ListNodesByContentClassParams struct {
+	ContentClass string `json:"content_class"`
+	Limit        int32  `json:"limit"`
+	Offset       int32  `json:"offset"`
 }
 
-func (q *Queries) ListNodesByContentType(ctx context.Context, arg ListNodesByContentTypeParams) ([]Node, error) {
-	rows, err := q.db.QueryContext(ctx, listNodesByContentType, arg.ContentType, arg.Limit, arg.Offset)
+func (q *Queries) ListNodesByContentClass(ctx context.Context, arg ListNodesByContentClassParams) ([]Node, error) {
+	rows, err := q.db.QueryContext(ctx, listNodesByContentClass, arg.ContentClass, arg.Limit, arg.Offset)
 	if err != nil {
 		return nil, err
 	}
@@ -116,8 +122,69 @@ func (q *Queries) ListNodesByContentType(ctx context.Context, arg ListNodesByCon
 		if err := rows.Scan(
 			&i.ID,
 			&i.Level,
+			&i.ContentClass,
 			&i.ContentType,
-			&i.Encoding,
+			&i.EncodingClass,
+			&i.EncodingFormat,
+			&i.ContentSha256,
+			&i.ContentLen,
+			&i.ContentCached,
+			&i.CreatedAt,
+			&i.ArtifactCreatedAt,
+			&i.ArtifactCreatedAtBlur,
+			&i.Origin,
+			&i.OriginalName,
+			&i.ValidFrom,
+			&i.ValidFromBlur,
+			&i.ValidUntil,
+			&i.ValidUntilBlur,
+			&i.Confidence,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listNodesByContentClassAndType = `-- name: ListNodesByContentClassAndType :many
+SELECT id, level, content_class, content_type, encoding_class, encoding_format, content_sha256, content_len, content_cached, created_at, artifact_created_at, artifact_created_at_blur, origin, original_name, valid_from, valid_from_blur, valid_until, valid_until_blur, confidence FROM nodes WHERE content_class = $1 AND content_type = $2 ORDER BY created_at DESC LIMIT $3 OFFSET $4
+`
+
+type ListNodesByContentClassAndTypeParams struct {
+	ContentClass string `json:"content_class"`
+	ContentType  string `json:"content_type"`
+	Limit        int32  `json:"limit"`
+	Offset       int32  `json:"offset"`
+}
+
+func (q *Queries) ListNodesByContentClassAndType(ctx context.Context, arg ListNodesByContentClassAndTypeParams) ([]Node, error) {
+	rows, err := q.db.QueryContext(ctx, listNodesByContentClassAndType,
+		arg.ContentClass,
+		arg.ContentType,
+		arg.Limit,
+		arg.Offset,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Node
+	for rows.Next() {
+		var i Node
+		if err := rows.Scan(
+			&i.ID,
+			&i.Level,
+			&i.ContentClass,
+			&i.ContentType,
+			&i.EncodingClass,
+			&i.EncodingFormat,
 			&i.ContentSha256,
 			&i.ContentLen,
 			&i.ContentCached,
@@ -146,7 +213,7 @@ func (q *Queries) ListNodesByContentType(ctx context.Context, arg ListNodesByCon
 }
 
 const listNodesByLevel = `-- name: ListNodesByLevel :many
-SELECT id, level, content_type, encoding, content_sha256, content_len, content_cached, created_at, artifact_created_at, artifact_created_at_blur, origin, original_name, valid_from, valid_from_blur, valid_until, valid_until_blur, confidence FROM nodes WHERE level = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3
+SELECT id, level, content_class, content_type, encoding_class, encoding_format, content_sha256, content_len, content_cached, created_at, artifact_created_at, artifact_created_at_blur, origin, original_name, valid_from, valid_from_blur, valid_until, valid_until_blur, confidence FROM nodes WHERE level = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3
 `
 
 type ListNodesByLevelParams struct {
@@ -167,8 +234,10 @@ func (q *Queries) ListNodesByLevel(ctx context.Context, arg ListNodesByLevelPara
 		if err := rows.Scan(
 			&i.ID,
 			&i.Level,
+			&i.ContentClass,
 			&i.ContentType,
-			&i.Encoding,
+			&i.EncodingClass,
+			&i.EncodingFormat,
 			&i.ContentSha256,
 			&i.ContentLen,
 			&i.ContentCached,

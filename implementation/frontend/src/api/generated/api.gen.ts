@@ -10,6 +10,174 @@
  * ---------------------------------------------------------------
  */
 
+export interface CreateEdgeReq {
+  confidence: number;
+  run_id: string;
+  source_id: string;
+  target_id: string;
+  type: string;
+}
+
+export interface CreateRunReq {
+  tool_node_id: string;
+}
+
+export interface CreateRunResp {
+  run_id: string;
+}
+
+export interface EdgeProvenanceResp {
+  edge: EdgeResponse;
+  run_id: string;
+  tool_node: NodeResponse;
+}
+
+export interface EdgeResponse {
+  confidence: number;
+  created_at: string;
+  head_id: string;
+  id: string;
+  relation_id: string;
+  run_id: string;
+  source_id: string;
+  tail_id: string;
+  target_id: string;
+  type: string;
+}
+
+export interface GetEdgeProvenanceReq {
+  id: string;
+}
+
+export interface GetEdgeReq {
+  id: string;
+}
+
+export interface GetEntityReq {
+  id: string;
+  minConfidence: number;
+}
+
+export interface GetEntityResp {
+  entity: NodeResponse;
+  relations: RelationResponse[];
+}
+
+export interface GetEntityTimelineReq {
+  id: string;
+}
+
+export interface GetEntityTimelineResp {
+  relations: RelationResponse[];
+}
+
+export interface GetNodeEdgesReq {
+  direction: string;
+  id: string;
+  limit: number;
+  offset: number;
+  type: string;
+}
+
+export interface GetNodeEdgesResp {
+  edges: EdgeResponse[];
+}
+
+export interface GetNodeProvenanceReq {
+  id: string;
+}
+
+export interface GetNodeReq {
+  id: string;
+}
+
+export interface GetQueueReq {
+  contentType: string;
+  encoding: string;
+  limit: number;
+  notConsumedBy: string;
+}
+
+export interface GetQueueResp {
+  nodes: NodeResponse[];
+}
+
+export interface ListNodesReq {
+  contentType: string;
+  createdAfter: string;
+  createdBefore: string;
+  encoding: string;
+  level: number;
+  limit: number;
+  offset: number;
+  runID: string;
+}
+
+export interface ListNodesResp {
+  nodes: NodeResponse[];
+}
+
+export interface ListRelationsReq {
+  limit: number;
+  offset: number;
+  type: string;
+  unresolved: boolean;
+}
+
+export interface ListRelationsResp {
+  relations: RelationResponse[];
+}
+
+export interface NodeResponse {
+  artifact_created_at: string;
+  artifact_created_at_blur: string;
+  confidence: number;
+  content: string;
+  content_len: number;
+  content_sha256: string;
+  content_type: string;
+  created_at: string;
+  encoding: string;
+  id: string;
+  level: number;
+  origin: string;
+  original_name: string;
+  valid_from: string;
+  valid_from_blur: string;
+  valid_until: string;
+  valid_until_blur: string;
+}
+
+export interface ProvenanceEdgeResponse {
+  created_at: string;
+  id: string;
+  run_id: string;
+  source_id: string;
+  target_id: string;
+}
+
+export interface ProvenanceSubgraph {
+  edges: ProvenanceEdgeResponse[];
+  nodes: NodeResponse[];
+}
+
+export interface RelationResponse {
+  head_id: string;
+  node: NodeResponse;
+  tail_id: string;
+}
+
+export interface SearchEntitiesReq {
+  limit: number;
+  offset: number;
+  q: string;
+  type: string;
+}
+
+export interface SearchEntitiesResp {
+  entities: NodeResponse[];
+}
+
 export type QueryParamsType = Record<string | number, any>;
 export type ResponseFormat = keyof Omit<Body, "body" | "bodyUsed">;
 
@@ -271,4 +439,233 @@ export class HttpClient<SecurityDataType = unknown> {
  */
 export class Api<
   SecurityDataType extends unknown,
-> extends HttpClient<SecurityDataType> {}
+> extends HttpClient<SecurityDataType> {
+  api = {
+    /**
+     * No description
+     *
+     * @name PostApiEdges
+     * @summary Creates a provenance or semantic edge.
+     * @request POST:/api/edges
+     */
+    postApiEdges: (data: CreateEdgeReq, params: RequestParams = {}) =>
+      this.request<EdgeResponse, void>({
+        path: `/api/edges`,
+        method: "POST",
+        body: data,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @name GetApiEdgesId
+     * @summary Returns an edge by ID with its metadata.
+     * @request GET:/api/edges/{id}
+     */
+    getApiEdgesId: (id: string, params: RequestParams = {}) =>
+      this.request<EdgeResponse, void>({
+        path: `/api/edges/${id}`,
+        method: "GET",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @name GetApiEdgesIdProvenance
+     * @summary Returns the provenance context of an edge: run, tool node, config.
+     * @request GET:/api/edges/{id}/provenance
+     */
+    getApiEdgesIdProvenance: (id: string, params: RequestParams = {}) =>
+      this.request<EdgeProvenanceResp, void>({
+        path: `/api/edges/${id}/provenance`,
+        method: "GET",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @name GetApiEntities
+     * @summary Searches entities by full-text query over names and aliases.
+     * @request GET:/api/entities
+     */
+    getApiEntities: (params: RequestParams = {}) =>
+      this.request<SearchEntitiesResp, void>({
+        path: `/api/entities`,
+        method: "GET",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @name GetApiEntitiesId
+     * @summary Returns an entity with all its relations, sorted by temporal validity.
+     * @request GET:/api/entities/{id}
+     */
+    getApiEntitiesId: (id: string, params: RequestParams = {}) =>
+      this.request<GetEntityResp, void>({
+        path: `/api/entities/${id}`,
+        method: "GET",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @name GetApiEntitiesIdTimeline
+     * @summary Returns all relations of an entity sorted chronologically by valid_from.
+     * @request GET:/api/entities/{id}/timeline
+     */
+    getApiEntitiesIdTimeline: (id: string, params: RequestParams = {}) =>
+      this.request<GetEntityTimelineResp, void>({
+        path: `/api/entities/${id}/timeline`,
+        method: "GET",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @name GetApiNodes
+     * @summary Returns a filtered, paginated list of nodes.
+     * @request GET:/api/nodes
+     */
+    getApiNodes: (params: RequestParams = {}) =>
+      this.request<ListNodesResp, void>({
+        path: `/api/nodes`,
+        method: "GET",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description L0 sources use multipart form upload; L1/L2 use JSON. L0 root creation is idempotent via content_sha256.
+     *
+     * @name PostApiNodes
+     * @summary Creates a graph node.
+     * @request POST:/api/nodes
+     */
+    postApiNodes: (params: RequestParams = {}) =>
+      this.request<void, void>({
+        path: `/api/nodes`,
+        method: "POST",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @name GetApiNodesId
+     * @summary Returns a node by ID with full metadata and inline content.
+     * @request GET:/api/nodes/{id}
+     */
+    getApiNodesId: (id: string, params: RequestParams = {}) =>
+      this.request<NodeResponse, void>({
+        path: `/api/nodes/${id}`,
+        method: "GET",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Serves from Postgres cache if available, otherwise proxies from S3.
+     *
+     * @name GetApiNodesIdContent
+     * @summary Returns the raw content bytes of a node.
+     * @request GET:/api/nodes/{id}/content
+     */
+    getApiNodesIdContent: (id: string, params: RequestParams = {}) =>
+      this.request<void, void>({
+        path: `/api/nodes/${id}/content`,
+        method: "GET",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @name GetApiNodesIdEdges
+     * @summary Returns edges connected to a node, filterable by direction and type.
+     * @request GET:/api/nodes/{id}/edges
+     */
+    getApiNodesIdEdges: (id: string, params: RequestParams = {}) =>
+      this.request<GetNodeEdgesResp, void>({
+        path: `/api/nodes/${id}/edges`,
+        method: "GET",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @name GetApiNodesIdProvenance
+     * @summary Returns the upstream provenance chain from a node back to L0 roots.
+     * @request GET:/api/nodes/{id}/provenance
+     */
+    getApiNodesIdProvenance: (id: string, params: RequestParams = {}) =>
+      this.request<ProvenanceSubgraph, void>({
+        path: `/api/nodes/${id}/provenance`,
+        method: "GET",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @name GetApiQueue
+     * @summary Returns unprocessed nodes for a given worker type.
+     * @request GET:/api/queue
+     */
+    getApiQueue: (params: RequestParams = {}) =>
+      this.request<GetQueueResp, void>({
+        path: `/api/queue`,
+        method: "GET",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @name GetApiRelations
+     * @summary Returns filtered relation nodes.
+     * @request GET:/api/relations
+     */
+    getApiRelations: (params: RequestParams = {}) =>
+      this.request<ListRelationsResp, void>({
+        path: `/api/relations`,
+        method: "GET",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @name PostApiRuns
+     * @summary Registers a new worker run and returns a run_id.
+     * @request POST:/api/runs
+     */
+    postApiRuns: (data: CreateRunReq, params: RequestParams = {}) =>
+      this.request<CreateRunResp, void>({
+        path: `/api/runs`,
+        method: "POST",
+        body: data,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+  };
+}
