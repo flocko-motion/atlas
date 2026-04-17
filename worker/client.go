@@ -80,6 +80,7 @@ var dryRunCounter int
 //   - Default (after StartRun): by_config — skip sources this exact config already processed.
 //   - Override with ByWorker: skip if any config with that worker name processed it.
 //   - Override with ByClass: skip if any derived node of that content class exists.
+//   - Override with Reprocess: bypass all filters, return every match (dev/replay).
 type QueueParams struct {
 	ContentClass   string // required: content class to look for (e.g. "source")
 	ContentType    string // required: content type to look for (e.g. "bulk")
@@ -87,6 +88,7 @@ type QueueParams struct {
 	EncodingFormat string // optional: filter by encoding format (e.g. "vcf")
 	ByClass        string // override: skip if derived class exists (e.g. "classification")
 	ByWorker       string // override: skip if worker name has processed (e.g. "google-contacts")
+	Reprocess      bool   // override: bypass all "already processed" filters
 	Limit          int    // max results (default 100)
 }
 
@@ -110,6 +112,8 @@ func (c *Client) Queue(ctx context.Context, params QueueParams) ([]apiclient.Nod
 
 	var filterDesc string
 	switch {
+	case params.Reprocess:
+		filterDesc = "reprocess"
 	case params.ByClass != "":
 		query += "&by_class=" + params.ByClass
 		filterDesc = "by_class=" + params.ByClass
