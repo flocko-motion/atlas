@@ -30,7 +30,8 @@ func (e GetQueueEndpoint) Handle(ctx context.Context, req GetQueueReq) (GetQueue
 	// 3. by_config: any run by that exact config ID → source is consumed
 	// The worker chooses which level to apply.
 	var query string
-	var args []any
+	args := []any{req.ContentClass, req.ContentType}
+	paramN := 3
 
 	nodeSelect := `
 SELECT n.id, n.level, n.content_class, n.content_type, n.encoding_class, n.encoding_format,
@@ -40,45 +41,56 @@ SELECT n.id, n.level, n.content_class, n.content_type, n.encoding_class, n.encod
 FROM nodes n
 WHERE n.content_class = $1 AND n.content_type = $2`
 
+	if req.EncodingClass != nil {
+		nodeSelect += fmt.Sprintf(" AND n.encoding_class = $%d", paramN)
+		args = append(args, *req.EncodingClass)
+		paramN++
+	}
+	if req.EncodingFormat != nil {
+		nodeSelect += fmt.Sprintf(" AND n.encoding_format = $%d", paramN)
+		args = append(args, *req.EncodingFormat)
+		paramN++
+	}
+
 	switch {
 	case req.ByConfig != nil:
-		query = nodeSelect + `
+		query = nodeSelect + fmt.Sprintf(`
   AND NOT EXISTS (
       SELECT 1 FROM edges e
       JOIN runs r ON e.run_id = r.id
       WHERE e.source_node_id = n.id AND e.type = 'provenance/input'
-        AND r.worker_config_id = $3
+        AND r.worker_config_id = $%d
   )
-ORDER BY n.created_at ASC LIMIT $4`
-		args = []any{req.ContentClass, req.ContentType, *req.ByConfig, limit}
+ORDER BY n.created_at ASC LIMIT $%d`, paramN, paramN+1)
+		args = append(args, *req.ByConfig, limit)
 
 	case req.ByWorker != nil:
-		query = nodeSelect + `
+		query = nodeSelect + fmt.Sprintf(`
   AND NOT EXISTS (
       SELECT 1 FROM edges e
       JOIN runs r ON e.run_id = r.id
       JOIN nodes config ON r.worker_config_id = config.id
       WHERE e.source_node_id = n.id AND e.type = 'provenance/input'
-        AND config.content_cached::jsonb->>'name' = $3
+        AND config.content_cached::jsonb->>'name' = $%d
   )
-ORDER BY n.created_at ASC LIMIT $4`
-		args = []any{req.ContentClass, req.ContentType, *req.ByWorker, limit}
+ORDER BY n.created_at ASC LIMIT $%d`, paramN, paramN+1)
+		args = append(args, *req.ByWorker, limit)
 
 	case req.ByClass != nil:
-		query = nodeSelect + `
+		query = nodeSelect + fmt.Sprintf(`
   AND NOT EXISTS (
       SELECT 1 FROM edges e
       JOIN nodes derived ON e.target_node_id = derived.id
       WHERE e.source_node_id = n.id AND e.type = 'provenance/input'
-        AND derived.content_class = $3
+        AND derived.content_class = $%d
   )
-ORDER BY n.created_at ASC LIMIT $4`
-		args = []any{req.ContentClass, req.ContentType, *req.ByClass, limit}
+ORDER BY n.created_at ASC LIMIT $%d`, paramN, paramN+1)
+		args = append(args, *req.ByClass, limit)
 
 	default:
-		query = nodeSelect + `
-ORDER BY n.created_at ASC LIMIT $3`
-		args = []any{req.ContentClass, req.ContentType, limit}
+		query = nodeSelect + fmt.Sprintf(`
+ORDER BY n.created_at ASC LIMIT $%d`, paramN)
+		args = append(args, limit)
 	}
 
 	rows, err := conn.QueryContext(ctx, query, args...)
@@ -112,12 +124,14 @@ ORDER BY n.created_at ASC LIMIT $3`
 }
 
 type GetQueueReq struct {
-	ContentClass string  `query:"content_class"`
-	ContentType  string  `query:"content_type"`
-	ByClass      *string `query:"by_class"`  // lenient: skip if any derived node of this class exists
-	ByWorker     *string `query:"by_worker"` // medium: skip if any run by a worker with this name exists
-	ByConfig     *string `query:"by_config"` // strict: skip if any run by this exact config ID exists
-	Limit        int     `query:"limit"`
+	ContentClass   string  `query:"content_class"`
+	ContentType    string  `query:"content_type"`
+	EncodingClass  *string `query:"encoding_class"`
+	EncodingFormat *string `query:"encoding_format"`
+	ByClass        *string `query:"by_class"`  // lenient: skip if any derived node of this class exists
+	ByWorker       *string `query:"by_worker"` // medium: skip if any run by a worker with this name exists
+	ByConfig       *string `query:"by_config"` // strict: skip if any run by this exact config ID exists
+	Limit          int     `query:"limit"`
 }
 
 type GetQueueResp struct {

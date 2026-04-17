@@ -247,9 +247,10 @@ By the time Level 1 workers pick up a conversation for cognitive processing, sou
 | Content type | What it captures | Examples |
 |---|---|---|
 | `source/conversation` | Communicative act with sender and receiver, even if implicit. An invoice is a conversation (sender → receiver). An article is a conversation (author → readers). What *kind* of conversation it is — invoice, contract, smalltalk — is determined by a classification worker in Level 1, not at import. | email, chat, letter, voicemail transcript, article |
+| `source/contact` | Structured representation of a person or organization's contact information, normalized from any source format. Not yet an entity — the mapping from contact to person is resolved by workers in Level 2. | VCF/vCard, phone book entry, address list row, social profile |
 | `source/media` | Audio, visual, or audiovisual capture. Content is opaque until a worker processes it — could be a voicemail, art, a surveillance recording, or a meeting. | photo, video, audio recording, screen capture |
 | `source/record` | Objective, machine-generated observation of world-state. Not human expression — structured readings from sensors, APIs, instruments. | GPS positions, weather readings, stock prices, bank transactions |
-| `source/data` | Structured information that does not fit the above categories. Defined by exclusion: not a communicative act, not a perceptual capture, not a machine observation. Application layer decides boundary cases. | spreadsheets, configuration files, database exports |
+| `source/data` | Structured information that does not fit the above categories. Defined by exclusion: not a communicative act, not a perceptual capture, not a machine observation, not a contact. Application layer decides boundary cases. | spreadsheets, configuration files, database exports |
 | `source/bulk` | Container of other sources. Unpacked by workers into individual source nodes. The bulk node serves deduplication across repeated exports — if a contained source already exists (same hash), it is skipped. | ChatGPT export, WhatsApp backup, Gmail archive, photo library export |
 
 **Invariants:**

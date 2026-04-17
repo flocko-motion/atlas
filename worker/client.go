@@ -81,11 +81,13 @@ var dryRunCounter int
 //   - Override with ByWorker: skip if any config with that worker name processed it.
 //   - Override with ByClass: skip if any derived node of that content class exists.
 type QueueParams struct {
-	ContentClass string // required: content class to look for (e.g. "source")
-	ContentType  string // required: content type to look for (e.g. "bulk")
-	ByClass      string // override: skip if derived class exists (e.g. "classification")
-	ByWorker     string // override: skip if worker name has processed (e.g. "google-contacts")
-	Limit        int    // max results (default 100)
+	ContentClass   string // required: content class to look for (e.g. "source")
+	ContentType    string // required: content type to look for (e.g. "bulk")
+	EncodingClass  string // optional: filter by encoding class (e.g. "text")
+	EncodingFormat string // optional: filter by encoding format (e.g. "vcf")
+	ByClass        string // override: skip if derived class exists (e.g. "classification")
+	ByWorker       string // override: skip if worker name has processed (e.g. "google-contacts")
+	Limit          int    // max results (default 100)
 }
 
 // Queue returns source nodes that haven't been processed yet.
@@ -99,6 +101,12 @@ func (c *Client) Queue(ctx context.Context, params QueueParams) ([]apiclient.Nod
 
 	query := fmt.Sprintf("/api/queue?content_class=%s&content_type=%s&limit=%d",
 		params.ContentClass, params.ContentType, limit)
+	if params.EncodingClass != "" {
+		query += "&encoding_class=" + params.EncodingClass
+	}
+	if params.EncodingFormat != "" {
+		query += "&encoding_format=" + params.EncodingFormat
+	}
 
 	var filterDesc string
 	switch {

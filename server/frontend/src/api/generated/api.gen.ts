@@ -86,6 +86,8 @@ export interface GetQueueReq {
   byWorker: string;
   contentClass: string;
   contentType: string;
+  encodingClass: string;
+  encodingFormat: string;
   limit: number;
 }
 

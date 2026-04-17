@@ -237,6 +237,12 @@
           "contentType": {
             "type": "string"
           },
+          "encodingClass": {
+            "type": "string"
+          },
+          "encodingFormat": {
+            "type": "string"
+          },
           "limit": {
             "type": "integer"
           }
@@ -244,6 +250,8 @@
         "required": [
           "contentClass",
           "contentType",
+          "encodingClass",
+          "encodingFormat",
           "byClass",
           "byWorker",
           "byConfig",
