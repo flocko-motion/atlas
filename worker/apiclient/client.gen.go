@@ -65,6 +65,14 @@ type GetQueueResp struct {
 	Nodes []NodeResponse `json:"nodes"`
 }
 
+// GetRunResp defines model for GetRunResp.
+type GetRunResp struct {
+	CreatedAt      string         `json:"created_at"`
+	Nodes          []NodeResponse `json:"nodes"`
+	RunId          string         `json:"run_id"`
+	WorkerConfigId string         `json:"worker_config_id"`
+}
+
 // ListEdgesResp defines model for ListEdgesResp.
 type ListEdgesResp struct {
 	Edges []EdgeResponse `json:"edges"`
@@ -253,6 +261,9 @@ type ClientInterface interface {
 
 	// DeleteApiRunsId request
 	DeleteApiRunsId(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetApiRunsId request
+	GetApiRunsId(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error)
 }
 
 func (c *Client) GetApiEdges(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -449,6 +460,18 @@ func (c *Client) PostApiRuns(ctx context.Context, body PostApiRunsJSONRequestBod
 
 func (c *Client) DeleteApiRunsId(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewDeleteApiRunsIdRequest(c.Server, id)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) GetApiRunsId(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetApiRunsIdRequest(c.Server, id)
 	if err != nil {
 		return nil, err
 	}
@@ -967,6 +990,40 @@ func NewDeleteApiRunsIdRequest(server string, id string) (*http.Request, error) 
 	return req, nil
 }
 
+// NewGetApiRunsIdRequest generates requests for GetApiRunsId
+func NewGetApiRunsIdRequest(server string, id string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/runs/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
 func (c *Client) applyEditors(ctx context.Context, req *http.Request, additionalEditors []RequestEditorFn) error {
 	for _, r := range c.RequestEditors {
 		if err := r(ctx, req); err != nil {
@@ -1059,6 +1116,9 @@ type ClientWithResponsesInterface interface {
 
 	// DeleteApiRunsIdWithResponse request
 	DeleteApiRunsIdWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*DeleteApiRunsIdResponse, error)
+
+	// GetApiRunsIdWithResponse request
+	GetApiRunsIdWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*GetApiRunsIdResponse, error)
 }
 
 type GetApiEdgesResponse struct {
@@ -1411,6 +1471,28 @@ func (r DeleteApiRunsIdResponse) StatusCode() int {
 	return 0
 }
 
+type GetApiRunsIdResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *GetRunResp
+}
+
+// Status returns HTTPResponse.Status
+func (r GetApiRunsIdResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetApiRunsIdResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
 // GetApiEdgesWithResponse request returning *GetApiEdgesResponse
 func (c *ClientWithResponses) GetApiEdgesWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetApiEdgesResponse, error) {
 	rsp, err := c.GetApiEdges(ctx, reqEditors...)
@@ -1561,6 +1643,15 @@ func (c *ClientWithResponses) DeleteApiRunsIdWithResponse(ctx context.Context, i
 		return nil, err
 	}
 	return ParseDeleteApiRunsIdResponse(rsp)
+}
+
+// GetApiRunsIdWithResponse request returning *GetApiRunsIdResponse
+func (c *ClientWithResponses) GetApiRunsIdWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*GetApiRunsIdResponse, error) {
+	rsp, err := c.GetApiRunsId(ctx, id, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetApiRunsIdResponse(rsp)
 }
 
 // ParseGetApiEdgesResponse parses an HTTP response from a GetApiEdgesWithResponse call
@@ -1949,6 +2040,32 @@ func ParseDeleteApiRunsIdResponse(rsp *http.Response) (*DeleteApiRunsIdResponse,
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
 		var dest PurgeRunResp
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetApiRunsIdResponse parses an HTTP response from a GetApiRunsIdWithResponse call
+func ParseGetApiRunsIdResponse(rsp *http.Response) (*GetApiRunsIdResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetApiRunsIdResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest GetRunResp
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
