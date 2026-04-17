@@ -84,6 +84,31 @@ export function GraphView() {
         rankSep: 120,
         animate: false,
       } as any).run();
+
+      // Spread stacked nodes into a grid when too many share the same x
+      const MAX_PER_COL = 30;
+      const COL_WIDTH = 80;
+      const ROW_HEIGHT = 50;
+      const byX = new Map<number, cytoscape.NodeSingular[]>();
+      cy.nodes().forEach((n) => {
+        const x = Math.round(n.position('x'));
+        if (!byX.has(x)) byX.set(x, []);
+        byX.get(x)!.push(n);
+      });
+      for (const [baseX, group] of byX) {
+        if (group.length <= MAX_PER_COL) continue;
+        // Sort by current y to preserve relative order
+        group.sort((a, b) => a.position('y') - b.position('y'));
+        for (let i = 0; i < group.length; i++) {
+          const col = Math.floor(i / MAX_PER_COL);
+          const row = i % MAX_PER_COL;
+          group[i].position({
+            x: baseX + col * COL_WIDTH,
+            y: row * ROW_HEIGHT,
+          });
+        }
+      }
+
       cy.fit(undefined, 30);
     }
   }, [elements]);
