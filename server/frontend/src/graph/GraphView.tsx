@@ -46,7 +46,7 @@ export function GraphView() {
       layout: { name: 'grid' },
       minZoom: 0.1,
       maxZoom: 5,
-      autoungrabifyNodes: true,
+      autoungrabify: true,
     });
 
     // Node click → select in core
@@ -86,28 +86,65 @@ export function GraphView() {
         animate: false,
       } as any).run();
 
-      // Spread stacked nodes into a grid when too many share the same x
+      // Post-layout: assign level lanes (L2 top, L1 mid, L0 bottom)
+      // and grid-spread within each lane
+      const LANE_GAP = 200;      // gap between lanes
       const MAX_PER_COL = 30;
       const COL_WIDTH = 80;
       const ROW_HEIGHT = 50;
-      const byX = new Map<number, cytoscape.NodeSingular[]>();
+
+      // Group nodes by level, then by dagre x-rank within each level
+      const byLevel = new Map<number, cytoscape.NodeSingular[]>();
       cy.nodes().forEach((n) => {
-        const x = Math.round(n.position('x'));
-        if (!byX.has(x)) byX.set(x, []);
-        byX.get(x)!.push(n);
+        const level = n.data('level') as number;
+        if (!byLevel.has(level)) byLevel.set(level, []);
+        byLevel.get(level)!.push(n);
       });
-      for (const [baseX, group] of byX) {
-        if (group.length <= 1) continue;
-        // Sort by current y to preserve relative order
-        group.sort((a, b) => a.position('y') - b.position('y'));
-        for (let i = 0; i < group.length; i++) {
-          const col = Math.floor(i / MAX_PER_COL);
-          const row = i % MAX_PER_COL;
-          group[i].position({
-            x: baseX + col * COL_WIDTH,
-            y: row * ROW_HEIGHT,
-          });
+
+      // Lane y-offsets: L2=0, L1=below L2, L0=below L1
+      const laneSizes = new Map<number, number>(); // level → height used
+      const laneOrder = [2, 1, 0]; // top to bottom
+
+      for (const level of laneOrder) {
+        const nodes = byLevel.get(level) ?? [];
+        if (nodes.length === 0) {
+          laneSizes.set(level, 0);
+          continue;
         }
+
+        // Sub-group by dagre x position
+        const byX = new Map<number, cytoscape.NodeSingular[]>();
+        for (const n of nodes) {
+          const x = Math.round(n.position('x'));
+          if (!byX.has(x)) byX.set(x, []);
+          byX.get(x)!.push(n);
+        }
+
+        let maxRows = 0;
+        for (const [baseX, group] of byX) {
+          group.sort((a, b) => a.position('y') - b.position('y'));
+          const rows = Math.min(group.length, MAX_PER_COL);
+          if (rows > maxRows) maxRows = rows;
+          for (let i = 0; i < group.length; i++) {
+            const col = Math.floor(i / MAX_PER_COL);
+            const row = i % MAX_PER_COL;
+            group[i].position({
+              x: baseX + col * COL_WIDTH,
+              y: row * ROW_HEIGHT, // relative to lane, offset applied next
+            });
+          }
+        }
+        laneSizes.set(level, maxRows * ROW_HEIGHT);
+      }
+
+      // Apply lane y-offsets
+      let yOffset = 0;
+      for (const level of laneOrder) {
+        const nodes = byLevel.get(level) ?? [];
+        for (const n of nodes) {
+          n.position('y', n.position('y') + yOffset);
+        }
+        yOffset += (laneSizes.get(level) ?? 0) + LANE_GAP;
       }
 
       cy.fit(undefined, 30);
