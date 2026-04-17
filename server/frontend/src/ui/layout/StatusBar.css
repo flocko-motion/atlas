@@ -33,3 +33,9 @@
 .statusbar-sep {
   color: var(--border);
 }
+
+.statusbar-fps {
+  margin-left: auto;
+  font-family: monospace;
+  font-size: 10px;
+}
