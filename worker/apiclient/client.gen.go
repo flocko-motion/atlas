@@ -65,6 +65,11 @@ type GetQueueResp struct {
 	Nodes []NodeResponse `json:"nodes"`
 }
 
+// ListEdgesResp defines model for ListEdgesResp.
+type ListEdgesResp struct {
+	Edges []EdgeResponse `json:"edges"`
+}
+
 // ListNodesResp defines model for ListNodesResp.
 type ListNodesResp struct {
 	Nodes []NodeResponse `json:"nodes"`
@@ -192,6 +197,9 @@ func WithRequestEditorFn(fn RequestEditorFn) ClientOption {
 
 // The interface specification for the client above.
 type ClientInterface interface {
+	// GetApiEdges request
+	GetApiEdges(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// GetApiEdgesId request
 	GetApiEdgesId(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -235,6 +243,18 @@ type ClientInterface interface {
 	PostApiRunsWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	PostApiRuns(ctx context.Context, body PostApiRunsJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+}
+
+func (c *Client) GetApiEdges(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetApiEdgesRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
 }
 
 func (c *Client) GetApiEdgesId(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -415,6 +435,33 @@ func (c *Client) PostApiRuns(ctx context.Context, body PostApiRunsJSONRequestBod
 		return nil, err
 	}
 	return c.Client.Do(req)
+}
+
+// NewGetApiEdgesRequest generates requests for GetApiEdges
+func NewGetApiEdgesRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/edges")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
 }
 
 // NewGetApiEdgesIdRequest generates requests for GetApiEdgesId
@@ -907,6 +954,9 @@ func WithBaseURL(baseURL string) ClientOption {
 
 // ClientWithResponsesInterface is the interface specification for the client with responses above.
 type ClientWithResponsesInterface interface {
+	// GetApiEdgesWithResponse request
+	GetApiEdgesWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetApiEdgesResponse, error)
+
 	// GetApiEdgesIdWithResponse request
 	GetApiEdgesIdWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*GetApiEdgesIdResponse, error)
 
@@ -950,6 +1000,28 @@ type ClientWithResponsesInterface interface {
 	PostApiRunsWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PostApiRunsResponse, error)
 
 	PostApiRunsWithResponse(ctx context.Context, body PostApiRunsJSONRequestBody, reqEditors ...RequestEditorFn) (*PostApiRunsResponse, error)
+}
+
+type GetApiEdgesResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *ListEdgesResp
+}
+
+// Status returns HTTPResponse.Status
+func (r GetApiEdgesResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetApiEdgesResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
 }
 
 type GetApiEdgesIdResponse struct {
@@ -1258,6 +1330,15 @@ func (r PostApiRunsResponse) StatusCode() int {
 	return 0
 }
 
+// GetApiEdgesWithResponse request returning *GetApiEdgesResponse
+func (c *ClientWithResponses) GetApiEdgesWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetApiEdgesResponse, error) {
+	rsp, err := c.GetApiEdges(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetApiEdgesResponse(rsp)
+}
+
 // GetApiEdgesIdWithResponse request returning *GetApiEdgesIdResponse
 func (c *ClientWithResponses) GetApiEdgesIdWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*GetApiEdgesIdResponse, error) {
 	rsp, err := c.GetApiEdgesId(ctx, id, reqEditors...)
@@ -1390,6 +1471,32 @@ func (c *ClientWithResponses) PostApiRunsWithResponse(ctx context.Context, body 
 		return nil, err
 	}
 	return ParsePostApiRunsResponse(rsp)
+}
+
+// ParseGetApiEdgesResponse parses an HTTP response from a GetApiEdgesWithResponse call
+func ParseGetApiEdgesResponse(rsp *http.Response) (*GetApiEdgesResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetApiEdgesResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest ListEdgesResp
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	}
+
+	return response, nil
 }
 
 // ParseGetApiEdgesIdResponse parses an HTTP response from a GetApiEdgesIdWithResponse call
