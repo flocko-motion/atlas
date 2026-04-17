@@ -166,6 +166,31 @@ export function setTimelineViewport(from: Date, to: Date): void {
   store.setState({ timelineViewport: [from, to] });
 }
 
+// --- Run preview ---
+
+export async function previewRun(runId: string): Promise<void> {
+  const resp = await fetch(`/api/runs/${runId}`);
+  if (!resp.ok) return;
+  const data = await resp.json();
+  const ids = new Set<string>((data.nodes ?? []).map((n: { id: string }) => n.id));
+  store.setState({ highlightedNodeIds: ids, activeRunId: runId });
+}
+
+export function clearRunPreview(): void {
+  store.setState({ highlightedNodeIds: null, activeRunId: null });
+}
+
+export async function purgeActiveRun(): Promise<{ nodes_deleted: number; edges_deleted: number } | null> {
+  const runId = store.getState().activeRunId;
+  if (!runId) return null;
+  const resp = await fetch(`/api/runs/${runId}`, { method: 'DELETE' });
+  if (!resp.ok) return null;
+  const result = await resp.json();
+  store.setState({ highlightedNodeIds: null, activeRunId: null });
+  await loadFromApi();
+  return result;
+}
+
 // --- Helpers ---
 
 /** Get the temporal position for a node (for timeline / sorting). */

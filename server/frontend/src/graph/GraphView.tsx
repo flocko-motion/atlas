@@ -20,6 +20,7 @@ export function GraphView() {
   const nodes = useAppStore((s) => s.nodes);
   const edges = useAppStore((s) => s.edges);
   const selectedNodeIds = useAppStore((s) => s.selectedNodeIds);
+  const highlightedNodeIds = useAppStore((s) => s.highlightedNodeIds);
 
   const elements = useMemo(() => {
     const visibleNodes = filteredNodes();
@@ -27,8 +28,8 @@ export function GraphView() {
     const visibleEdges = Array.from(edges.values()).filter(
       (e) => visibleNodeIds.has(e.sourceNodeId) && visibleNodeIds.has(e.targetNodeId)
     );
-    return toElements(visibleNodes, visibleEdges);
-  }, [nodes, edges]);
+    return toElements(visibleNodes, visibleEdges, highlightedNodeIds);
+  }, [nodes, edges, highlightedNodeIds]);
 
   // Initialize Cytoscape
   useEffect(() => {

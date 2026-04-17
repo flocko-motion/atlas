@@ -95,4 +95,17 @@ export const graphStylesheet: any[] = [
       'target-arrow-shape': 'none',
     },
   },
+  // Dimmed (run preview)
+  {
+    selector: 'node[dimmed="yes"]',
+    style: {
+      'opacity': 0.15,
+    },
+  },
+  {
+    selector: 'edge[dimmed="yes"]',
+    style: {
+      'opacity': 0.08,
+    },
+  },
 ];

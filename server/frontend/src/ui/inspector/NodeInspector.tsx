@@ -7,7 +7,7 @@
 
 import { useMemo, useState } from 'react';
 import { useAppStore } from '../../core/hooks';
-import { selectNode, selectEdge, setViewMode, setGraphMode, loadFromApi } from '../../core/actions';
+import { selectNode, selectEdge, setViewMode, setGraphMode, previewRun, clearRunPreview, purgeActiveRun } from '../../core/actions';
 import { nodeEdges } from '../../core/selectors';
 import { nodeColor, edgeColor } from '../../core/colors';
 import type { Node, Edge } from '../../core/types/nodes';
@@ -151,16 +151,9 @@ export function NodeInspector() {
   );
 }
 
-interface RunDetail {
-  run_id: string;
-  worker_config_id: string;
-  created_at: string;
-  nodes: Array<{ id: string; level: number; content_class: string; content_type: string; title?: string }>;
-}
-
 function RunActions({ edges }: { edges: Edge[] }) {
-  const [selectedRun, setSelectedRun] = useState<RunDetail | null>(null);
-  const [loading, setLoading] = useState(false);
+  const activeRunId = useAppStore((s) => s.activeRunId);
+  const highlightedNodeIds = useAppStore((s) => s.highlightedNodeIds);
   const [purging, setPurging] = useState(false);
 
   const runIds = useMemo(() => {
@@ -173,31 +166,15 @@ function RunActions({ edges }: { edges: Edge[] }) {
 
   if (runIds.length === 0) return null;
 
-  async function inspectRun(runId: string) {
-    setLoading(true);
-    try {
-      const resp = await fetch(`/api/runs/${runId}`);
-      if (!resp.ok) return;
-      setSelectedRun(await resp.json());
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function purgeRun() {
-    if (!selectedRun) return;
-    if (!confirm(`Purge ${selectedRun.nodes.length} nodes and all derivatives?`)) return;
+  async function handlePurge() {
+    if (!highlightedNodeIds) return;
+    if (!confirm(`Purge ${highlightedNodeIds.size} nodes and all derivatives?`)) return;
     setPurging(true);
     try {
-      const resp = await fetch(`/api/runs/${selectedRun.run_id}`, { method: 'DELETE' });
-      if (!resp.ok) {
-        alert(`Purge failed: ${await resp.text()}`);
-        return;
+      const result = await purgeActiveRun();
+      if (result) {
+        alert(`Purged: ${result.nodes_deleted} nodes, ${result.edges_deleted} edges`);
       }
-      const result = await resp.json();
-      alert(`Purged: ${result.nodes_deleted} nodes, ${result.edges_deleted} edges`);
-      setSelectedRun(null);
-      loadFromApi();
     } finally {
       setPurging(false);
     }
@@ -210,9 +187,9 @@ function RunActions({ edges }: { edges: Edge[] }) {
         {runIds.map((id) => (
           <div key={id} className="inspector-run-row">
             <span
-              className="inspector-run-id inspector-run-link"
+              className={`inspector-run-id inspector-run-link${activeRunId === id ? ' inspector-run-active' : ''}`}
               title={id}
-              onClick={() => inspectRun(id)}
+              onClick={() => activeRunId === id ? clearRunPreview() : previewRun(id)}
             >
               {id.slice(0, 12)}...
             </span>
@@ -220,27 +197,24 @@ function RunActions({ edges }: { edges: Edge[] }) {
         ))}
       </div>
 
-      {loading && <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>Loading run...</span>}
-
-      {selectedRun && (
+      {activeRunId && highlightedNodeIds && (
         <div className="inspector-run-detail">
-          <span className="inspector-section-title">
-            Run {selectedRun.run_id.slice(0, 12)}... ({selectedRun.nodes.length} nodes)
-          </span>
-          <div className="inspector-run-nodes">
-            {selectedRun.nodes.map((n) => (
-              <div key={n.id} className="inspector-run-node">
-                <span style={{ color: 'var(--text-muted)', fontSize: 10 }}>L{n.level}</span>
-                <span>{n.title ?? `${n.content_class}/${n.content_type}`}</span>
-              </div>
-            ))}
+          <div className="inspector-run-detail-header">
+            <span style={{ fontSize: 11 }}>{highlightedNodeIds.size} nodes affected</span>
+            <button
+              className="inspector-btn"
+              onClick={clearRunPreview}
+              style={{ fontSize: 10, padding: '2px 6px' }}
+            >
+              Clear
+            </button>
           </div>
           <button
             className="inspector-btn inspector-btn-danger"
             disabled={purging}
-            onClick={purgeRun}
+            onClick={handlePurge}
           >
-            {purging ? 'Purging...' : `Purge ${selectedRun.nodes.length} nodes`}
+            {purging ? 'Purging...' : `Purge ${highlightedNodeIds.size} nodes`}
           </button>
         </div>
       )}

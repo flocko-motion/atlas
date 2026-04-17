@@ -34,6 +34,10 @@ export interface AppState {
   timelineDomain: [Date, Date] | null;
   timelineViewport: [Date, Date] | null;
 
+  // Highlight (e.g. run preview — dims everything outside this set)
+  highlightedNodeIds: Set<string> | null;
+  activeRunId: string | null;
+
   // Stats
   nodeCount: number;
   edgeCount: number;
@@ -61,6 +65,9 @@ export const store = createStore<AppState>()(() => ({
 
   timelineDomain: null,
   timelineViewport: null,
+
+  highlightedNodeIds: null,
+  activeRunId: null,
 
   nodeCount: 0,
   edgeCount: 0,
