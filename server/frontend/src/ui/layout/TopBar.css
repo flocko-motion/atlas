@@ -45,6 +45,27 @@
 }
 
 
+.topbar-levels {
+  display: flex;
+  gap: 4px;
+}
+
+.topbar-level-btn {
+  padding: 3px 10px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.topbar-level-btn.active {
+  background: var(--bg-surface);
+  color: var(--text-primary);
+}
+
 .topbar-views {
   display: flex;
   gap: 2px;

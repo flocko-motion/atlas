@@ -7,7 +7,10 @@
 
 import { useEffect, useRef, useMemo } from 'react';
 import cytoscape from 'cytoscape';
+import dagre from 'cytoscape-dagre';
 import { useAppStore } from '../core/hooks';
+
+cytoscape.use(dagre);
 import { selectNode, clearSelection } from '../core/actions';
 import { filteredNodes } from '../core/selectors';
 import { toElements } from './elements';
@@ -19,6 +22,7 @@ export function GraphView() {
   const cyRef = useRef<cytoscape.Core | null>(null);
   const nodes = useAppStore((s) => s.nodes);
   const edges = useAppStore((s) => s.edges);
+  const filters = useAppStore((s) => s.filters);
   const selectedNodeIds = useAppStore((s) => s.selectedNodeIds);
   const highlightedNodeIds = useAppStore((s) => s.highlightedNodeIds);
 
@@ -29,7 +33,7 @@ export function GraphView() {
       (e) => visibleNodeIds.has(e.sourceNodeId) && visibleNodeIds.has(e.targetNodeId)
     );
     return toElements(visibleNodes, visibleEdges, highlightedNodeIds);
-  }, [nodes, edges, highlightedNodeIds]);
+  }, [nodes, edges, filters, highlightedNodeIds]);
 
   // Initialize Cytoscape
   useEffect(() => {
@@ -39,7 +43,7 @@ export function GraphView() {
       container: containerRef.current,
       elements: [],
       style: graphStylesheet,
-      layout: { name: 'cose', animate: false },
+      layout: { name: 'grid' },
       minZoom: 0.1,
       maxZoom: 5,
     });
@@ -74,9 +78,12 @@ export function GraphView() {
     if (elements.length > 0) {
       cy.add(elements);
       cy.layout({
-        name: 'cose',
+        name: 'dagre',
+        rankDir: 'LR',
+        nodeSep: 50,
+        rankSep: 120,
         animate: false,
-      }).run();
+      } as any).run();
       cy.fit(undefined, 30);
     }
   }, [elements]);
