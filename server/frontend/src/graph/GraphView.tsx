@@ -46,6 +46,7 @@ export function GraphView() {
       layout: { name: 'grid' },
       minZoom: 0.1,
       maxZoom: 5,
+      autoungrabifyNodes: true,
     });
 
     // Node click → select in core
