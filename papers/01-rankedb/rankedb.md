@@ -195,6 +195,7 @@ For all other nodes (derived L0 nodes, L1 derivations, L2 projections), `id` is 
 | Field            | Purpose                                                                                          |
 | ---------------- | ------------------------------------------------------------------------------------------------ |
 | `id`             | Node identity (deterministic from `content_sha256` for L0 root artifacts; synthesized otherwise) |
+| `title`          | Short subject line — what this node is about, not what kind of thing it is (optional)             |
 | `content`        | Payload (text or bytes, interpreted per `encoding`)                                              |
 | `content_sha256` | Cryptographic hash of `content`                                                                  |
 | `content_len`    | Byte length of `content`                                                                         |

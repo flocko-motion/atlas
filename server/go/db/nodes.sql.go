@@ -11,7 +11,7 @@ import (
 )
 
 const getNode = `-- name: GetNode :one
-SELECT id, level, content_class, content_type, encoding_class, encoding_format, content_sha256, content_len, content_cached, created_at, artifact_created_at, artifact_created_at_blur, origin, original_name, valid_from, valid_from_blur, valid_until, valid_until_blur, confidence FROM nodes WHERE id = $1
+SELECT id, level, content_class, content_type, encoding_class, encoding_format, content_sha256, content_len, content_cached, created_at, artifact_created_at, artifact_created_at_blur, origin, original_name, valid_from, valid_from_blur, valid_until, valid_until_blur, confidence, title FROM nodes WHERE id = $1
 `
 
 func (q *Queries) GetNode(ctx context.Context, id string) (Node, error) {
@@ -37,6 +37,7 @@ func (q *Queries) GetNode(ctx context.Context, id string) (Node, error) {
 		&i.ValidUntil,
 		&i.ValidUntilBlur,
 		&i.Confidence,
+		&i.Title,
 	)
 	return i, err
 }
@@ -44,14 +45,14 @@ func (q *Queries) GetNode(ctx context.Context, id string) (Node, error) {
 const insertNode = `-- name: InsertNode :exec
 INSERT INTO nodes (
     id, level, content_class, content_type, encoding_class, encoding_format,
-    content_sha256, content_len, content_cached,
+    content_sha256, content_len, content_cached, title,
     artifact_created_at, artifact_created_at_blur, origin, original_name,
     valid_from, valid_from_blur, valid_until, valid_until_blur, confidence
 ) VALUES (
     $1, $2, $3, $4, $5, $6,
-    $7, $8, $9,
-    $10, $11, $12, $13,
-    $14, $15, $16, $17, $18
+    $7, $8, $9, $10,
+    $11, $12, $13, $14,
+    $15, $16, $17, $18, $19
 )
 `
 
@@ -65,6 +66,7 @@ type InsertNodeParams struct {
 	ContentSha256         string          `json:"content_sha256"`
 	ContentLen            int64           `json:"content_len"`
 	ContentCached         sql.NullString  `json:"content_cached"`
+	Title                 sql.NullString  `json:"title"`
 	ArtifactCreatedAt     sql.NullTime    `json:"artifact_created_at"`
 	ArtifactCreatedAtBlur sql.NullString  `json:"artifact_created_at_blur"`
 	Origin                sql.NullString  `json:"origin"`
@@ -87,6 +89,7 @@ func (q *Queries) InsertNode(ctx context.Context, arg InsertNodeParams) error {
 		arg.ContentSha256,
 		arg.ContentLen,
 		arg.ContentCached,
+		arg.Title,
 		arg.ArtifactCreatedAt,
 		arg.ArtifactCreatedAtBlur,
 		arg.Origin,
@@ -101,7 +104,7 @@ func (q *Queries) InsertNode(ctx context.Context, arg InsertNodeParams) error {
 }
 
 const listNodes = `-- name: ListNodes :many
-SELECT id, level, content_class, content_type, encoding_class, encoding_format, content_sha256, content_len, content_cached, created_at, artifact_created_at, artifact_created_at_blur, origin, original_name, valid_from, valid_from_blur, valid_until, valid_until_blur, confidence FROM nodes ORDER BY created_at DESC LIMIT $1 OFFSET $2
+SELECT id, level, content_class, content_type, encoding_class, encoding_format, content_sha256, content_len, content_cached, created_at, artifact_created_at, artifact_created_at_blur, origin, original_name, valid_from, valid_from_blur, valid_until, valid_until_blur, confidence, title FROM nodes ORDER BY created_at DESC LIMIT $1 OFFSET $2
 `
 
 type ListNodesParams struct {
@@ -138,6 +141,7 @@ func (q *Queries) ListNodes(ctx context.Context, arg ListNodesParams) ([]Node, e
 			&i.ValidUntil,
 			&i.ValidUntilBlur,
 			&i.Confidence,
+			&i.Title,
 		); err != nil {
 			return nil, err
 		}
@@ -153,7 +157,7 @@ func (q *Queries) ListNodes(ctx context.Context, arg ListNodesParams) ([]Node, e
 }
 
 const listNodesByContentClass = `-- name: ListNodesByContentClass :many
-SELECT id, level, content_class, content_type, encoding_class, encoding_format, content_sha256, content_len, content_cached, created_at, artifact_created_at, artifact_created_at_blur, origin, original_name, valid_from, valid_from_blur, valid_until, valid_until_blur, confidence FROM nodes WHERE content_class = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3
+SELECT id, level, content_class, content_type, encoding_class, encoding_format, content_sha256, content_len, content_cached, created_at, artifact_created_at, artifact_created_at_blur, origin, original_name, valid_from, valid_from_blur, valid_until, valid_until_blur, confidence, title FROM nodes WHERE content_class = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3
 `
 
 type ListNodesByContentClassParams struct {
@@ -191,6 +195,7 @@ func (q *Queries) ListNodesByContentClass(ctx context.Context, arg ListNodesByCo
 			&i.ValidUntil,
 			&i.ValidUntilBlur,
 			&i.Confidence,
+			&i.Title,
 		); err != nil {
 			return nil, err
 		}
@@ -206,7 +211,7 @@ func (q *Queries) ListNodesByContentClass(ctx context.Context, arg ListNodesByCo
 }
 
 const listNodesByContentClassAndType = `-- name: ListNodesByContentClassAndType :many
-SELECT id, level, content_class, content_type, encoding_class, encoding_format, content_sha256, content_len, content_cached, created_at, artifact_created_at, artifact_created_at_blur, origin, original_name, valid_from, valid_from_blur, valid_until, valid_until_blur, confidence FROM nodes WHERE content_class = $1 AND content_type = $2 ORDER BY created_at DESC LIMIT $3 OFFSET $4
+SELECT id, level, content_class, content_type, encoding_class, encoding_format, content_sha256, content_len, content_cached, created_at, artifact_created_at, artifact_created_at_blur, origin, original_name, valid_from, valid_from_blur, valid_until, valid_until_blur, confidence, title FROM nodes WHERE content_class = $1 AND content_type = $2 ORDER BY created_at DESC LIMIT $3 OFFSET $4
 `
 
 type ListNodesByContentClassAndTypeParams struct {
@@ -250,6 +255,7 @@ func (q *Queries) ListNodesByContentClassAndType(ctx context.Context, arg ListNo
 			&i.ValidUntil,
 			&i.ValidUntilBlur,
 			&i.Confidence,
+			&i.Title,
 		); err != nil {
 			return nil, err
 		}
@@ -265,7 +271,7 @@ func (q *Queries) ListNodesByContentClassAndType(ctx context.Context, arg ListNo
 }
 
 const listNodesByLevel = `-- name: ListNodesByLevel :many
-SELECT id, level, content_class, content_type, encoding_class, encoding_format, content_sha256, content_len, content_cached, created_at, artifact_created_at, artifact_created_at_blur, origin, original_name, valid_from, valid_from_blur, valid_until, valid_until_blur, confidence FROM nodes WHERE level = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3
+SELECT id, level, content_class, content_type, encoding_class, encoding_format, content_sha256, content_len, content_cached, created_at, artifact_created_at, artifact_created_at_blur, origin, original_name, valid_from, valid_from_blur, valid_until, valid_until_blur, confidence, title FROM nodes WHERE level = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3
 `
 
 type ListNodesByLevelParams struct {
@@ -303,6 +309,7 @@ func (q *Queries) ListNodesByLevel(ctx context.Context, arg ListNodesByLevelPara
 			&i.ValidUntil,
 			&i.ValidUntilBlur,
 			&i.Confidence,
+			&i.Title,
 		); err != nil {
 			return nil, err
 		}
@@ -329,7 +336,7 @@ func (q *Queries) NodeExistsBySha256(ctx context.Context, contentSha256 string) 
 }
 
 const searchNodesByContent = `-- name: SearchNodesByContent :many
-SELECT id, level, content_class, content_type, encoding_class, encoding_format, content_sha256, content_len, content_cached, created_at, artifact_created_at, artifact_created_at_blur, origin, original_name, valid_from, valid_from_blur, valid_until, valid_until_blur, confidence FROM nodes WHERE content_cached IS NOT NULL AND content_tsv @@ plainto_tsquery('english', $1) ORDER BY created_at DESC LIMIT $2 OFFSET $3
+SELECT id, level, content_class, content_type, encoding_class, encoding_format, content_sha256, content_len, content_cached, created_at, artifact_created_at, artifact_created_at_blur, origin, original_name, valid_from, valid_from_blur, valid_until, valid_until_blur, confidence, title FROM nodes WHERE content_cached IS NOT NULL AND content_tsv @@ plainto_tsquery('english', $1) ORDER BY created_at DESC LIMIT $2 OFFSET $3
 `
 
 type SearchNodesByContentParams struct {
@@ -367,6 +374,7 @@ func (q *Queries) SearchNodesByContent(ctx context.Context, arg SearchNodesByCon
 			&i.ValidUntil,
 			&i.ValidUntilBlur,
 			&i.Confidence,
+			&i.Title,
 		); err != nil {
 			return nil, err
 		}

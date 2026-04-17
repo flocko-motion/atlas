@@ -14,6 +14,7 @@ export interface Node {
   encodingFormat: string;
   contentSha256: string;
   contentLen: number;
+  title: string | null;
   content: string | null;
   createdAt: Date;
   artifactCreatedAt: Date | null;

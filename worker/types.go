@@ -15,6 +15,7 @@ type CreateNodeRequest struct {
 	ContentType           string     `json:"content_type"`
 	EncodingClass         string     `json:"encoding_class"`
 	EncodingFormat        string     `json:"encoding_format"`
+	Title                 *string    `json:"title,omitempty"`
 	Content               *string    `json:"content,omitempty"`
 	ArtifactCreatedAt     *string    `json:"artifact_created_at,omitempty"`
 	ArtifactCreatedAtBlur *string    `json:"artifact_created_at_blur,omitempty"`

@@ -37,7 +37,7 @@ func (e GetQueueEndpoint) Handle(ctx context.Context, req GetQueueReq) (GetQueue
 SELECT n.id, n.level, n.content_class, n.content_type, n.encoding_class, n.encoding_format,
        n.content_sha256, n.content_len, n.content_cached, n.created_at,
        n.artifact_created_at, n.artifact_created_at_blur, n.origin, n.original_name,
-       n.valid_from, n.valid_from_blur, n.valid_until, n.valid_until_blur, n.confidence
+       n.valid_from, n.valid_from_blur, n.valid_until, n.valid_until_blur, n.confidence, n.title
 FROM nodes n
 WHERE n.content_class = $1 AND n.content_type = $2`
 
@@ -107,7 +107,7 @@ ORDER BY n.created_at ASC LIMIT $%d`, paramN)
 			&n.EncodingClass, &n.EncodingFormat, &n.ContentSha256, &n.ContentLen,
 			&n.ContentCached, &n.CreatedAt, &n.ArtifactCreatedAt, &n.ArtifactCreatedAtBlur,
 			&n.Origin, &n.OriginalName, &n.ValidFrom, &n.ValidFromBlur,
-			&n.ValidUntil, &n.ValidUntilBlur, &n.Confidence,
+			&n.ValidUntil, &n.ValidUntilBlur, &n.Confidence, &n.Title,
 		); scanErr != nil {
 			return GetQueueResp{Nodes: []NodeResponse{}}, scanErr
 		}

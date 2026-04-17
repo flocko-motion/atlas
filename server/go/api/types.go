@@ -21,6 +21,7 @@ type NodeResponse struct {
 	EncodingFormat        string   `json:"encoding_format"`
 	ContentSha256         string   `json:"content_sha256"`
 	ContentLen            int64    `json:"content_len"`
+	Title                 *string  `json:"title,omitempty"`
 	Content               *string  `json:"content,omitempty"`
 	CreatedAt             string   `json:"created_at"`
 	ArtifactCreatedAt     *string  `json:"artifact_created_at,omitempty"`
@@ -113,6 +114,7 @@ func nodeToResponse(n db.Node) NodeResponse {
 		EncodingFormat:        n.EncodingFormat,
 		ContentSha256:         n.ContentSha256,
 		ContentLen:            n.ContentLen,
+		Title:                 nullString(n.Title),
 		CreatedAt:             n.CreatedAt.Format(time.RFC3339),
 		ArtifactCreatedAt:     nullTime(n.ArtifactCreatedAt),
 		ArtifactCreatedAtBlur: nullString(n.ArtifactCreatedAtBlur),

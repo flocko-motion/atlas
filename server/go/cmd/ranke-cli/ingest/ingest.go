@@ -32,16 +32,18 @@ Examples:
 		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			origin, _ := cmd.Flags().GetString("origin")
+			title, _ := cmd.Flags().GetString("title")
 			dryRun, _ := cmd.Flags().GetBool("dry-run")
-			return runIngest(args[0], args[1], origin, dryRun)
+			return runIngest(args[0], args[1], origin, title, dryRun)
 		},
 	}
 	cmd.Flags().String("origin", "", "Origin label (default: derived from filename)")
+	cmd.Flags().String("title", "", "Short subject line for the node")
 	cmd.Flags().Bool("dry-run", false, "Show what would be uploaded without sending")
 	return cmd
 }
 
-func runIngest(format string, path string, origin string, dryRun bool) error {
+func runIngest(format string, path string, origin string, title string, dryRun bool) error {
 	info, err := os.Stat(path)
 	if err != nil {
 		return fmt.Errorf("stat %s: %w", path, err)
@@ -90,7 +92,7 @@ func runIngest(format string, path string, origin string, dryRun bool) error {
 	} else {
 		contentStr = base64.StdEncoding.EncodeToString(content)
 	}
-	reqBody, _ := json.Marshal(map[string]any{
+	body := map[string]any{
 		"level":           0,
 		"content_class":   "source",
 		"content_type":    "bulk",
@@ -99,7 +101,11 @@ func runIngest(format string, path string, origin string, dryRun bool) error {
 		"content":         contentStr,
 		"origin":          origin,
 		"original_name":   originalName,
-	})
+	}
+	if title != "" {
+		body["title"] = title
+	}
+	reqBody, _ := json.Marshal(body)
 
 	resp, err := http.Post(cli.Cfg.Server+"/api/nodes", "application/json", bytes.NewReader(reqBody))
 	if err != nil {

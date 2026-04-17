@@ -148,7 +148,7 @@ func (e SearchEntitiesEndpoint) Handle(ctx context.Context, req SearchEntitiesRe
 		// Full-text search filtered to entities
 		// Use raw SQL since SearchNodesByContent won't be regenerated yet
 		rows, qErr := conn.QueryContext(ctx,
-			`SELECT id, level, content_class, content_type, encoding_class, encoding_format, content_sha256, content_len, content_cached, created_at, artifact_created_at, artifact_created_at_blur, origin, original_name, valid_from, valid_from_blur, valid_until, valid_until_blur, confidence
+			`SELECT id, level, content_class, content_type, encoding_class, encoding_format, content_sha256, content_len, content_cached, created_at, artifact_created_at, artifact_created_at_blur, origin, original_name, valid_from, valid_from_blur, valid_until, valid_until_blur, confidence, title
 			 FROM nodes
 			 WHERE content_class = 'entity'
 			   AND content_cached IS NOT NULL
@@ -166,7 +166,7 @@ func (e SearchEntitiesEndpoint) Handle(ctx context.Context, req SearchEntitiesRe
 				&n.EncodingClass, &n.EncodingFormat, &n.ContentSha256, &n.ContentLen,
 				&n.ContentCached, &n.CreatedAt, &n.ArtifactCreatedAt, &n.ArtifactCreatedAtBlur,
 				&n.Origin, &n.OriginalName, &n.ValidFrom, &n.ValidFromBlur,
-				&n.ValidUntil, &n.ValidUntilBlur, &n.Confidence,
+				&n.ValidUntil, &n.ValidUntilBlur, &n.Confidence, &n.Title,
 			); scanErr != nil {
 				return SearchEntitiesResp{Entities: []NodeResponse{}}, scanErr
 			}

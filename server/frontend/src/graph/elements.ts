@@ -13,9 +13,8 @@ export function nodesToElements(nodes: Node[]): ElementDefinition[] {
   return nodes.map((node) => ({
     data: {
       id: node.id,
-      label: node.content
-        ? node.content.slice(0, 40)
-        : `${node.contentClass}/${node.contentType}`,
+      label: node.title
+        ?? `${node.contentType}/${node.encodingFormat}`,
       level: node.level,
       contentClass: node.contentClass,
       contentType: node.contentType,

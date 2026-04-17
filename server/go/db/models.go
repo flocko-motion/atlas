@@ -39,6 +39,7 @@ type Node struct {
 	ValidUntil            sql.NullTime    `json:"valid_until"`
 	ValidUntilBlur        sql.NullString  `json:"valid_until_blur"`
 	Confidence            sql.NullFloat64 `json:"confidence"`
+	Title                 sql.NullString  `json:"title"`
 }
 
 type Run struct {

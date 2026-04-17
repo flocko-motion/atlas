@@ -40,6 +40,7 @@ type createNodeRequest struct {
 	ContentType           string           `json:"content_type"`
 	EncodingClass         string           `json:"encoding_class"`
 	EncodingFormat        string           `json:"encoding_format"`
+	Title                 *string          `json:"title,omitempty"`
 	Content               *string          `json:"content,omitempty"`
 	ArtifactCreatedAt     *string          `json:"artifact_created_at,omitempty"`
 	ArtifactCreatedAtBlur *string          `json:"artifact_created_at_blur,omitempty"`
@@ -198,6 +199,10 @@ func (e CreateNodeEndpoint) HandleRaw(w http.ResponseWriter, r *http.Request) er
 		ContentCached: sql.NullString{
 			String: string(contentBytes),
 			Valid:  isText && len(contentBytes) > 0,
+		},
+		Title: sql.NullString{
+			String: ptrString(req.Title),
+			Valid:  req.Title != nil,
 		},
 		ArtifactCreatedAt: artifactCreatedAt,
 		ArtifactCreatedAtBlur: sql.NullString{
@@ -491,7 +496,7 @@ func (e ListNodesEndpoint) Handle(ctx context.Context, req ListNodesReq) (ListNo
 	default:
 		// Use raw SQL for ListNodes since the sqlc query hasn't been regenerated yet
 		rows, qErr := schemafdb.DB().QueryContext(ctx,
-			"SELECT id, level, content_class, content_type, encoding_class, encoding_format, content_sha256, content_len, content_cached, created_at, artifact_created_at, artifact_created_at_blur, origin, original_name, valid_from, valid_from_blur, valid_until, valid_until_blur, confidence FROM nodes ORDER BY created_at DESC LIMIT $1 OFFSET $2",
+			"SELECT id, level, content_class, content_type, encoding_class, encoding_format, content_sha256, content_len, content_cached, created_at, artifact_created_at, artifact_created_at_blur, origin, original_name, valid_from, valid_from_blur, valid_until, valid_until_blur, confidence, title FROM nodes ORDER BY created_at DESC LIMIT $1 OFFSET $2",
 			limit, offset)
 		if qErr != nil {
 			return ListNodesResp{Nodes: []NodeResponse{}}, qErr
@@ -504,7 +509,7 @@ func (e ListNodesEndpoint) Handle(ctx context.Context, req ListNodesReq) (ListNo
 				&n.EncodingClass, &n.EncodingFormat, &n.ContentSha256, &n.ContentLen,
 				&n.ContentCached, &n.CreatedAt, &n.ArtifactCreatedAt, &n.ArtifactCreatedAtBlur,
 				&n.Origin, &n.OriginalName, &n.ValidFrom, &n.ValidFromBlur,
-				&n.ValidUntil, &n.ValidUntilBlur, &n.Confidence,
+				&n.ValidUntil, &n.ValidUntilBlur, &n.Confidence, &n.Title,
 			); scanErr != nil {
 				return ListNodesResp{Nodes: []NodeResponse{}}, scanErr
 			}

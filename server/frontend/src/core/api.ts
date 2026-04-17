@@ -18,6 +18,7 @@ interface ApiNodeResponse {
   encoding_format: string;
   content_sha256: string;
   content_len: number;
+  title?: string | null;
   content?: string | null;
   created_at: string;
   artifact_created_at?: string | null;
@@ -51,6 +52,7 @@ function parseNode(raw: ApiNodeResponse): Node {
     encodingFormat: raw.encoding_format,
     contentSha256: raw.content_sha256,
     contentLen: raw.content_len,
+    title: raw.title ?? null,
     content: raw.content ?? null,
     createdAt: new Date(raw.created_at),
     artifactCreatedAt: raw.artifact_created_at ? new Date(raw.artifact_created_at) : null,
