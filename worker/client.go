@@ -147,23 +147,27 @@ func (c *Client) Queue(ctx context.Context, params QueueParams) ([]apiclient.Nod
 }
 
 // Done signals that the worker has finished processing a source node.
-// For bulk sources, this creates an observation/processed marker so the
-// queue won't serve the source again. For non-bulk sources, the L1 output
-// nodes already serve as implicit proof of processing — this is a no-op.
+//
+// The worker tells the SDK whether this source was bulk (contained multiple
+// items that were unpacked into separate L0 nodes). For bulk sources, Done
+// creates an observation/processed marker so the queue won't serve it again.
+// For non-bulk sources, the L1 output nodes' provenance edges already serve
+// as proof of processing — Done is a no-op.
+//
 // Requires StartRun to have been called first.
-func (c *Client) Done(ctx context.Context, source *apiclient.NodeResponse) error {
+func (c *Client) Done(ctx context.Context, source *apiclient.NodeResponse, bulk bool) error {
 	if c.runID == "" {
 		return fmt.Errorf("Done called before StartRun")
 	}
 	if c.DryRun {
-		c.log(LogInfo, "[dry-run] done with %s (no marker created)", source.Id)
+		c.log(LogInfo, "[dry-run] done with %s", source.Id)
 		return nil
 	}
-	if source.ContentType != "bulk" {
-		c.log(LogDebug, "done with %s (non-bulk, no marker needed)", source.Id)
+	if !bulk {
+		c.log(LogDebug, "done with %s (no marker needed)", source.Id)
 		return nil
 	}
-	c.log(LogInfo, "marking bulk source %s as processed", source.Id)
+	c.log(LogInfo, "marking source %s as processed", source.Id)
 	return c.markProcessed(ctx, source.Id)
 }
 
