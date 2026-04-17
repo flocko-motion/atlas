@@ -96,7 +96,7 @@ export function GraphView() {
         byX.get(x)!.push(n);
       });
       for (const [baseX, group] of byX) {
-        if (group.length <= MAX_PER_COL) continue;
+        if (group.length <= 1) continue;
         // Sort by current y to preserve relative order
         group.sort((a, b) => a.position('y') - b.position('y'));
         for (let i = 0; i < group.length; i++) {
