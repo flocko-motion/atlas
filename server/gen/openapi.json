@@ -431,6 +431,9 @@
           "original_name": {
             "type": "string"
           },
+          "title": {
+            "type": "string"
+          },
           "valid_from": {
             "type": "string"
           },
@@ -453,6 +456,7 @@
           "encoding_format",
           "content_sha256",
           "content_len",
+          "title",
           "content",
           "created_at",
           "artifact_created_at",
@@ -485,6 +489,32 @@
         "required": [
           "nodes",
           "edges"
+        ],
+        "type": "object"
+      },
+      "PurgeRunReq": {
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "type": "object"
+      },
+      "PurgeRunResp": {
+        "properties": {
+          "edges_deleted": {
+            "type": "integer"
+          },
+          "nodes_deleted": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "nodes_deleted",
+          "edges_deleted"
         ],
         "type": "object"
       },
@@ -999,6 +1029,41 @@
           }
         },
         "summary": "Registers a new worker run and returns a run_id."
+      }
+    },
+    "/api/runs/{id}": {
+      "delete": {
+        "description": "to any nodes derived from them. L0 root nodes are never deleted.",
+        "operationId": "deleteApiRunsId",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PurgeRunResp"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "description": "Bad Request"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Deletes all edges and nodes created in a run, cascading"
       }
     }
   }

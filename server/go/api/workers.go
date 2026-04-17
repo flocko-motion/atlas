@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/google/uuid"
+	"github.com/lib/pq"
 
 	db "rankedb/db"
 
@@ -184,4 +185,102 @@ type CreateRunReq struct {
 
 type CreateRunResp struct {
 	RunID string `json:"run_id"`
+}
+
+// ─── Purge run ───────────────────────────────────────────────────────────────
+
+// PurgeRunEndpoint deletes all edges and nodes created in a run, cascading
+// to any nodes derived from them. L0 root nodes are never deleted.
+type PurgeRunEndpoint struct{}
+
+func (e PurgeRunEndpoint) Method() string { return "DELETE" }
+func (e PurgeRunEndpoint) Path() string   { return "/api/runs/{id}" }
+func (e PurgeRunEndpoint) Auth() bool     { return false }
+func (e PurgeRunEndpoint) Handle(ctx context.Context, req PurgeRunReq) (PurgeRunResp, error) {
+	conn := schemafdb.DB()
+
+	// Find all target nodes created in this run (target = derived node)
+	// then recursively find all nodes derived from those
+	const collectQuery = `
+WITH RECURSIVE run_nodes AS (
+    -- Nodes directly created in this run (derived nodes = targets of provenance edges)
+    SELECT DISTINCT e.target_node_id AS node_id
+    FROM edges e
+    WHERE e.run_id = $1 AND e.type = 'provenance/input'
+    UNION
+    -- Nodes derived from run nodes (cascade downstream)
+    SELECT DISTINCT e.target_node_id
+    FROM edges e
+    INNER JOIN run_nodes rn ON e.source_node_id = rn.node_id
+    WHERE e.type = 'provenance/input'
+)
+SELECT node_id FROM run_nodes`
+
+	rows, err := conn.QueryContext(ctx, collectQuery, req.ID)
+	if err != nil {
+		return PurgeRunResp{}, fmt.Errorf("collect run nodes: %w", err)
+	}
+	defer rows.Close()
+
+	var nodeIDs []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return PurgeRunResp{}, err
+		}
+		nodeIDs = append(nodeIDs, id)
+	}
+	if rows.Err() != nil {
+		return PurgeRunResp{}, rows.Err()
+	}
+
+	if len(nodeIDs) == 0 {
+		return PurgeRunResp{NodesDeleted: 0, EdgesDeleted: 0}, nil
+	}
+
+	// Delete in a transaction: edges first, then nodes, then the run
+	tx, err := conn.Begin()
+	if err != nil {
+		return PurgeRunResp{}, err
+	}
+	defer tx.Rollback()
+
+	// Delete all edges connected to these nodes (in either direction)
+	edgeResult, err := tx.ExecContext(ctx, `
+		DELETE FROM edges WHERE source_node_id = ANY($1) OR target_node_id = ANY($1)
+	`, pq.Array(nodeIDs))
+	if err != nil {
+		return PurgeRunResp{}, fmt.Errorf("delete edges: %w", err)
+	}
+	edgesDeleted, _ := edgeResult.RowsAffected()
+
+	// Delete the nodes
+	nodeResult, err := tx.ExecContext(ctx, `
+		DELETE FROM nodes WHERE id = ANY($1)
+	`, pq.Array(nodeIDs))
+	if err != nil {
+		return PurgeRunResp{}, fmt.Errorf("delete nodes: %w", err)
+	}
+	nodesDeleted, _ := nodeResult.RowsAffected()
+
+	// Delete the run record
+	tx.ExecContext(ctx, `DELETE FROM runs WHERE id = $1`, req.ID)
+
+	if err := tx.Commit(); err != nil {
+		return PurgeRunResp{}, fmt.Errorf("commit purge: %w", err)
+	}
+
+	return PurgeRunResp{
+		NodesDeleted: int(nodesDeleted),
+		EdgesDeleted: int(edgesDeleted),
+	}, nil
+}
+
+type PurgeRunReq struct {
+	ID string `path:"id"`
+}
+
+type PurgeRunResp struct {
+	NodesDeleted int `json:"nodes_deleted"`
+	EdgesDeleted int `json:"edges_deleted"`
 }

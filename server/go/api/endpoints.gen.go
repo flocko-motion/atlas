@@ -22,5 +22,6 @@ func Provider() {
 	schemafapi.Register(schemafapi.NewRoute[ListEdgesReq, ListEdgesResp](ListEdgesEndpoint{}, "Returns edges with optional type filter.", ""))
 	schemafapi.Register(schemafapi.NewRoute[ListNodesReq, ListNodesResp](ListNodesEndpoint{}, "Returns a filtered, paginated list of nodes.", ""))
 	schemafapi.Register(schemafapi.NewRoute[ListRelationsReq, ListRelationsResp](ListRelationsEndpoint{}, "Returns filtered relation nodes.", ""))
+	schemafapi.Register(schemafapi.NewRoute[PurgeRunReq, PurgeRunResp](PurgeRunEndpoint{}, "Deletes all edges and nodes created in a run, cascading", "to any nodes derived from them. L0 root nodes are never deleted."))
 	schemafapi.Register(schemafapi.NewRoute[SearchEntitiesReq, SearchEntitiesResp](SearchEntitiesEndpoint{}, "Searches entities by full-text query over names and aliases.", ""))
 }

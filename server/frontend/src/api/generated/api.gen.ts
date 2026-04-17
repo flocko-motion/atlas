@@ -144,6 +144,7 @@ export interface NodeResponse {
   level: number;
   origin: string;
   original_name: string;
+  title: string;
   valid_from: string;
   valid_from_blur: string;
   valid_until: string;
@@ -153,6 +154,15 @@ export interface NodeResponse {
 export interface ProvenanceSubgraph {
   edges: EdgeResponse[];
   nodes: NodeResponse[];
+}
+
+export interface PurgeRunReq {
+  id: string;
+}
+
+export interface PurgeRunResp {
+  edges_deleted: number;
+  nodes_deleted: number;
 }
 
 export interface RelationResponse {
@@ -656,6 +666,21 @@ export class Api<
         method: "POST",
         body: data,
         type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description to any nodes derived from them. L0 root nodes are never deleted.
+     *
+     * @name DeleteApiRunsId
+     * @summary Deletes all edges and nodes created in a run, cascading
+     * @request DELETE:/api/runs/{id}
+     */
+    deleteApiRunsId: (id: string, params: RequestParams = {}) =>
+      this.request<PurgeRunResp, void>({
+        path: `/api/runs/${id}`,
+        method: "DELETE",
         format: "json",
         ...params,
       }),

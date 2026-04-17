@@ -107,6 +107,12 @@
   font-size: 10px;
 }
 
+.inspector-edge-run {
+  color: var(--text-muted);
+  font-size: 9px;
+  flex-shrink: 0;
+}
+
 .inspector-btn {
   padding: 4px 12px;
   background: var(--bg-surface);
@@ -120,4 +126,32 @@
 
 .inspector-btn:hover {
   background: var(--bg-hover);
+}
+
+.inspector-btn-danger {
+  color: #ef4444;
+  border-color: #ef444440;
+}
+
+.inspector-btn-danger:hover {
+  background: #ef444420;
+}
+
+.inspector-runs {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.inspector-run-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11px;
+}
+
+.inspector-run-id {
+  font-family: monospace;
+  color: var(--text-secondary);
 }

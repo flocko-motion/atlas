@@ -97,6 +97,7 @@ type NodeResponse struct {
 	Level                 int     `json:"level"`
 	Origin                string  `json:"origin"`
 	OriginalName          string  `json:"original_name"`
+	Title                 string  `json:"title"`
 	ValidFrom             string  `json:"valid_from"`
 	ValidFromBlur         string  `json:"valid_from_blur"`
 	ValidUntil            string  `json:"valid_until"`
@@ -107,6 +108,12 @@ type NodeResponse struct {
 type ProvenanceSubgraph struct {
 	Edges []EdgeResponse `json:"edges"`
 	Nodes []NodeResponse `json:"nodes"`
+}
+
+// PurgeRunResp defines model for PurgeRunResp.
+type PurgeRunResp struct {
+	EdgesDeleted int `json:"edges_deleted"`
+	NodesDeleted int `json:"nodes_deleted"`
 }
 
 // RelationResponse defines model for RelationResponse.
@@ -243,6 +250,9 @@ type ClientInterface interface {
 	PostApiRunsWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	PostApiRuns(ctx context.Context, body PostApiRunsJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// DeleteApiRunsId request
+	DeleteApiRunsId(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error)
 }
 
 func (c *Client) GetApiEdges(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -427,6 +437,18 @@ func (c *Client) PostApiRunsWithBody(ctx context.Context, contentType string, bo
 
 func (c *Client) PostApiRuns(ctx context.Context, body PostApiRunsJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewPostApiRunsRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) DeleteApiRunsId(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewDeleteApiRunsIdRequest(c.Server, id)
 	if err != nil {
 		return nil, err
 	}
@@ -911,6 +933,40 @@ func NewPostApiRunsRequestWithBody(server string, contentType string, body io.Re
 	return req, nil
 }
 
+// NewDeleteApiRunsIdRequest generates requests for DeleteApiRunsId
+func NewDeleteApiRunsIdRequest(server string, id string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/runs/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("DELETE", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
 func (c *Client) applyEditors(ctx context.Context, req *http.Request, additionalEditors []RequestEditorFn) error {
 	for _, r := range c.RequestEditors {
 		if err := r(ctx, req); err != nil {
@@ -1000,6 +1056,9 @@ type ClientWithResponsesInterface interface {
 	PostApiRunsWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PostApiRunsResponse, error)
 
 	PostApiRunsWithResponse(ctx context.Context, body PostApiRunsJSONRequestBody, reqEditors ...RequestEditorFn) (*PostApiRunsResponse, error)
+
+	// DeleteApiRunsIdWithResponse request
+	DeleteApiRunsIdWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*DeleteApiRunsIdResponse, error)
 }
 
 type GetApiEdgesResponse struct {
@@ -1330,6 +1389,28 @@ func (r PostApiRunsResponse) StatusCode() int {
 	return 0
 }
 
+type DeleteApiRunsIdResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *PurgeRunResp
+}
+
+// Status returns HTTPResponse.Status
+func (r DeleteApiRunsIdResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r DeleteApiRunsIdResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
 // GetApiEdgesWithResponse request returning *GetApiEdgesResponse
 func (c *ClientWithResponses) GetApiEdgesWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetApiEdgesResponse, error) {
 	rsp, err := c.GetApiEdges(ctx, reqEditors...)
@@ -1471,6 +1552,15 @@ func (c *ClientWithResponses) PostApiRunsWithResponse(ctx context.Context, body 
 		return nil, err
 	}
 	return ParsePostApiRunsResponse(rsp)
+}
+
+// DeleteApiRunsIdWithResponse request returning *DeleteApiRunsIdResponse
+func (c *ClientWithResponses) DeleteApiRunsIdWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*DeleteApiRunsIdResponse, error) {
+	rsp, err := c.DeleteApiRunsId(ctx, id, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseDeleteApiRunsIdResponse(rsp)
 }
 
 // ParseGetApiEdgesResponse parses an HTTP response from a GetApiEdgesWithResponse call
@@ -1833,6 +1923,32 @@ func ParsePostApiRunsResponse(rsp *http.Response) (*PostApiRunsResponse, error) 
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
 		var dest CreateRunResp
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseDeleteApiRunsIdResponse parses an HTTP response from a DeleteApiRunsIdWithResponse call
+func ParseDeleteApiRunsIdResponse(rsp *http.Response) (*DeleteApiRunsIdResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &DeleteApiRunsIdResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest PurgeRunResp
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}

@@ -5,9 +5,9 @@
  * @must-not Contain business logic. Import from graph/.
  */
 
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useAppStore } from '../../core/hooks';
-import { selectNode, selectEdge, setViewMode, setGraphMode } from '../../core/actions';
+import { selectNode, selectEdge, setViewMode, setGraphMode, loadFromApi } from '../../core/actions';
 import { nodeEdges } from '../../core/selectors';
 import { nodeColor, edgeColor } from '../../core/colors';
 import type { Node, Edge } from '../../core/types/nodes';
@@ -54,6 +54,11 @@ function EdgeRow({ edge, node, currentNodeId }: { edge: Edge; node: Node | undef
       <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
         {node?.title ?? node?.contentType ?? otherId.slice(0, 8)}
       </span>
+      {edge.runId && (
+        <span className="inspector-edge-run" title={edge.runId}>
+          run:{edge.runId.slice(0, 8)}
+        </span>
+      )}
     </div>
   );
 }
@@ -131,6 +136,8 @@ export function NodeInspector() {
         </>
       )}
 
+      <RunActions edges={edges} />
+
       <button
         className="inspector-btn"
         onClick={() => {
@@ -141,5 +148,57 @@ export function NodeInspector() {
         Show Provenance
       </button>
     </div>
+  );
+}
+
+function RunActions({ edges }: { edges: Edge[] }) {
+  const [purging, setPurging] = useState<string | null>(null);
+
+  const runIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const e of edges) {
+      if (e.runId) ids.add(e.runId);
+    }
+    return [...ids];
+  }, [edges]);
+
+  if (runIds.length === 0) return null;
+
+  async function purgeRun(runId: string) {
+    if (!confirm(`Purge run ${runId.slice(0, 8)}...? This will cascade-delete all derived nodes.`)) return;
+    setPurging(runId);
+    try {
+      const resp = await fetch(`/api/runs/${runId}`, { method: 'DELETE' });
+      if (!resp.ok) {
+        const err = await resp.text();
+        alert(`Purge failed: ${err}`);
+        return;
+      }
+      const result = await resp.json();
+      alert(`Purged: ${result.nodes_deleted} nodes, ${result.edges_deleted} edges`);
+      loadFromApi();
+    } finally {
+      setPurging(null);
+    }
+  }
+
+  return (
+    <>
+      <span className="inspector-section-title">Runs</span>
+      <div className="inspector-runs">
+        {runIds.map((id) => (
+          <div key={id} className="inspector-run-row">
+            <span className="inspector-run-id" title={id}>{id.slice(0, 12)}...</span>
+            <button
+              className="inspector-btn inspector-btn-danger"
+              disabled={purging === id}
+              onClick={() => purgeRun(id)}
+            >
+              {purging === id ? 'Purging...' : 'Purge'}
+            </button>
+          </div>
+        ))}
+      </div>
+    </>
   );
 }
