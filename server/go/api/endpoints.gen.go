@@ -19,6 +19,7 @@ func Provider() {
 	schemafapi.Register(schemafapi.NewRoute[GetNodeReq, NodeResponse](GetNodeEndpoint{}, "Returns a node by ID with full metadata and inline content.", ""))
 	schemafapi.Register(schemafapi.NewRoute[GetNodeProvenanceReq, ProvenanceSubgraph](GetNodeProvenanceEndpoint{}, "Returns the upstream provenance chain from a node back to L0 roots.", ""))
 	schemafapi.Register(schemafapi.NewRoute[GetQueueReq, GetQueueResp](GetQueueEndpoint{}, "Returns unprocessed nodes for a given worker type.", ""))
+	schemafapi.Register(schemafapi.NewRoute[GetRunReq, GetRunResp](GetRunEndpoint{}, "Returns run details and all nodes created in that run (with cascading derivatives).", ""))
 	schemafapi.Register(schemafapi.NewRoute[ListEdgesReq, ListEdgesResp](ListEdgesEndpoint{}, "Returns edges with optional type filter.", ""))
 	schemafapi.Register(schemafapi.NewRoute[ListNodesReq, ListNodesResp](ListNodesEndpoint{}, "Returns a filtered, paginated list of nodes.", ""))
 	schemafapi.Register(schemafapi.NewRoute[ListRelationsReq, ListRelationsResp](ListRelationsEndpoint{}, "Returns filtered relation nodes.", ""))

@@ -155,3 +155,38 @@
   font-family: monospace;
   color: var(--text-secondary);
 }
+
+.inspector-run-link {
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-color: var(--border);
+}
+
+.inspector-run-link:hover {
+  color: var(--text-primary);
+}
+
+.inspector-run-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+.inspector-run-nodes {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 150px;
+  overflow-y: auto;
+}
+
+.inspector-run-node {
+  display: flex;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-secondary);
+}

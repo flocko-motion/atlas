@@ -151,8 +151,17 @@ export function NodeInspector() {
   );
 }
 
+interface RunDetail {
+  run_id: string;
+  worker_config_id: string;
+  created_at: string;
+  nodes: Array<{ id: string; level: number; content_class: string; content_type: string; title?: string }>;
+}
+
 function RunActions({ edges }: { edges: Edge[] }) {
-  const [purging, setPurging] = useState<string | null>(null);
+  const [selectedRun, setSelectedRun] = useState<RunDetail | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [purging, setPurging] = useState(false);
 
   const runIds = useMemo(() => {
     const ids = new Set<string>();
@@ -164,21 +173,33 @@ function RunActions({ edges }: { edges: Edge[] }) {
 
   if (runIds.length === 0) return null;
 
-  async function purgeRun(runId: string) {
-    if (!confirm(`Purge run ${runId.slice(0, 8)}...? This will cascade-delete all derived nodes.`)) return;
-    setPurging(runId);
+  async function inspectRun(runId: string) {
+    setLoading(true);
     try {
-      const resp = await fetch(`/api/runs/${runId}`, { method: 'DELETE' });
+      const resp = await fetch(`/api/runs/${runId}`);
+      if (!resp.ok) return;
+      setSelectedRun(await resp.json());
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function purgeRun() {
+    if (!selectedRun) return;
+    if (!confirm(`Purge ${selectedRun.nodes.length} nodes and all derivatives?`)) return;
+    setPurging(true);
+    try {
+      const resp = await fetch(`/api/runs/${selectedRun.run_id}`, { method: 'DELETE' });
       if (!resp.ok) {
-        const err = await resp.text();
-        alert(`Purge failed: ${err}`);
+        alert(`Purge failed: ${await resp.text()}`);
         return;
       }
       const result = await resp.json();
       alert(`Purged: ${result.nodes_deleted} nodes, ${result.edges_deleted} edges`);
+      setSelectedRun(null);
       loadFromApi();
     } finally {
-      setPurging(null);
+      setPurging(false);
     }
   }
 
@@ -188,17 +209,41 @@ function RunActions({ edges }: { edges: Edge[] }) {
       <div className="inspector-runs">
         {runIds.map((id) => (
           <div key={id} className="inspector-run-row">
-            <span className="inspector-run-id" title={id}>{id.slice(0, 12)}...</span>
-            <button
-              className="inspector-btn inspector-btn-danger"
-              disabled={purging === id}
-              onClick={() => purgeRun(id)}
+            <span
+              className="inspector-run-id inspector-run-link"
+              title={id}
+              onClick={() => inspectRun(id)}
             >
-              {purging === id ? 'Purging...' : 'Purge'}
-            </button>
+              {id.slice(0, 12)}...
+            </span>
           </div>
         ))}
       </div>
+
+      {loading && <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>Loading run...</span>}
+
+      {selectedRun && (
+        <div className="inspector-run-detail">
+          <span className="inspector-section-title">
+            Run {selectedRun.run_id.slice(0, 12)}... ({selectedRun.nodes.length} nodes)
+          </span>
+          <div className="inspector-run-nodes">
+            {selectedRun.nodes.map((n) => (
+              <div key={n.id} className="inspector-run-node">
+                <span style={{ color: 'var(--text-muted)', fontSize: 10 }}>L{n.level}</span>
+                <span>{n.title ?? `${n.content_class}/${n.content_type}`}</span>
+              </div>
+            ))}
+          </div>
+          <button
+            className="inspector-btn inspector-btn-danger"
+            disabled={purging}
+            onClick={purgeRun}
+          >
+            {purging ? 'Purging...' : `Purge ${selectedRun.nodes.length} nodes`}
+          </button>
+        </div>
+      )}
     </>
   );
 }

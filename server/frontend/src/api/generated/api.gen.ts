@@ -95,6 +95,17 @@ export interface GetQueueResp {
   nodes: NodeResponse[];
 }
 
+export interface GetRunReq {
+  id: string;
+}
+
+export interface GetRunResp {
+  created_at: string;
+  nodes: NodeResponse[];
+  run_id: string;
+  worker_config_id: string;
+}
+
 export interface ListEdgesReq {
   limit: number;
   offset: number;
@@ -681,6 +692,21 @@ export class Api<
       this.request<PurgeRunResp, void>({
         path: `/api/runs/${id}`,
         method: "DELETE",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @name GetApiRunsId
+     * @summary Returns run details and all nodes created in that run (with cascading derivatives).
+     * @request GET:/api/runs/{id}
+     */
+    getApiRunsId: (id: string, params: RequestParams = {}) =>
+      this.request<GetRunResp, void>({
+        path: `/api/runs/${id}`,
+        method: "GET",
         format: "json",
         ...params,
       }),

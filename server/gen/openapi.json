@@ -273,6 +273,43 @@
         ],
         "type": "object"
       },
+      "GetRunReq": {
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "type": "object"
+      },
+      "GetRunResp": {
+        "properties": {
+          "created_at": {
+            "type": "string"
+          },
+          "nodes": {
+            "items": {
+              "$ref": "#/components/schemas/NodeResponse"
+            },
+            "type": "array"
+          },
+          "run_id": {
+            "type": "string"
+          },
+          "worker_config_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "run_id",
+          "worker_config_id",
+          "created_at",
+          "nodes"
+        ],
+        "type": "object"
+      },
       "ListEdgesReq": {
         "properties": {
           "limit": {
@@ -1064,6 +1101,38 @@
           }
         },
         "summary": "Deletes all edges and nodes created in a run, cascading"
+      },
+      "get": {
+        "operationId": "getApiRunsId",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetRunResp"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "description": "Bad Request"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Returns run details and all nodes created in that run (with cascading derivatives)."
       }
     }
   }

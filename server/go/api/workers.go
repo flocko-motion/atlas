@@ -187,6 +187,84 @@ type CreateRunResp struct {
 	RunID string `json:"run_id"`
 }
 
+// ─── Get run ─────────────────────────────────────────────────────────────────
+
+// GetRunEndpoint returns run details and all nodes created in that run (with cascading derivatives).
+type GetRunEndpoint struct{}
+
+func (e GetRunEndpoint) Method() string { return "GET" }
+func (e GetRunEndpoint) Path() string   { return "/api/runs/{id}" }
+func (e GetRunEndpoint) Auth() bool     { return false }
+func (e GetRunEndpoint) Handle(ctx context.Context, req GetRunReq) (GetRunResp, error) {
+	conn := schemafdb.DB()
+	queries := db.New(conn)
+
+	run, err := queries.GetRun(ctx, req.ID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return GetRunResp{}, fmt.Errorf("run not found: %s", req.ID)
+		}
+		return GetRunResp{}, err
+	}
+
+	// Collect all nodes created in this run + cascading derivatives
+	const collectQuery = `
+WITH RECURSIVE run_nodes AS (
+    SELECT DISTINCT e.target_node_id AS node_id
+    FROM edges e
+    WHERE e.run_id = $1 AND e.type = 'provenance/input'
+    UNION
+    SELECT DISTINCT e.target_node_id
+    FROM edges e
+    INNER JOIN run_nodes rn ON e.source_node_id = rn.node_id
+    WHERE e.type = 'provenance/input'
+)
+SELECT node_id FROM run_nodes`
+
+	rows, err := conn.QueryContext(ctx, collectQuery, req.ID)
+	if err != nil {
+		return GetRunResp{}, err
+	}
+	defer rows.Close()
+
+	var nodeIDs []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return GetRunResp{}, err
+		}
+		nodeIDs = append(nodeIDs, id)
+	}
+
+	// Fetch full node details
+	nodes := make([]NodeResponse, 0, len(nodeIDs))
+	for _, id := range nodeIDs {
+		n, err := queries.GetNode(ctx, id)
+		if err != nil {
+			continue
+		}
+		nodes = append(nodes, nodeToResponse(n))
+	}
+
+	return GetRunResp{
+		RunID:          run.ID,
+		WorkerConfigID: run.WorkerConfigID,
+		CreatedAt:      run.CreatedAt.Format("2006-01-02T15:04:05Z"),
+		Nodes:          nodes,
+	}, nil
+}
+
+type GetRunReq struct {
+	ID string `path:"id"`
+}
+
+type GetRunResp struct {
+	RunID          string         `json:"run_id"`
+	WorkerConfigID string         `json:"worker_config_id"`
+	CreatedAt      string         `json:"created_at"`
+	Nodes          []NodeResponse `json:"nodes"`
+}
+
 // ─── Purge run ───────────────────────────────────────────────────────────────
 
 // PurgeRunEndpoint deletes all edges and nodes created in a run, cascading
