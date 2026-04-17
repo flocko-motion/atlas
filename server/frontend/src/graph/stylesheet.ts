@@ -47,6 +47,17 @@ export const graphStylesheet: any[] = [
       'shape': 'ellipse',
     },
   },
+  // Infrastructure nodes (worker config, processed markers)
+  {
+    selector: 'node[infra="yes"]',
+    style: {
+      'shape': 'hexagon',
+      'width': 18,
+      'height': 18,
+      'font-size': '8px',
+      'opacity': 0.6,
+    },
+  },
   // Selected
   {
     selector: ':selected',

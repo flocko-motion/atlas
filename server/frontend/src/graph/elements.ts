@@ -6,7 +6,7 @@
  */
 
 import type { Node, Edge } from '../core/types/nodes';
-import { nodeColor, edgeColor } from '../core/colors';
+import { nodeColor, edgeColor, isInfraNode } from '../core/colors';
 import type { ElementDefinition } from 'cytoscape';
 
 export function nodesToElements(nodes: Node[], highlight: Set<string> | null): ElementDefinition[] {
@@ -19,6 +19,7 @@ export function nodesToElements(nodes: Node[], highlight: Set<string> | null): E
       contentClass: node.contentClass,
       contentType: node.contentType,
       color: nodeColor(node),
+      infra: isInfraNode(node) ? 'yes' : 'no',
       dimmed: highlight && !highlight.has(node.id) ? 'yes' : 'no',
     },
   }));
