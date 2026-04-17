@@ -155,6 +155,10 @@ func (c *Client) Done(ctx context.Context, source *apiclient.NodeResponse) error
 	if c.runID == "" {
 		return fmt.Errorf("Done called before StartRun")
 	}
+	if c.DryRun {
+		c.log(LogInfo, "[dry-run] done with %s (no marker created)", source.Id)
+		return nil
+	}
 	if source.ContentType != "bulk" {
 		c.log(LogDebug, "done with %s (non-bulk, no marker needed)", source.Id)
 		return nil
