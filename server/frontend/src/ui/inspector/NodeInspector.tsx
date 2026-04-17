@@ -17,6 +17,15 @@ function fmt(d: Date | null): string {
   return d ? d.toISOString().slice(0, 19).replace('T', ' ') : '-';
 }
 
+function humanSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  const units = ['KB', 'MB', 'GB'];
+  let i = -1;
+  let b = bytes;
+  do { b /= 1024; i++; } while (b >= 1024 && i < units.length - 1);
+  return `${b.toFixed(1)} ${units[i]}`;
+}
+
 function MetaRow({ label, value }: { label: string; value: string }) {
   if (value === '-' || value === '' || value === 'null') return null;
   return (
@@ -43,7 +52,7 @@ function EdgeRow({ edge, node, currentNodeId }: { edge: Edge; node: Node | undef
       </span>
       <span className="inspector-edge-dir">{dir}</span>
       <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-        {node?.content?.slice(0, 40) ?? otherId.slice(0, 8)}
+        {node?.title ?? node?.contentType ?? otherId.slice(0, 8)}
       </span>
     </div>
   );
@@ -75,10 +84,11 @@ export function NodeInspector() {
       </span>
 
       <div className="inspector-meta">
+        <MetaRow label="Title" value={node.title ?? '-'} />
         <MetaRow label="ID" value={node.id} />
         <MetaRow label="Encoding" value={`${node.encodingClass} / ${node.encodingFormat}`} />
         <MetaRow label="SHA-256" value={node.contentSha256.slice(0, 16) + '...'} />
-        <MetaRow label="Size" value={`${node.contentLen} bytes`} />
+        <MetaRow label="Size" value={humanSize(node.contentLen)} />
         <MetaRow label="Created" value={fmt(node.createdAt)} />
         <MetaRow label="Artifact date" value={fmt(node.artifactCreatedAt)} />
         <MetaRow label="Artifact blur" value={node.artifactCreatedAtBlur || '-'} />
