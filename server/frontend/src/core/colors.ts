@@ -7,14 +7,30 @@
 
 import type { Node, Edge } from './types/nodes';
 
-const L0_BLUE = '#3b82f6';
-const L1_AMBER = '#f59e0b';
-const L2_ENTITY_EMERALD = '#10b981';
-const L2_RELATION_PURPLE = '#a855f7';
-const INFRA_GRAY = '#6b7280';
+// Simple string hash → 0..1
+function hash01(s: string): number {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) {
+    h = ((h << 5) - h + s.charCodeAt(i)) | 0;
+  }
+  return ((h >>> 0) % 1000) / 1000;
+}
 
-const EDGE_GRAY = '#6b7280';
-const EDGE_EMERALD = '#10b981';
+// Level palettes: [hueMin, hueMax, saturation, lightnessMin, lightnessMax]
+const PALETTES = {
+  infra: [220, 260, 15, 35, 50],    // gray-blue, desaturated
+  l0:    [200, 240, 65, 45, 60],    // blue world
+  l1:    [30, 60, 70, 45, 60],      // yellow/amber world
+  l2e:   [140, 180, 55, 40, 55],    // green world (entities)
+  l2r:   [260, 300, 55, 45, 60],    // purple world (relations)
+} as const;
+
+function paletteColor(palette: readonly number[], contentKey: string, encodingKey: string): string {
+  const [hMin, hMax, sat, lMin, lMax] = palette;
+  const h = hMin + hash01(contentKey) * (hMax - hMin);
+  const l = lMin + hash01(encodingKey) * (lMax - lMin);
+  return `hsl(${Math.round(h)}, ${sat}%, ${Math.round(l)}%)`;
+}
 
 export function isInfraNode(node: Node): boolean {
   return node.contentClass === 'worker'
@@ -22,12 +38,18 @@ export function isInfraNode(node: Node): boolean {
 }
 
 export function nodeColor(node: Node): string {
-  if (isInfraNode(node)) return INFRA_GRAY;
-  if (node.level === 0) return L0_BLUE;
-  if (node.level === 1) return L1_AMBER;
-  if (node.contentClass.startsWith('relation')) return L2_RELATION_PURPLE;
-  return L2_ENTITY_EMERALD;
+  const contentKey = `${node.contentClass}/${node.contentType}`;
+  const encodingKey = `${node.encodingClass}/${node.encodingFormat}`;
+
+  if (isInfraNode(node)) return paletteColor(PALETTES.infra, contentKey, encodingKey);
+  if (node.level === 0) return paletteColor(PALETTES.l0, contentKey, encodingKey);
+  if (node.level === 1) return paletteColor(PALETTES.l1, contentKey, encodingKey);
+  if (node.contentClass === 'relation') return paletteColor(PALETTES.l2r, contentKey, encodingKey);
+  return paletteColor(PALETTES.l2e, contentKey, encodingKey);
 }
+
+const EDGE_GRAY = '#6b7280';
+const EDGE_EMERALD = '#10b981';
 
 export function edgeColor(edge: Edge): string {
   if (edge.type === 'relation/head' || edge.type === 'relation/tail') {
