@@ -30,7 +30,7 @@ Every ID in the system is a hash. No sequences, no UUIDs.
 
 **Edge hash:**
 ```
-edge_hash = SHA256(
+edge_hash = H(
   source_node_hash  +
   target_node_hash  +
   relation_type     +
@@ -41,7 +41,7 @@ edge_hash = SHA256(
 
 **Node hash = hash of all fields, including edge hashes and content hash:**
 ```
-node_hash = SHA256(
+node_hash = H(
   content_hash      +    // hash of the blob in S3
   content_type      +    // e.g. source/conversation
   encoding          +    // e.g. text/eml
@@ -62,15 +62,15 @@ node_hash = SHA256(
 Periodically, a **snapshot node** is created. Its inputs are all current heads (nodes with no children) plus the previous snapshot. Its hash witnesses the entire graph state at that point in time.
 
 ```
-Snapshot_N = SHA256(
-  content_hash: SHA256("snapshot at 2026-04-20T23:45:00Z")
+Snapshot_N = H(
+  content_hash: H("snapshot at 2026-04-20T23:45:00Z")
   input_edges: [head_1, head_2, ..., head_n, snapshot_N-1]
 )
 ```
 
 The chain of snapshots forms a hashchain: each snapshot includes the previous snapshot's hash as an input. This gives a linear, ordered sequence of graph states.
 
-**Publishing:** The snapshot hash can be written to a public blockchain (Bitcoin OP_RETURN, Ethereum, etc.) as a notary service. This proves that the graph had exactly this state at exactly this time. No one can retroactively claim a scan happened at a different time or produced different results.
+**Publishing:** The snapshot hash can be published to any external timestamping service — e.g. in the New York Times or a public ledger (Haber & Stornetta, 1991) — to provide third-party proof of graph state at a given point in time.
 
 ---
 
@@ -110,7 +110,7 @@ All nodes (L0 and L1) live in Postgres as rows with metadata, hash, and size. Th
 - Content-addressed means cache invalidation is impossible — pure LRU.
 
 ### Per-node fields
-- `content_hash` — SHA-256, points at S3 blob, also the node ID
+- `content_hash` — H(content), points at S3 blob, also the node ID
 - `content_size` — bytes, for cache policy queries
 - `content_type` — e.g. `source/conversation`
 - `encoding` — MIME-style, e.g. `text/eml`, `image/png`
@@ -181,4 +181,32 @@ Key mappings:
 Automated peer review through claim decomposition:
 - AI analysis → worker decomposes into individual claims → each claim a `fact/claim` node → dedicated challenge agent per claim → produces `observation/challenge` node (confirmed, refuted, or unverifiable with reasoning)
 
-The Merkle-DAG + snapshot + blockchain notarization makes the entire audit trail manipulation-proof. In a liability case, the graph proves: we scanned with *this* tool in *this* version with *these* rules, *this* person made *this* decision based on *this* AI analysis with *this* prompt, and the graph had *this* state at *this* time (blockchain-witnessed).
+The Merkle-DAG + snapshot + external timestamping makes the entire audit trail manipulation-proof. In a liability case, the graph proves: we scanned with *this* tool in *this* version with *these* rules, *this* person made *this* decision based on *this* AI analysis with *this* prompt, and the graph had *this* state at *this* time (externally witnessed).
+
+---
+
+## 8. Hash Function Agnosticism
+
+Paper 1 uses `H(x)` to denote the cryptographic hash function, not a specific algorithm. The reference implementation uses SHA-256, but the architecture does not depend on it. The hash algorithm should be configurable, and node IDs could carry a type prefix (e.g. `sha256:a3f2...`) to allow coexistence of different hash functions during migration.
+
+Reference: Haber & Stornetta (1991), "How to Time-Stamp a Digital Document" — the foundational paper on cryptographic timestamping, cited by Satoshi (2008). They demonstrated the concept by publishing hash digests in the New York Times.
+
+---
+
+## 9. Auth-Scoped Visibility and Merkle Compatibility
+
+Auth-scoped visibility (§3.4: a node derived from a confidential source is automatically confidential) is *compatible* with the Merkle-DAG, not in conflict with it.
+
+A user receives a verifiable subgraph: full nodes with content for everything in scope. For branches outside their scope, they see only the hash — enough to verify the integrity of their own subgraph, but no content access. This is exactly how Merkle proofs work in other systems: you don't need the entire tree, only the hashes of the branches you can't see, to verify the branches you can see.
+
+```
+[hash_only] ← confidential node, user sees only hash
+     ↓
+[full node] ← derived, user has access
+     ↓
+[full node] ← user has access
+```
+
+The user can verify: "my subgraph is intact, it builds on a node with hash X whose content I don't know." Integrity is provable without transparency. Only the server sees everything.
+
+This means auth scoping and Merkle integrity are complementary: the Merkle structure is what *enables* verifiable partial views, rather than conflicting with them.
