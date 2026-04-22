@@ -1,29 +1,38 @@
 #!/usr/bin/env bash
-# Quick-and-dirty build: markdown -> PDF via pandoc + typst.
+# Build all papers to PDF via Typst.
+# Each subdirectory containing a main.typ is treated as a paper; the output PDF
+# takes the directory name. Markdown files are notes, not papers, and are ignored.
 #
-# Requirements:
-#   brew install pandoc librsvg typst
+# Requirements: typst (https://github.com/typst/typst)
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
-PAPER_DIR="01-rankedb"
-INPUT="$PAPER_DIR/rankedb.md"
 OUTPUT_DIR="bin"
+mkdir -p "$OUTPUT_DIR"
 
-if [[ ! -f "$INPUT" ]]; then
-  echo "error: input not found: $INPUT" >&2
+if ! command -v typst >/dev/null 2>&1; then
+  echo "error: 'typst' not installed" >&2
   exit 1
 fi
 
-mkdir -p "$OUTPUT_DIR"
+shopt -s nullglob
+any=0
+for paper_dir in */; do
+  paper_dir="${paper_dir%/}"
+  input="$paper_dir/main.typ"
+  if [[ ! -f "$input" ]]; then
+    continue
+  fi
+  any=1
+  output="$OUTPUT_DIR/${paper_dir}.pdf"
+  typst compile --root "$SCRIPT_DIR" "$input" "$output"
+  echo "built: $output"
+done
 
-pandoc "$INPUT" \
-  -o "$OUTPUT_DIR/rankedb.pdf" \
-  --pdf-engine=typst \
-  --resource-path="$PAPER_DIR" \
-  --toc
-
-echo "built: $OUTPUT_DIR/rankedb.pdf"
+if [[ $any -eq 0 ]]; then
+  echo "no main.typ files found under $SCRIPT_DIR" >&2
+  exit 1
+fi

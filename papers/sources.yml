@@ -1,0 +1,632 @@
+# Hayagriva bibliography for paper 01. Converted from sources.bib.
+# See https://github.com/typst/hayagriva/blob/main/docs/file-format.md
+
+talisman2026provenance:
+  type: web
+  title: "Where Provenance Ends, Knowledge Decays"
+  author: "Talisman, J."
+  date: 2026-02
+  publisher: Substack
+  note: "Traces provenance from 1841 respect des fonds through Semantic Web to LLMs"
+
+takan2023immutability:
+  type: article
+  title: "Knowledge Graph Augmentation: Consistency, Immutability, Reliability, and Context"
+  author: "Takan, S."
+  date: 2023
+  parent:
+    type: periodical
+    title: "PeerJ Computer Science"
+  note: "Quote: 'no research on immutability in knowledge graphs'"
+
+dibowski2024kgprovenance:
+  type: article
+  title: "Traceability and Provenance of Changes in Knowledge Graphs"
+  author: "Dibowski, H."
+  date: 2024
+  organization: "Bosch Research"
+  parent:
+    type: proceedings
+    title: "FOIS 2024"
+  note: "KGs typically contain only current snapshot; traceability unsolved"
+
+sikos2020provenance:
+  type: article
+  title: "Provenance-Aware Knowledge Representation: A Survey of Data Models and Contextualized Knowledge Graphs"
+  author:
+    - "Sikos, L. F."
+    - "Seneviratne, O."
+  date: 2020
+  parent:
+    type: periodical
+    title: "Data Science and Engineering"
+  note: "Canonical survey of RDF-provenance workarounds"
+
+figay2025epistemology:
+  type: web
+  title: "When Knowledge Graphs Fail, It's Not the Ontology --- It's the Epistemology"
+  author: "Figay, N."
+  date: 2025
+  publisher: Medium
+
+enterpriseknowledge2024threegraph:
+  type: report
+  title: "Graph Analytics in the Semantic Layer: An Architectural Framework for Knowledge Intelligence"
+  author: "Enterprise Knowledge"
+  date: 2024
+  note: "Consultancy report (2024--2025)"
+
+intuitionlabs2025kgbiopharma:
+  type: report
+  title: "Biotech/Pharma Knowledge Graph Pattern"
+  author: "IntuitionLabs"
+  date: 2025
+  note: "Data lake → semantic integration → service layer"
+
+antgroup2024openspg:
+  type: article
+  title: "OpenSPG/KGFabric: Industrial-Scale Knowledge Graph Platform"
+  author: "Ant Group"
+  date: 2024
+  parent:
+    type: proceedings
+    title: "VLDB 2024"
+  note: "98% storage reduction vs Neo4j via hybrid compression"
+
+spade:
+  type: article
+  title: "SPADE: Support for Provenance Auditing in Distributed Environments"
+  author: "SRI International"
+  parent:
+    type: periodical
+    title: "ACM Queue"
+  note: "ACM Queue article 3476885; QuickGrail query language over Neo4j or Postgres"
+
+doyle1979tms:
+  type: article
+  title: "A Truth Maintenance System"
+  author: "Doyle, J."
+  date: 1979
+  parent:
+    type: periodical
+    title: "Artificial Intelligence"
+
+dekleer1986atms:
+  type: article
+  title: "An Assumption-Based TMS"
+  author: "de Kleer, J."
+  date: 1986
+  parent:
+    type: periodical
+    title: "Artificial Intelligence"
+
+agm1985beliefrevision:
+  type: article
+  title: "On the Logic of Theory Change: Partial Meet Contraction and Revision Functions"
+  author:
+    - "Alchourrón, C. E."
+    - "Gärdenfors, P."
+    - "Makinson, D."
+  date: 1985
+  parent:
+    type: periodical
+    title: "Journal of Symbolic Logic"
+  note: "JSTOR 41487515; formal postulates for belief change"
+
+graphnative2026cognitivememory:
+  type: article
+  title: "Graph-Native Cognitive Memory for AI Agents: Formal Belief Revision Semantics for Versioned Memory Architectures"
+  author: "Anonymous"
+  date: 2025
+  serial-number:
+    arxiv: "2603.17244"
+  note: "Applies AGM belief revision to Neo4j AI memory (2025--2026)"
+
+carneades:
+  type: misc
+  title: "Carneades Argumentation Framework"
+  author: "Carneades Project"
+  note: "Varying proof standards per statement"
+
+aspicplus:
+  type: misc
+  title: "ASPIC+ Framework for Structured Argumentation"
+  author: "Prakken, H."
+  note: "Strict vs defeasible inference with three attack types"
+
+akref2025:
+  type: article
+  title: "AKReF: Argumentation Knowledge Graph Construction from Text"
+  author: "AKReF authors"
+  date: 2025
+  serial-number:
+    arxiv: "2506.00713"
+
+helland2015immutability:
+  type: article
+  title: "Immutability Changes Everything"
+  author: "Helland, P."
+  date: 2015
+  parent:
+    type: conference
+    title: "CIDR 2015"
+  note: "cidrdb.org/cidr2015/Papers/CIDR15_Paper16.pdf; ACM Queue 2884038"
+
+nelson1965xanadu:
+  type: article
+  title: "A File Structure for the Complex, the Changing, and the Indeterminate"
+  author: "Nelson, T."
+  date: 1965
+  parent:
+    type: proceedings
+    title: "Proceedings of the 20th National ACM Conference"
+
+xanadu:
+  type: misc
+  title: "Project Xanadu"
+  author: "Nelson, T."
+  date: 1960
+  note: "1960--; cautionary lesson: refusal to compromise prevented adoption while simpler WWW prevailed"
+
+hickey2012datomic:
+  type: misc
+  title: "Datomic: A Database of Flexible, Time-Based Facts"
+  author: "Hickey, R."
+  date: 2012
+
+rico2025:
+  type: misc
+  title: "Records in Contexts (RiC-O) v1.1"
+  author: "International Council on Archives"
+  date: 2025-05
+  note: "rico:ProvenanceRelation as first-class OWL relation type"
+
+googlealwayson2026:
+  type: web
+  title: "Always-On Memory Agent"
+  author: "Google"
+  date: 2026-03
+  note: "ConsolidateAgent runs every 30 minutes; LLM as truth arbiter"
+
+xtdb:
+  type: misc
+  title: "XTDB (formerly CruxDB)"
+  author: "JUXT"
+  note: "Append-only log with native bitemporal support"
+
+defradb:
+  type: misc
+  title: "DefraDB"
+  author: "Source Network"
+  note: "Content-addressable immutable blob store with knowledge graph aspirations"
+
+arweave:
+  type: misc
+  title: "Arweave: Strictly Append-Only Permanent Storage"
+  author: "Arweave"
+  note: "dolthub.com/blog/2022-03-21-immutable-database"
+
+rdfstar:
+  type: misc
+  title: "RDF-star (RDF 1.2)"
+  author: "W3C"
+  note: "Embedded triples; ~50% data volume reduction vs classical reification (Ontotext/GraphDB 11.2 benchmarks)"
+
+carroll2005namedgraphs:
+  type: article
+  title: "Named Graphs, Provenance and Trust"
+  author:
+    - "Carroll, J. J."
+    - "Bizer, C."
+    - "Hayes, P."
+    - "Stickler, P."
+  date: 2005
+  parent:
+    type: proceedings
+    title: "WWW 2005"
+  serial-number:
+    doi: "10.1145/1060745.1060835"
+
+palantirfoundry:
+  type: misc
+  title: "Palantir Foundry"
+  author: "Palantir Technologies"
+  note: "Dataset-level lineage with interactive DAG visualization"
+
+googleknowledgevault2014:
+  type: article
+  title: "Knowledge Vault: A Web-Scale Approach to Probabilistic Knowledge Fusion"
+  author:
+    - "Dong, X."
+    - "Gabrilovich, E."
+    - "Heitz, G."
+    - "Horn, W."
+    - "Lao, N."
+    - "Murphy, K."
+    - "Strohmann, T."
+    - "Sun, S."
+    - "Zhang, W."
+  date: 2014
+  parent:
+    type: proceedings
+    title: "KDD 2014"
+
+nell:
+  type: misc
+  title: "NELL: Never-Ending Language Learning"
+  author: "Carnegie Mellon University"
+  note: "Per-fact extraction source tracking without full lineage"
+
+uag2024:
+  type: article
+  title: "UaG: Uncertainty-Aware Graph for KG-LLM Reasoning"
+  author: "UaG authors"
+  date: 2024
+  parent:
+    type: proceedings
+    title: "CIKM 2024"
+  note: "Conformal prediction; uses uncertainty to guide reasoning paths"
+
+dagstuhl2024uncertainty:
+  type: misc
+  title: "Uncertainty in Knowledge Graph Construction"
+  author: "Dagstuhl Seminar"
+  date: 2024
+  note: "Facebook's KG removes facts below confidence thresholds"
+
+rasmussen2025graphiti:
+  type: article
+  title: "Graphiti: Knowledge Graph Memory for AI Agents"
+  author:
+    - "Rasmussen, P."
+    - "others"
+  date: 2025-01
+  serial-number:
+    arxiv: "2501.13956"
+  note: "94.8% DMR; P95 300ms; bitemporal t_valid/t_invalid"
+
+zep2025temporal:
+  type: misc
+  title: "Zep: A Temporal Knowledge Graph Architecture for Agent Memory"
+  author: "Rasmussen, P."
+  date: 2025
+
+terminusdb:
+  type: misc
+  title: "TerminusDB: An Open Source Model Driven Graph Database for Knowledge Graph Representation"
+  author:
+    - "Mendel-Gleason, G."
+    - "others"
+  note: "Trinity College Dublin; Horizon 2020 ALIGNED project; owlapps 62518551"
+
+fluree:
+  type: misc
+  title: "Fluree: Semantic Graph Database with Immutable Ledger"
+  author: "Fluree"
+  date: 2017
+  note: "2017--; RDF + JSON-LD + SPARQL + SHACL; cryptographically chained updates"
+
+kuhn2014trustyuris:
+  type: article
+  title: "Trusty URIs: Verifiable, Immutable, and Permanent Digital Artifacts for Linked Data"
+  author:
+    - "Kuhn, T."
+    - "Dumontier, M."
+  date: 2014
+  parent:
+    type: proceedings
+    title: "ESWC 2014"
+
+nanopubs2025knowledgeprov:
+  type: article
+  title: "Nanopublications with Knowledge Provenance"
+  author: "Nanopublications Working Group"
+  date: 2025
+  publisher: Springer
+  parent:
+    type: periodical
+    title: "International Journal on Digital Libraries"
+  serial-number:
+    doi: "10.1007/s00799-025-00431-x"
+
+moreau2013provdm:
+  type: misc
+  title: "PROV-DM: The PROV Data Model"
+  author:
+    - "Moreau, L."
+    - "Missier, P."
+  date: 2013
+  publisher: "W3C"
+  note: "W3C Recommendation; OpenCitations tracks 2B+ citations using PROV-O"
+
+provagent2025:
+  type: article
+  title: "PROV-AGENT: A Provenance Framework for AI Agent Workflows"
+  author:
+    - "Souza, R."
+    - "others"
+  date: 2025
+  parent:
+    type: proceedings
+    title: "IEEE e-Science 2025"
+  serial-number:
+    arxiv: "2508.02866"
+
+quitstore:
+  type: article
+  title: "Quit Store: Git-backed SPARQL 1.1 Endpoint with PROV-O"
+  author: "AKSW Leipzig"
+  note: "ScienceDirect S1570826818300416; CEUR-WS Vol-1824 mepdaw_paper_2.pdf"
+
+bluebrain2023nexus:
+  type: article
+  title: "Blue Brain Nexus: A Knowledge Graph for Data-Driven Science"
+  author: "EPFL Blue Brain Project"
+  date: 2023
+  parent:
+    type: periodical
+    title: "Semantic Web Journal"
+  note: "ResearchGate 330751750"
+
+chekol2018bitemporal:
+  type: article
+  title: "Bitemporal Knowledge Graphs: Gap Identification"
+  author:
+    - "Chekol, M. W."
+    - "others"
+  date: 2018
+  parent:
+    type: proceedings
+    title: "Proceedings"
+  serial-number:
+    doi: "10.1145/3184558.3191637"
+
+aeong2025:
+  type: article
+  title: "AeonG: A Bitemporal Property Graph with Explicit Timestamps"
+  author:
+    - "Anselma, L."
+    - "others"
+  date: 2025
+  parent:
+    type: proceedings
+    title: "ADBIS 2025"
+  serial-number:
+    doi: "10.1007/978-3-032-05281-0_15"
+  note: "9.74% performance overhead"
+
+bitrdf2025:
+  type: article
+  title: "BiTRDF: Bitemporal Extension of RDF"
+  author: "BiTRDF authors"
+  date: 2025
+  parent:
+    type: periodical
+    title: "Mathematics (MDPI)"
+  note: "MDPI 2227-7390/13/13/2109"
+
+ostrich2018:
+  type: article
+  title: "OSTRICH: A Versioned RDF Triple Store"
+  author:
+    - "Taelman, R."
+    - "others"
+  date: 2018
+  parent:
+    type: periodical
+    title: "Journal of Web Semantics"
+  note: "ScienceDirect S1570826818300404"
+
+telicentcore:
+  type: misc
+  title: "CORE: Event-Driven Knowledge Graph Platform"
+  author: "Telicent"
+  note: "telicent.io/news/event-driven-knowledge-graphs; Kafka-backed RDF"
+
+tmforumatomic:
+  type: misc
+  title: "Atomic Events Model"
+  author: "TMForum"
+  note: "Append-only EAV events with timestamps"
+
+balog2019pkg:
+  type: article
+  title: "Personal Knowledge Graphs: A Research Agenda"
+  author: "Balog, K."
+  date: 2019
+  parent:
+    type: proceedings
+    title: "ICTIR 2019"
+
+pkgecosystem2024:
+  type: article
+  title: "An Ecosystem for Personal Knowledge Graphs"
+  author: "PKG Ecosystem authors"
+  date: 2024
+  parent:
+    type: periodical
+    title: "ScienceDirect"
+  note: "S2666651024000044"
+
+pkgapi2024:
+  type: article
+  title: "PKG API: An RDF-Based Personal Knowledge Graph Vocabulary with Provenance and Access Rights"
+  author: "PKG API authors"
+  date: 2024
+  parent:
+    type: proceedings
+    title: "WWW Companion 2024"
+  serial-number:
+    doi: "10.1145/3589335.3651247"
+
+reproduceme2022:
+  type: misc
+  title: "REPRODUCE-ME Ontology"
+  author: "REPRODUCE-ME authors"
+  date: 2022
+
+kpp2025:
+  type: misc
+  title: "Knowledge Provenance Protocol (KPP)"
+  author: "Knowledge Provenance Protocol working group"
+  date: 2025
+  note: "SEC.gov/files/ctf-written-input-knowledge-provenance-protocol-kpp"
+
+iclr2026memagents:
+  type: article
+  title: "ICLR 2026 Workshop on Memory for LLM-Based Agentic Systems"
+  author: "ICLR 2026 MemAgents Workshop"
+  date: 2026
+  serial-number:
+    arxiv: "2603.10062"
+  note: "OpenReview U51WxL382H"
+
+edge2024graphrag:
+  type: article
+  title: "From Local to Global: A Graph RAG Approach to Query-Focused Summarization"
+  author:
+    - "Edge, D."
+    - "others"
+  date: 2024-04
+  note: "Microsoft Research foundational GraphRAG paper; Leiden community detection"
+
+driftsearch2024:
+  type: web
+  title: "DRIFT Search: Iterative Refinement over Graph RAG"
+  author: "Microsoft Research"
+  date: 2024-10
+  url: https://www.microsoft.com/en-us/research/blog/introducing-drift-search
+
+lazygraphrag2024:
+  type: web
+  title: "LazyGraphRAG"
+  author: "Microsoft Research"
+  date: 2024-11
+  note: "0.1% of full GraphRAG indexing cost via NLP extraction"
+
+microsoftgraphrag2024:
+  type: web
+  title: "GraphRAG: Unlocking LLM Discovery on Narrative Private Data"
+  author: "Microsoft Research"
+  date: 2024
+  url: https://www.microsoft.com/en-us/research/blog/graphrag-unlocking-llm-discovery-on-narrative-private-data
+  note: "Community summaries regenerated rather than appended"
+
+lightrag2025:
+  type: article
+  title: "LightRAG: Simple and Fast Retrieval-Augmented Generation"
+  author: "LightRAG authors"
+  date: 2025
+  url: https://lightrag.github.io
+  parent:
+    type: proceedings
+    title: "EMNLP 2025"
+
+edc2024:
+  type: misc
+  title: "EDC Framework: Extract-Define-Canonicalize"
+  author:
+    - "Zhang"
+    - "Soh"
+  date: 2024
+
+itext2kg2025:
+  type: misc
+  title: "iText2KG / ATOM: Dual-Time Knowledge Graph Construction"
+  author: "AuvaLab"
+  date: 2025
+  url: https://github.com/AuvaLab/itext2kg
+
+collaborativememory2025:
+  type: article
+  title: "Collaborative Memory for Multi-Agent Systems"
+  author: "Collaborative Memory authors"
+  date: 2025
+  serial-number:
+    arxiv: "2505.18279"
+
+bedrockagentcore2025:
+  type: web
+  title: "Amazon Bedrock AgentCore: Long-Term Memory"
+  author: "Amazon Web Services"
+  date: 2025
+  url: https://aws.amazon.com/blogs/machine-learning/building-smarter-ai-agents-agentcore-long-term-memory-deep-dive
+  note: "Marks outdated memories INVALID instead of deleting"
+
+shapiro2011crdt:
+  type: article
+  title: "Conflict-Free Replicated Data Types"
+  author:
+    - "Shapiro, M."
+    - "Preguiça, N."
+    - "Baquero, C."
+    - "Zawirski, M."
+  date: 2011
+  publisher: Springer
+  parent:
+    type: proceedings
+    title: "Proceedings of SSS 2011 (13th International Symposium on Stabilization, Safety, and Security of Distributed Systems)"
+  serial-number:
+    doi: "10.1007/978-3-642-24550-3_29"
+
+bftcrdtmerkle:
+  type: web
+  title: "Byzantine Fault Tolerant CRDTs with Merkle-DAGs"
+  author: "Zhao, J."
+  url: https://jzhao.xyz/thoughts/CRDT
+  note: "Merkle-DAGs structurally identical to content-addressed provenance graphs"
+
+ipfs:
+  type: misc
+  title: "IPFS / IPLD: InterPlanetary File System and Linked Data"
+  author: "Protocol Labs"
+  note: "Content-addressable DAG substrate"
+
+nubankdatomic:
+  type: misc
+  title: "Datomic for Microservice Dependency Graphs"
+  author: "Nubank Engineering"
+  note: "Coined 'immutable knowledge databases' vernacular"
+
+ispe2026contentaddress:
+  type: web
+  title: "Content-Addressable Storage for AI Knowledge Management"
+  author: "ISPE"
+  date: 2026-01
+  note: "Predicts AI copilots with built-in provenance citing CIDs"
+
+osi2026:
+  type: misc
+  title: "Open Semantic Interchange (OSI) Specification"
+  author: "Open Semantic Interchange consortium"
+  date: 2026-01
+  note: "Supported by 40+ companies (Snowflake, Salesforce, Databricks)"
+
+frontiers2025kgllm:
+  type: article
+  title: "Knowledge Graph-LLM Fusion: A Survey"
+  author: "Frontiers authors"
+  date: 2025
+  parent:
+    type: periodical
+    title: "Frontiers in Computer Science"
+  note: "Identifies 'unclear knowledge provenance' as a key challenge"
+
+wu2025longmemeval:
+  type: article
+  title: "LongMemEval: Benchmarking Chat Assistants on Long-Term Interactive Memory"
+  author:
+    - "Wu, Di"
+    - "Wang, Hongwei"
+    - "Yu, Wenhan"
+    - "Zhang, Yuwei"
+    - "Chang, Kai-Wei"
+    - "Yu, Dong"
+  date: 2025
+  parent:
+    type: proceedings
+    title: "ICLR 2025"
+  serial-number:
+    arxiv: "2410.10813v2"
+  url: https://github.com/xiaowu0162/LongMemEval
+  note: "500 manually curated questions; five core memory abilities (IE/MR/KU/TR/ABS); LongMemEval_S ~115k tokens, LongMemEval_M ~1.5M tokens; 30-60% accuracy drop for long-context LLMs"
