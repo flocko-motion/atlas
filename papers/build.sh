@@ -10,7 +10,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
-OUTPUT_DIR="bin"
+OUTPUT_DIR="pdf"
 mkdir -p "$OUTPUT_DIR"
 
 if ! command -v typst >/dev/null 2>&1; then

@@ -41,7 +41,7 @@ invariants.
 //
 //   Formalization (objects + construction rules):
 //   = Nodes                        (id, type, content, created_at, contributor_id, edges, fields_0..n)
-//   = Edges                        (parent, target, class, type, fields_0..n)
+//   = Edges                        (target, class, type, content, direction, fields_0..n)
 //   = Node Creation is Atomic
 //   = Hash Function Agnosticism
 //
@@ -71,18 +71,20 @@ The first is a claim about the world. The second adds an attribution.
 The third is an observation of existence --- a file is present, with 
 the stated bytes, metadata and content.
 
-Most databases store at the first layer. They hold facts about the world
-and rely on their callers to have applied sound epistemology before
-submitting data. When facts change, or sources disagree, the database is
-edited to align; its earlier states, and the disagreement itself, are
-discarded. In database discipline this is called _destructive
-consolidation_ or _last-write-wins_; it is usually filed under _data
-cleaning_, and treated as maintenance rather than loss.
+Storing at the first layer is the classic goal of database design.
+Schemas, integrity constraints, and transactions are built to maintain
+a consistent model of the world; the caller is expected to have
+applied sound epistemology before writing data. When facts change, or
+sources disagree, the database is edited to align; its earlier states,
+and the disagreement itself, are discarded. In database discipline
+this is called _destructive consolidation_ or _last-write-wins_; it is
+usually filed under _data cleaning_, and treated as consistency rather
+than loss.
 
-This is the ordinary condition of the enterprise data store, and works so
-long as the caller supplies correct facts.
+This is the ordinary condition of the enterprise data store, and works
+so long as the caller supplies correct facts.
 
-The Ranke graph takes the opposite stance. It stores only at the third
+The Ranke graph is designed for the opposite stance. It stores only at the third
 layer. Every node is an observation-of-existence: this artifact, with
 these bytes, this attribution, added to the graph at this moment.
 The graph does not record whether Alice likes apples, or whether she
@@ -101,6 +103,11 @@ every input that contributed to them. Derivations --- extracts,
 summaries, conclusions --- are constructed on top of the graph by its
 contributors, with their own stake and context.
 
+The Ranke graph is not a pure graph-theoretic construction; it is a
+structure shaped by a purpose. Without that purpose --- preserving
+attributed claims without climbing the epistemic ladder --- the
+features that follow would be arbitrary.
+
 This paper defines the Ranke graph as an abstract data type --- the
 minimum contract an implementation must satisfy. A reference
 implementation will be the subject of a follow up paper.
@@ -109,18 +116,19 @@ implementation will be the subject of a follow up paper.
 
 == The Archival Tradition
 
-RankeDB (pronounced _run-keh_ DB) is named after Leopold von Ranke
-(1795--1886), the historian who transformed his discipline by insisting that
-every historical claim must trace back to a critically examined primary
-source. Ranke's famous phrase --- history _"wie es eigentlich gewesen"_, "as
-it actually was" --- has since been rightly criticized for assuming unmediated
-access to past reality. RankeDB takes that criticism as foundational: the
-primary data point is never _"how it was"_ but the artifact 
-that reports, claims, or interprets it --- an email, a photo, a
-voicemail, a document. What RankeDB stores is always someone's utterance about
-the world, never the world itself. What survives from Ranke's method, intact,
-is the discipline of attribution: nothing is asserted without its derivation,
-and nothing is derived without its sources.
+The Ranke graph takes its name from Leopold von Ranke (1795--1886),
+the historian who transformed his discipline by insisting that every
+historical claim must trace back to a critically examined primary
+source. Ranke's famous phrase --- history _"wie es eigentlich gewesen"_,
+"as it actually was" --- has since been rightly criticized for assuming
+unmediated access to past reality. The data type is built on that
+criticism: the primary data point is never _"how it was"_ but the
+artifact that reports, claims, or interprets it --- an email, a
+photo, an audio recoding, a document. What a Ranke graph stores is always
+someone's utterance about the world, never the world itself. What
+survives from Ranke's method, intact, is the discipline of
+attribution: nothing is asserted without its derivation, and nothing
+is derived without linking back to its sources.
 
 == The CS Priority That Was Never Operationalized
 
@@ -144,17 +152,17 @@ queryable knowledge.
 
 - *Provenance* = attribution (who said what, when, on what basis). Solvable by construction.
 - *Consensus* = social agreement on what to trust. Human process, not database architecture.
-- RankeDB handles provenance. Consensus is downstream, built by contributors on top.
+- The Ranke graph handles provenance. Consensus is downstream, built by contributors on top.
 
 == Bounded scope: personal to small-enterprise
 
 - At bounded scale, trust is pre-established, ontology is finite, adversarial
   resistance is simple.
-- RankeDB does not aim for Wikipedia-scale global consensus.
+- The Ranke graph does not aim for Wikipedia-scale global consensus.
 
 == Thesis
 
-*RankeDB stores attributed claims; common truth is what contributors build on top when
+*The Ranke graph stores attributed claims; common truth is what contributors build on top when
 they want it.*
 
 = Core Properties
@@ -166,7 +174,7 @@ inputs to the sources it was derived from.
 
 == Everything Is Knowledge
 
-RankeDB makes no distinction between data, metadata, and provenance. Every
+The Ranke graph makes no distinction between data, metadata, and provenance. Every
 claim made _about_ the graph is itself a node in the graph, with its own
 provenance:
 
@@ -186,7 +194,7 @@ From this ontological flatness follows a structural claim. If every claim is
 a node with provenance, then what is the _primary_ content of the system?
 In conventional knowledge graphs, claims are primary and provenance is an
 annotation layer bolted on top --- an afterthought that explains where
-things came from. RankeDB rejects this split.
+things came from. No such split exists in the Ranke graph.
 
 *Provenance is not an annotation on the knowledge --- it _is_ the knowledge.*
 Every derivation, every thought, every projected fact is itself a node in
@@ -196,7 +204,7 @@ knowledge and its derivation are stored together.
 
 This inversion has concrete operational consequences: operations that would
 require complex graph surgery in a conventional system become simple view
-operations in RankeDB. Reprocessing sources with better tools produces new
+operations in the Ranke graph. Reprocessing sources with better tools produces new
 nodes alongside old ones --- no migration required. Filtering out results
 from an obsolete contributor is a query parameter, not a data operation.
 Evaluating competing interpretations of the same source is a traversal, not
@@ -204,7 +212,7 @@ a diff between snapshots.
 
 == Immutability and Accumulation
 
-RankeDB is strictly append-only. No node or edge is ever modified or deleted
+The Ranke graph is strictly append-only. No node or edge is ever modified or deleted
 through runtime operations. When new information contradicts existing
 knowledge, the contradiction is represented as a new node --- not as an
 update to the old one. Both coexist in the graph, each with full provenance.
@@ -216,8 +224,8 @@ strictly less knowledge than the contradictory one it replaced.*
 This design is a deliberate bet on the trajectory of language model context
 windows. Systems that destructively consolidate today --- merging entity
 summaries, deduplicating facts, compacting histories --- optimize for
-current retrieval efficiency at the cost of inferential depth. RankeDB
-optimizes for a future in which a model able to traverse the full
+current retrieval efficiency at the cost of inferential depth. The Ranke graph
+is built for a future in which a model able to traverse the full
 derivation history of a belief as needed --- contradictions, revisions,
 and competing interpretations --- may produce better reasoning than one
 given only a consolidated summary.
@@ -228,7 +236,6 @@ A node is the unit of knowledge in the graph. The minimal definition:
 
 ```
 node = {
-  id:             H(type || content || edges || created_at || contributor_id || fields_0 || ... || fields_n),
   type:           string,
   content:        bytes,
   created_at:     timestamp,
@@ -240,25 +247,34 @@ node = {
 
 TODO: contributor_id has a chicken-egg-problem... we need a root contributor that seeds the DB
 
+A node's identity is the cryptographic hash of its record:
+
+$ op("id")(v) := H(op("type")(v) || op("content")(v) 
+  || op("id")(e_1) || ... || op("id")(e_n) \
+  || op("created_at")(v) || op("contributor_id")(v) 
+  || op("fields")_0 (v) || ... || op("fields")_n (v)) $
+
+where $e_1, ..., e_n$ are the edges created with $v$ (§ Edges). Two
+nodes with identical content but different provenance --- different
+edges, different contributor, or different extension fields --- produce
+different ids and are therefore distinct nodes.
+
 - `type` is a plain string; the ADT prescribes no vocabulary.
-- `content` is opaque bytes. Interpretation is the concern of contributors,
-  not the ADT.
+- `content` is opaque bytes. Interpretation is the concern of
+  contributors, not the ADT.
 - `fields_0..n` is a placeholder for any number of additional fields.
-  Every field is hashed into `id` along with the rest of the record;
-  the Merkle property (§ Merkle integrity) applies to all fields, not
-  just the ones named here.
-- `id` is derived from the full record, so two nodes with identical content
-  but different provenance (different edges, different contributor, different
-  extension fields) are distinct nodes.
+  Every field participates in $op("id")(v)$; the Merkle property
+  (§ Merkle integrity) applies to all fields, not just the ones named
+  here.
 
 = Edges
 
-Every edge belongs to exactly one node: the node that created it (its parent).
+An edge belongs to exactly one node: the node that contains its id in
+its `edges` set. We call that node the edge's _parent_; the parent is
+recoverable by traversal, not stored in the edge itself.
 
 ```
 edge = {
-  id:          H(parent || target || class || type || content || direction || fields_0 || ... || fields_n),
-  parent:      hash_of_creating_node,
   target:      hash_of_target_node,
   class:       provenance | semantic,
   type:        kind of relation (e.g. "family", "derivation", "ownership"),
@@ -268,36 +284,43 @@ edge = {
 }
 ```
 
-The `parent` field is always the node that created the edge --- only
-new nodes can add edges, so the edge's structural parent is fixed at
-creation time. The `direction` field is independent of this: it records
-which way the _semantic_ arrow of the edge points between `parent` and
-`target`. Without this decoupling the ADT could not express, for
-example, that an older node stands in a relation to a newer one: the
-older node cannot create the edge (it already existed), so the newer
-node must --- but the semantic relation may still read as "older →
-newer."
+An edge's identity is the cryptographic hash of its record:
 
-The split between `type` and `content` is the same as for nodes: `type`
-classifies (what _kind_ of relation this is), `content` carries the
-specific assertion.
+$ op("id")(e) := H(op("target")(e) || op("class")(e) \
+  || op("type")(e) || op("content")(e) || op("direction")(e) \
+  || op("fields")_0 (e) || ... || op("fields")_n (e)) $
 
-- *Provenance edge (class = provenance):* parent was derived from
-  target. `direction` is always `target_to_parent` --- derivation flows
-  from the earlier node into the one that cites it. Acyclic by
+Omitting the parent from the record is not cosmetic: if parent were a
+field, $op("id")(e)$ would depend on $op("id")(v)$, which in turn
+depends on $op("id")(e)$ through the node's `edges` set, and no
+consistent identity assignment would exist. Keeping the parent
+implicit resolves the recursion.
+
+The `direction` field records which way the _semantic_ arrow of the
+edge points between its (implicit) parent and its `target`. Without
+it, the ADT could not express, for example, that an older node stands
+in a relation to a newer one: the older node cannot create the edge
+(it already existed), so the newer node must --- but the semantic
+relation may still read as "older → newer."
+
+The split between `type` and `content` is the same as for nodes:
+`type` classifies (what _kind_ of relation this is), `content` carries
+the specific assertion.
+
+- *Provenance edge (class = provenance):* the parent was derived from
+  target. `direction` is always `target_to_parent` --- derivation
+  flows from the earlier node into the one that cites it. Acyclic by
   construction (§ DAG property under circular semantics).
-- *Semantic edge (class = semantic):* parent asserts something about
-  target. `direction` may be either way. `type` classifies the
-  relation, `content` carries the specific assertion, `direction` tells
-  the reader how to read it.
+- *Semantic edge (class = semantic):* the parent asserts something
+  about target. `direction` may be either way. `type` classifies the
+  relation, `content` carries the specific assertion, `direction`
+  tells the reader how to read it.
 - `fields_0..n` is a placeholder for any number of additional fields
-  the edge can carry. Every field participates in the edge's `id`
-  through `H(...)`.
+  the edge can carry. Every field participates in $op("id")(e)$.
 
-The edge's `id` is the hash of its record. A node carries the ids of
-its edges in its own record, which makes those ids part of the node's
-hash (§ Merkle integrity); edges are therefore Merkle-secured through
-the parent node that created them.
+A node carries the ids of its edges in its own record, which makes
+those ids part of the node's id (§ Merkle integrity); edges are
+therefore Merkle-secured through the parent node that created them.
 
 The `class` field separates the provenance subgraph (acyclic,
 Merkle-secured) from the semantic subgraph (potentially cyclic,
@@ -334,10 +357,11 @@ publishing hash digests in the New York Times.
 
 == DAG property under circular semantics
 
-Let $G = (V, E_"prov" union E_"sem")$ be the graph, where edges are partitioned
-by the `class` field into provenance-class and semantic-class edges. Every edge
-$e$ has a parent (the node that created it) and a target (the node it points
-to). Edges are created atomically with their parent node.
+Let $G = (V, E_"prov" union E_"sem")$ be the graph, where edges are
+partitioned by the `class` field into provenance-class and
+semantic-class edges. Every edge $e$ has a target (a node it points
+at) and an implicit parent (the node whose `edges` set contains
+$op("id")(e)$). Edges are created atomically with their parent node.
 
 - *Provenance edge (class = provenance):* "my parent was derived from target."
 - *Semantic edge (class = semantic):* "my parent asserts something about target."
@@ -346,11 +370,11 @@ Define the provenance subgraph $G_p = (V, E_"prov")$.
 
 *Theorem.* $G_p$ is acyclic.
 
-*Proof.* Every node $v$ has a creation time $t(v)$. Provenance edges can only
-target nodes that existed before $v$ was created: for every edge $(u, v) in E_"prov"$
-where $v$ is the parent, $t(op("target")(e)) < t(v)$. This establishes a strict
-partial order on $V$ by creation time. A strict partial order admits no cycles.
-#h(1fr) $qed$
+*Proof.* Every node $v$ has a creation time $t(v)$. Provenance edges
+can only target nodes that existed before $v$ was created: for every
+edge $e in E_"prov"$ with parent $v$, $t(op("target")(e)) < t(v)$.
+This establishes a strict partial order on $V$ by creation time. A
+strict partial order admits no cycles. #h(1fr) $qed$
 
 Semantic edges are not subject to this constraint --- they can target any existing
 node, including "older" neighbors. Therefore $G$ may contain cycles (through
@@ -366,10 +390,15 @@ provenance subgraph remains acyclic.
 Every ID in the system is a cryptographic hash $H$.
 
 Edge hash:
-$ h(e) = H(op("parent")(e) || op("target")(e) || op("class")(e) || op("type")(e) || op("content")(e) || op("direction")(e) || op("fields")_0 (e) || ... || op("fields")_n (e)) $
+$ h(e) = H(op("target")(e) || op("class")(e) \
+  || op("type")(e) || op("content")(e) || op("direction")(e) \
+  || op("fields")_0 (e) || ... || op("fields")_n (e)) $
 
 Node hash:
-$ h(v) = H(op("type")(v) || op("content")(v) || h(e_1) || ... || h(e_n) || op("created_at")(v) || op("contributor_id")(v) || op("fields")_0 (v) || ... || op("fields")_n (v)) $
+$ h(v) = H(op("type")(v) || op("content")(v) \
+  || h(e_1) || ... || h(e_n) \
+  || op("created_at")(v) || op("contributor_id")(v) \
+  || op("fields")_0 (v) || ... || op("fields")_n (v)) $
 
 where $e_1, ..., e_n$ are all edges (provenance- and semantic-class) created
 with $v$, and $op("fields")_0, ..., op("fields")_n$ are the extension fields
