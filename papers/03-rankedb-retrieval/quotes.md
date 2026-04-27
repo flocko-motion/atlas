@@ -49,3 +49,26 @@
 *The structural primitive is there; the policy layer isn't. Being honest about that is a strength, not a weakness.*
 
 *Note: RankeDB's answer — citation verification agents as a mandatory stage in the worker chain. Every claim produced by an LLM worker must be counter-checked by a follow-up verifier before it becomes a fact node with full provenance. This is slower than trusting the LLM's output directly. RankeDB accepts the latency cost under the bet that (a) model latency will keep improving and (b) correctness will win the race against speed-first architectures that skip verification.*
+
+---
+
+## ASPIC+ Framework (Modgil & Prakken, 2013)
+
+*Reference: "The ASPIC+ framework for structured argumentation: a tutorial." Argument & Computation, 2014. Modgil (King's College London) & Prakken (Utrecht/Groningen).*
+
+*Note: primarily relevant for P2 (worker design) and P3 (verification stage). ASPIC+ is a framework for formalizing argumentation structure — it could inform how challenge workers are designed.*
+
+ASPIC+ formalizes three attack types on arguments:
+
+1. **Undermining** — attack on uncertain premises ("your source is unreliable")
+2. **Undercutting** — attack on defeasible inference ("this doesn't follow from that source")
+3. **Rebutting** — attack on conclusion ("another claim contradicts this")
+
+Maps to RankeDB challenge agents:
+- Undermining → verify provenance chain (does the source exist? was it correctly interpreted?)
+- Undercutting → verify the worker step (is the derivation logically sound?)
+- Rebutting → `observation/contradiction` nodes in the graph
+
+The strict/defeasible rule distinction maps to conviction: deterministic workers produce high-conviction nodes (strict inference), LLM workers produce low-conviction nodes (defeasible inference) that are challengeable.
+
+ASPIC+ formalizes the argumentation rules; RankeDB stores the arguments and their attacks as nodes with provenance. A challenge agent *could* use ASPIC+ as its internal logic. The two are complementary — ASPIC+ is the theory, RankeDB is the substrate.
