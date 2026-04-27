@@ -218,3 +218,39 @@ RankeDB was not derived from a literature survey. It emerged from first-principl
 The literature research came after the architecture, and confirmed rather than shaped it: the design independently addresses gaps that five research communities (KG engineering, LLM/AI provenance, scientific reproducibility, enterprise AI governance, content addressability) have identified from different angles — none proposing the integrated solution.
 
 P0 should be honest about this: "this architecture was derived from first principles, and we subsequently discovered that the resulting design addresses gaps independently identified by multiple research communities." That is a stronger claim than "we surveyed the literature and found a gap." It means the design is grounded in a real problem, not in an academic exercise.
+
+---
+
+## Use Cases
+
+### Personal Knowledge Graph
+
+The original motivation. What would the perfect notebook look like? A system that captures everything — emails, chats, photos, documents, voice memos — preserves full context and attribution, and lets you traverse from a semantic insight back to the raw source that produced it. RankeDB emerged from this question.
+
+### Business Compliance (Security Provenance)
+
+Compliance is inherently subjective. It is never "is the system secure?" (objective truth, unreachable) but always "who attested that it is secure, when, with what method, on what basis?" This is a chain of attestations:
+
+```
+Employee X attested ISO conformity
+  ← based on Scan Y (Tool Z, Version 3.2, Ruleset R)
+    ← based on Codebase Snapshot S (Hash H, Date D)
+      ← reviewed by AI Agent A (Model M, Prompt P)
+        ← challenged by Agent B (confirmed 47/50 claims)
+```
+
+Every step is a subjective statement with provenance. No step claims objective security. Together they prove that a *process* was followed — and that is exactly what compliance demands.
+
+An auditor does not ask "is it secure?" but "can you demonstrate that you followed your process?" RankeDB's answer: the graph *is* the demonstration. Traverse it.
+
+This is also why the provenance/consensus separation fits so well. Compliance is not a consensus problem (nobody votes on whether it is secure). It is an attestation problem — and attestation is pure provenance.
+
+### Why both use cases validate the architecture
+
+Both use cases are subjective by nature:
+- **Personal graph:** "what did Lisa say in her email?" — not "what is objectively true about Lisa."
+- **Compliance:** "who attested what, when, with what method?" — not "is the system objectively secure."
+
+Both are bounded scope (one person's archive; one company's audit trail). Both require full provenance chains. Both benefit from the Merkle-DAG (manipulation-proofing for compliance; integrity verification for personal). Neither needs global ontology or consensus.
+
+This confirms why RDF/SPARQL/SHACL is the wrong stack: RDF assumes objectivity as default and treats subjectivity as a workaround (reification). RankeDB assumes subjectivity as default and treats objectivity as an emergent property (consensus workers, conviction scoring). The epistemological stance matches the use cases.
