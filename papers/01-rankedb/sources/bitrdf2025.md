@@ -26,4 +26,5 @@ Adds both temporal dimensions to RDF; §6.6.6.
 
 ## Notes
 
+200 pages dissertation 
 <!-- reading notes go here -->
