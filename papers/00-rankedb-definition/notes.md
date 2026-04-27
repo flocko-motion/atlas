@@ -208,3 +208,13 @@ MIME-style: `text/eml`, `image/png`, `audio/wav`, `application/pdf`.
 | **P2** | Workers | Pipeline, dispatch, reactive/analytical, claim decomposition |
 | **P3** | Retrieval | Memory agents, verification gate, conviction, user confirmation |
 | **P4** | Chat Frontend | Stacker, multi-agent coordination, user interface |
+
+---
+
+## Origin note
+
+RankeDB was not derived from a literature survey. It emerged from first-principles thinking about what a perfect notebook would look like — how personal knowledge should be captured, preserved, and retrieved if you could design the system from scratch without legacy constraints. Provenance-first was not a design goal but a consequence: once you commit to preserving everything with full attribution, provenance becomes the substrate by construction.
+
+The literature research came after the architecture, and confirmed rather than shaped it: the design independently addresses gaps that five research communities (KG engineering, LLM/AI provenance, scientific reproducibility, enterprise AI governance, content addressability) have identified from different angles — none proposing the integrated solution.
+
+P0 should be honest about this: "this architecture was derived from first principles, and we subsequently discovered that the resulting design addresses gaps independently identified by multiple research communities." That is a stronger claim than "we surveyed the literature and found a gap." It means the design is grounded in a real problem, not in an academic exercise.
