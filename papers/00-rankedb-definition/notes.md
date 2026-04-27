@@ -253,4 +253,27 @@ Both use cases are subjective by nature:
 
 Both are bounded scope (one person's archive; one company's audit trail). Both require full provenance chains. Both benefit from the Merkle-DAG (manipulation-proofing for compliance; integrity verification for personal). Neither needs global ontology or consensus.
 
-This confirms why RDF/SPARQL/SHACL is the wrong stack: RDF assumes objectivity as default and treats subjectivity as a workaround (reification). RankeDB assumes subjectivity as default and treats objectivity as an emergent property (consensus workers, conviction scoring). The epistemological stance matches the use cases.
+### Legal Work
+
+Legal work is pure attestation and argumentation:
+
+- **Chain of evidence:** Exhibit X submitted by Party Y, witnessed by Z, on Date D. Every exhibit is a source node with provenance. The chain is the case.
+- **Argumentation:** Attorney A claims Conclusion S based on Exhibits B1, B2, B3 — an L1 node with inputs. Opposing counsel claims the opposite based on B2, B4. Both arguments coexist in the graph. Contradiction is the normal state of litigation.
+- **Case law as provenance:** "According to BGH ruling of 12.3.2019 (Az. XII ZR 123/17)..." — an attestation based on another attestation. Legal citation is a provenance chain.
+- **Client file:** everything the client said, every document, every email, every note from a meeting. `source/conversation` nodes. Who said what when — RankeDB's core question.
+- **Temporal validity:** statutes take effect on Date X, deadlines expire on Date Y. `valid_from`, `valid_until` on L2 edges is everyday legal reality.
+- **Auth scoping is legally essential:** attorney-client privilege, file access rights, privileged communication. Who may see what is a central structural feature, not a side concern.
+
+Note: ASPIC+ (the argumentation framework) comes from the legal tradition — Prakken is at the Law Faculty of Groningen. Not a coincidence.
+
+### The pattern across all use cases
+
+| Use Case | Core question | Subjectivity |
+|---|---|---|
+| Personal | What did Lisa say? | Perspective of one person |
+| Compliance | Who attested what? | Perspective of a process |
+| Legal | Who claims what on what basis? | Perspective of a party |
+
+**RankeDB lives in subjectivity.** Not hard facts, not objective truth — attributed claims, attestations, perspectives. Every use case asks "who said what?" never "what is true?" Hard facts, if needed, emerge from corroboration, consensus workers, or conviction scoring — they are downstream products, not the substrate.
+
+This is the deepest reason why the RDF/SPARQL/SHACL stack does not fit: RDF assumes objectivity as default and treats subjectivity as a workaround (reification). RankeDB assumes subjectivity as default and treats objectivity as an emergent property. The epistemological stance matches the use cases.
