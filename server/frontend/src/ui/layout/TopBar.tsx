@@ -6,7 +6,7 @@
  */
 
 import { useAppStore } from '../../core/hooks';
-import { setViewMode, setLevelFilter } from '../../core/actions';
+import { setViewMode, setLevelFilter, setEmphasisMode, setDeemphasisTreatment, setToolMode } from '../../core/actions';
 import type { ViewMode } from '../../core/types/graph';
 import './TopBar.css';
 
@@ -16,6 +16,9 @@ export function TopBar() {
   const isConnected = useAppStore((s) => s.isConnected);
   const viewMode = useAppStore((s) => s.viewMode);
   const levels = useAppStore((s) => s.filters.levels);
+  const emphasisMode = useAppStore((s) => s.emphasisMode);
+  const deemphasisTreatment = useAppStore((s) => s.deemphasisTreatment);
+  const toolMode = useAppStore((s) => s.toolMode);
 
   const healthClass = isConnected
     ? 'topbar-health topbar-health--connected'
@@ -47,6 +50,48 @@ export function TopBar() {
             onClick={() => toggleLevel(level)}
           >
             L{level}
+          </button>
+        ))}
+      </div>
+
+      <div className="topbar-separator" />
+
+      <div className="topbar-views" title="Tool (space = temporary pan)">
+        {(['pan', 'select', 'drag'] as const).map((mode) => (
+          <button
+            key={mode}
+            className={toolMode === mode ? 'active' : ''}
+            onClick={() => setToolMode(mode)}
+          >
+            {mode.charAt(0).toUpperCase() + mode.slice(1)}
+          </button>
+        ))}
+      </div>
+
+      <div className="topbar-separator" />
+
+      <div className="topbar-views">
+        {(['neighbors', 'provenance'] as const).map((mode) => (
+          <button
+            key={mode}
+            className={emphasisMode === mode ? 'active' : ''}
+            onClick={() => setEmphasisMode(mode)}
+          >
+            {mode.charAt(0).toUpperCase() + mode.slice(1)}
+          </button>
+        ))}
+      </div>
+
+      <div className="topbar-separator" />
+
+      <div className="topbar-views">
+        {(['dim', 'hide'] as const).map((mode) => (
+          <button
+            key={mode}
+            className={deemphasisTreatment === mode ? 'active' : ''}
+            onClick={() => setDeemphasisTreatment(mode)}
+          >
+            {mode.charAt(0).toUpperCase() + mode.slice(1)}
           </button>
         ))}
       </div>

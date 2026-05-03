@@ -57,7 +57,7 @@ nodes, err := client.Queue(ctx, rankedb.QueueParams{
 })
 ```
 
-By default, filters by the exact config ID from `StartRun` — sources already processed by this config are skipped. Override with `ByWorker` (skip if any config of that worker name processed it) or `ByClass` (skip if any derived node of that class exists) for coarser granularity.
+By default, filters by the exact config ID from `StartRun` — sources already processed by this config are skipped. Override with `ByWorker` (skip if any config of that worker name processed it) or `ByClass` (skip if any derived node of that class exists) for coarser granularity. Set `Reprocess: true` to bypass all filters and return every match — useful during development, replays, or to deliberately layer a second pass over already-processed sources. `Done` still creates its processed marker on a reprocess run (each run produces its own marker, which is itself a fact).
 
 ### 4. Process and write
 
@@ -137,6 +137,7 @@ The API enforces:
 | `source` | `conversation` | Email, chat, letter |
 | `source` | `media` | Photo, video, audio |
 | `source` | `record` | Sensor data, transactions |
+| `source` | `event` | Calendar entries (ICS), meeting invites, reservations |
 | `source` | `data` | Spreadsheets, exports |
 | `source` | `bulk` | Archive to be unpacked |
 | `source` | `worker-config` | Worker identity + config |

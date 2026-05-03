@@ -1,6 +1,6 @@
 /**
  * @layer ui
- * @description Filters panel with level, content class, date range, and confidence controls.
+ * @description Filters panel with level, content class/type, encoding, date, and confidence controls.
  * @depends core/hooks, core/actions
  * @must-not Contain business logic. Import from graph/.
  */
@@ -11,6 +11,9 @@ import { useAppStore } from '../../core/hooks';
 import {
   setLevelFilter,
   setContentClassFilter,
+  setContentTypeFilter,
+  setEncodingClassFilter,
+  setEncodingFormatFilter,
   setDateRange,
   setMinConfidence,
   temporalPosition,
@@ -23,17 +26,41 @@ const LEVEL_COLORS: Record<number, string> = {
   2: 'var(--l2-entity-color)',
 };
 
+// Group "class/value" keys by the class prefix for rendering.
+function groupByPrefix(keys: string[]): Map<string, string[]> {
+  const groups = new Map<string, string[]>();
+  for (const key of keys) {
+    const idx = key.indexOf('/');
+    const prefix = idx === -1 ? key : key.slice(0, idx);
+    const suffix = idx === -1 ? '' : key.slice(idx + 1);
+    if (!groups.has(prefix)) groups.set(prefix, []);
+    groups.get(prefix)!.push(suffix);
+  }
+  return groups;
+}
+
 export function FiltersPanel() {
   const filters = useAppStore((s) => s.filters);
   const nodes = useAppStore((s) => s.nodes);
 
-  // Collect all content classes from data
-  const allClasses = useMemo(() => {
+  // Enumerate all variants present in the current data
+  const { allClasses, contentTypeGroups, allEncodingClasses, encodingFormatGroups } = useMemo(() => {
     const classes = new Set<string>();
+    const types = new Set<string>();
+    const encClasses = new Set<string>();
+    const encFormats = new Set<string>();
     for (const n of nodes.values()) {
       classes.add(n.contentClass);
+      types.add(`${n.contentClass}/${n.contentType}`);
+      encClasses.add(n.encodingClass);
+      encFormats.add(`${n.encodingClass}/${n.encodingFormat}`);
     }
-    return Array.from(classes).sort();
+    return {
+      allClasses: Array.from(classes).sort(),
+      contentTypeGroups: groupByPrefix(Array.from(types).sort()),
+      allEncodingClasses: Array.from(encClasses).sort(),
+      encodingFormatGroups: groupByPrefix(Array.from(encFormats).sort()),
+    };
   }, [nodes]);
 
   // Count matching nodes
@@ -42,6 +69,11 @@ export function FiltersPanel() {
     for (const node of nodes.values()) {
       if (!filters.levels.has(node.level)) continue;
       if (filters.contentClasses.size > 0 && !filters.contentClasses.has(node.contentClass)) continue;
+      const ctKey = `${node.contentClass}/${node.contentType}`;
+      if (filters.contentTypes.size > 0 && !filters.contentTypes.has(ctKey)) continue;
+      if (filters.encodingClasses.size > 0 && !filters.encodingClasses.has(node.encodingClass)) continue;
+      const efKey = `${node.encodingClass}/${node.encodingFormat}`;
+      if (filters.encodingFormats.size > 0 && !filters.encodingFormats.has(efKey)) continue;
       if (filters.dateRange.from || filters.dateRange.to) {
         const d = temporalPosition(node);
         if (filters.dateRange.from && d < filters.dateRange.from) continue;
@@ -65,6 +97,47 @@ export function FiltersPanel() {
     if (next.has(cls)) next.delete(cls);
     else next.add(cls);
     setContentClassFilter(next);
+  };
+
+  const toggleContentType = (key: string) => {
+    const next = new Set(filters.contentTypes);
+    if (next.has(key)) next.delete(key);
+    else next.add(key);
+    setContentTypeFilter(next);
+  };
+
+  const setContentTypeGroup = (prefix: string, suffixes: string[], on: boolean) => {
+    const next = new Set(filters.contentTypes);
+    for (const s of suffixes) {
+      const key = s === '' ? prefix : `${prefix}/${s}`;
+      if (on) next.add(key);
+      else next.delete(key);
+    }
+    setContentTypeFilter(next);
+  };
+
+  const toggleEncodingClass = (cls: string) => {
+    const next = new Set(filters.encodingClasses);
+    if (next.has(cls)) next.delete(cls);
+    else next.add(cls);
+    setEncodingClassFilter(next);
+  };
+
+  const toggleEncodingFormat = (key: string) => {
+    const next = new Set(filters.encodingFormats);
+    if (next.has(key)) next.delete(key);
+    else next.add(key);
+    setEncodingFormatFilter(next);
+  };
+
+  const setEncodingFormatGroup = (prefix: string, suffixes: string[], on: boolean) => {
+    const next = new Set(filters.encodingFormats);
+    for (const s of suffixes) {
+      const key = s === '' ? prefix : `${prefix}/${s}`;
+      if (on) next.add(key);
+      else next.delete(key);
+    }
+    setEncodingFormatFilter(next);
   };
 
   return (
@@ -102,6 +175,95 @@ export function FiltersPanel() {
             </button>
           ))}
         </div>
+      </div>
+
+      <div className="filters-section">
+        <span className="filters-section-title">Content Type</span>
+        {Array.from(contentTypeGroups).map(([prefix, suffixes]) => (
+          <div key={prefix} className="filters-subgroup">
+            <div className="filters-subgroup-header">
+              <span className="filters-subgroup-label">{prefix}</span>
+              <button
+                className="filters-subgroup-btn"
+                onClick={() => setContentTypeGroup(prefix, suffixes, true)}
+              >
+                all
+              </button>
+              <button
+                className="filters-subgroup-btn"
+                onClick={() => setContentTypeGroup(prefix, suffixes, false)}
+              >
+                none
+              </button>
+            </div>
+            <div className="filters-classes">
+              {suffixes.map((s) => {
+                const key = s === '' ? prefix : `${prefix}/${s}`;
+                return (
+                  <button
+                    key={key}
+                    className={`filters-class-chip${filters.contentTypes.has(key) ? ' active' : ''}`}
+                    onClick={() => toggleContentType(key)}
+                  >
+                    {s || prefix}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="filters-section">
+        <span className="filters-section-title">Encoding Class</span>
+        <div className="filters-classes">
+          {allEncodingClasses.map((cls) => (
+            <button
+              key={cls}
+              className={`filters-class-chip${filters.encodingClasses.has(cls) ? ' active' : ''}`}
+              onClick={() => toggleEncodingClass(cls)}
+            >
+              {cls}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="filters-section">
+        <span className="filters-section-title">Encoding Format</span>
+        {Array.from(encodingFormatGroups).map(([prefix, suffixes]) => (
+          <div key={prefix} className="filters-subgroup">
+            <div className="filters-subgroup-header">
+              <span className="filters-subgroup-label">{prefix}</span>
+              <button
+                className="filters-subgroup-btn"
+                onClick={() => setEncodingFormatGroup(prefix, suffixes, true)}
+              >
+                all
+              </button>
+              <button
+                className="filters-subgroup-btn"
+                onClick={() => setEncodingFormatGroup(prefix, suffixes, false)}
+              >
+                none
+              </button>
+            </div>
+            <div className="filters-classes">
+              {suffixes.map((s) => {
+                const key = s === '' ? prefix : `${prefix}/${s}`;
+                return (
+                  <button
+                    key={key}
+                    className={`filters-class-chip${filters.encodingFormats.has(key) ? ' active' : ''}`}
+                    onClick={() => toggleEncodingFormat(key)}
+                  >
+                    {s || prefix}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        ))}
       </div>
 
       <div className="filters-section">

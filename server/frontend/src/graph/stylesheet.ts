@@ -58,12 +58,22 @@ export const graphStylesheet: any[] = [
       'opacity': 0.6,
     },
   },
-  // Selected
+  // Selected — nodes
   {
-    selector: ':selected',
+    selector: 'node:selected',
     style: {
       'border-width': 3,
       'border-color': '#ef4444',
+    },
+  },
+  // Selected — edges
+  {
+    selector: 'edge:selected',
+    style: {
+      'line-color': '#ef4444',
+      'target-arrow-color': '#ef4444',
+      'width': 3,
+      'z-index': 10,
     },
   },
   // Edges — base
@@ -106,17 +116,39 @@ export const graphStylesheet: any[] = [
       'target-arrow-shape': 'none',
     },
   },
-  // Dimmed (run preview)
+  // Invisible — hide treatment or user hide (keeps layout position stable)
   {
-    selector: 'node[dimmed="yes"]',
+    selector: '[invisible="yes"]',
+    style: {
+      'display': 'none',
+    },
+  },
+  // Emphasis — dimmed (de-emphasis)
+  {
+    selector: 'node[emphasis="dimmed"]',
     style: {
       'opacity': 0.15,
     },
   },
   {
-    selector: 'edge[dimmed="yes"]',
+    selector: 'edge[emphasis="dimmed"]',
     style: {
       'opacity': 0.08,
+    },
+  },
+  // Emphasis — highlighted (amber overlay, leaves :selected red dominant)
+  {
+    selector: 'node[emphasis="highlighted"]',
+    style: {
+      'overlay-color': '#fbbf24',
+      'overlay-opacity': 0.18,
+      'overlay-padding': 4,
+    },
+  },
+  {
+    selector: 'edge[emphasis="highlighted"]',
+    style: {
+      'width': 2.5,
     },
   },
 ];

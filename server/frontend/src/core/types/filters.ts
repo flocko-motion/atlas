@@ -8,6 +8,9 @@
 export interface FilterState {
   levels: Set<number>;
   contentClasses: Set<string>;
+  contentTypes: Set<string>;        // "contentClass/contentType" keys
+  encodingClasses: Set<string>;
+  encodingFormats: Set<string>;     // "encodingClass/encodingFormat" keys
   dateRange: { from: Date | null; to: Date | null };
   minConfidence: number;
 }

@@ -19,8 +19,15 @@ import (
 
 	db "rankedb/db"
 
+	schemafapi "github.com/flocko-motion/schemaf/api"
 	schemafdb "github.com/flocko-motion/schemaf/db"
 )
+
+// contentCacheMaxBytes is the inline-cache threshold for L0 text content.
+// Nodes whose content is text and <= this size get their full bytes mirrored
+// into the Postgres content_cached column (for cheap API reads and FTS).
+// Anything larger lives only in S3 and is streamed on demand.
+const contentCacheMaxBytes = 32 * 1024
 
 // ─── Create node ──────────────────────────────────────────────────────────────
 
@@ -198,7 +205,7 @@ func (e CreateNodeEndpoint) HandleRaw(w http.ResponseWriter, r *http.Request) er
 		ContentLen:     contentLen,
 		ContentCached: sql.NullString{
 			String: string(contentBytes),
-			Valid:  isText && len(contentBytes) > 0,
+			Valid:  isText && len(contentBytes) > 0 && len(contentBytes) <= contentCacheMaxBytes,
 		},
 		Title: sql.NullString{
 			String: ptrString(req.Title),
@@ -316,14 +323,40 @@ func (e GetNodeEndpoint) Path() string   { return "/api/nodes/{id}" }
 func (e GetNodeEndpoint) Auth() bool     { return false }
 func (e GetNodeEndpoint) Handle(ctx context.Context, req GetNodeReq) (NodeResponse, error) {
 	queries := db.New(schemafdb.DB())
-	node, err := queries.GetNode(ctx, req.ID)
+	id := req.ID
+	// If the path param is a raw SHA-256 (64 hex chars), resolve to node ID first.
+	// Lets clients precheck existence by content hash without a separate endpoint.
+	if isSha256(id) {
+		resolved, err := queries.NodeExistsBySha256(ctx, id)
+		if err != nil {
+			if err == sql.ErrNoRows {
+				return NodeResponse{}, schemafapi.ErrNotFound
+			}
+			return NodeResponse{}, err
+		}
+		id = resolved
+	}
+	node, err := queries.GetNode(ctx, id)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			return NodeResponse{}, fmt.Errorf("node not found: %s", req.ID)
+			return NodeResponse{}, schemafapi.ErrNotFound
 		}
 		return NodeResponse{}, err
 	}
 	return nodeToResponse(node), nil
+}
+
+func isSha256(s string) bool {
+	if len(s) != 64 {
+		return false
+	}
+	for i := 0; i < 64; i++ {
+		c := s[i]
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) {
+			return false
+		}
+	}
+	return true
 }
 
 type GetNodeReq struct {

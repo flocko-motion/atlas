@@ -86,6 +86,44 @@
   text-align: right;
 }
 
+.filters-subgroup {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-left: 2px;
+  padding-left: 6px;
+  border-left: 1px solid var(--border);
+}
+
+.filters-subgroup-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.filters-subgroup-label {
+  font-weight: 600;
+  text-transform: lowercase;
+  letter-spacing: 0.3px;
+  flex: 1;
+}
+
+.filters-subgroup-btn {
+  padding: 0 4px;
+  font-size: 10px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.filters-subgroup-btn:hover {
+  color: var(--text-primary);
+}
+
 .filters-count {
   font-size: 12px;
   color: var(--text-muted);

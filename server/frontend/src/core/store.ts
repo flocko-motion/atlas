@@ -23,6 +23,17 @@ export interface AppState {
   selectedNodeIds: Set<string>;
   selectedEdgeIds: Set<string>;
 
+  // Per-element visibility (user intent, survives selection changes)
+  hiddenNodeIds: Set<string>;
+  hiddenEdgeIds: Set<string>;
+
+  // Emphasis modifiers
+  emphasisMode: 'neighbors' | 'provenance';
+  deemphasisTreatment: 'dim' | 'hide';
+
+  // Tool mode — pan / select (with marquee) / drag (nodes movable)
+  toolMode: 'pan' | 'select' | 'drag';
+
   // View
   viewMode: ViewMode;
   graphMode: GraphMode;
@@ -34,8 +45,8 @@ export interface AppState {
   timelineDomain: [Date, Date] | null;
   timelineViewport: [Date, Date] | null;
 
-  // Highlight (e.g. run preview — dims everything outside this set)
-  highlightedNodeIds: Set<string> | null;
+  // Active run preview — raw membership, consumed by emphasis selector
+  runNodeIds: Set<string> | null;
   activeRunId: string | null;
 
   // Stats
@@ -53,12 +64,23 @@ export const store = createStore<AppState>()(() => ({
   selectedNodeIds: new Set<string>(),
   selectedEdgeIds: new Set<string>(),
 
+  hiddenNodeIds: new Set<string>(),
+  hiddenEdgeIds: new Set<string>(),
+
+  emphasisMode: 'neighbors',
+  deemphasisTreatment: 'dim',
+
+  toolMode: 'pan',
+
   viewMode: 'graph' as ViewMode,
   graphMode: 'provenance' as GraphMode,
 
   filters: {
     levels: new Set([0, 1, 2]),
     contentClasses: new Set<string>(),
+    contentTypes: new Set<string>(),
+    encodingClasses: new Set<string>(),
+    encodingFormats: new Set<string>(),
     dateRange: { from: null, to: null },
     minConfidence: -1,
   },
@@ -66,7 +88,7 @@ export const store = createStore<AppState>()(() => ({
   timelineDomain: null,
   timelineViewport: null,
 
-  highlightedNodeIds: null,
+  runNodeIds: null,
   activeRunId: null,
 
   nodeCount: 0,

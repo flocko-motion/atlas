@@ -16,20 +16,25 @@ function hash01(s: string): number {
   return ((h >>> 0) % 1000) / 1000;
 }
 
-// Level palettes: [hueMin, hueMax, saturation, lightnessMin, lightnessMax]
+// Level palettes: [hueMin, hueMax, satMin, satMax, lightMin, lightMax]
+// Each palette spans 60° of hue and ~25 points each of saturation and lightness,
+// so content + encoding spread across a richer per-level color space.
 const PALETTES = {
-  infra: [220, 260, 15, 35, 50],    // gray-blue, desaturated
-  l0:    [200, 240, 65, 45, 60],    // blue world
-  l1:    [30, 60, 70, 45, 60],      // yellow/amber world
-  l2e:   [140, 180, 55, 40, 55],    // green world (entities)
-  l2r:   [260, 300, 55, 45, 60],    // purple world (relations)
+  infra: [200, 260,  5, 30, 35, 60],  // gray-blue, desaturated
+  l0:    [200, 260, 55, 80, 40, 65],  // blue world
+  l1:    [25,   85, 60, 85, 40, 65],  // amber/yellow world
+  l2e:   [110, 170, 50, 75, 35, 60],  // green world (entities)
+  l2r:   [280, 340, 50, 75, 40, 65],  // violet/magenta world (relations)
 } as const;
 
 function paletteColor(palette: readonly number[], contentKey: string, encodingKey: string): string {
-  const [hMin, hMax, sat, lMin, lMax] = palette;
+  const [hMin, hMax, sMin, sMax, lMin, lMax] = palette;
   const h = hMin + hash01(contentKey) * (hMax - hMin);
+  // Saturation hashes over the combined key so even same-content/same-encoding
+  // remains stable, while different pairs scatter across the full sat window.
+  const s = sMin + hash01(contentKey + '|' + encodingKey) * (sMax - sMin);
   const l = lMin + hash01(encodingKey) * (lMax - lMin);
-  return `hsl(${Math.round(h)}, ${sat}%, ${Math.round(l)}%)`;
+  return `hsl(${Math.round(h)}, ${Math.round(s)}%, ${Math.round(l)}%)`;
 }
 
 export function isInfraNode(node: Node): boolean {

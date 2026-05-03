@@ -65,18 +65,27 @@ function EdgeRow({ edge, node, currentNodeId }: { edge: Edge; node: Node | undef
 
 export function NodeInspector() {
   const selectedNodeIds = useAppStore((s) => s.selectedNodeIds);
+  const selectedEdgeIds = useAppStore((s) => s.selectedEdgeIds);
   const nodes = useAppStore((s) => s.nodes);
+  const edgesMap = useAppStore((s) => s.edges);
 
   const primaryId = selectedNodeIds.values().next().value ?? null;
   const node = primaryId ? nodes.get(primaryId) ?? null : null;
+
+  const primaryEdgeId = selectedEdgeIds.values().next().value ?? null;
+  const selectedEdge = primaryEdgeId ? edgesMap.get(primaryEdgeId) ?? null : null;
 
   const edges = useMemo(() => {
     if (!primaryId) return [];
     return nodeEdges(primaryId);
   }, [primaryId]);
 
+  if (!node && selectedEdge) {
+    return <EdgeDetails edge={selectedEdge} />;
+  }
+
   if (!node) {
-    return <div className="inspector-empty">No node selected</div>;
+    return <div className="inspector-empty">Nothing selected</div>;
   }
 
   return (
@@ -151,9 +160,74 @@ export function NodeInspector() {
   );
 }
 
+function EdgeDetails({ edge }: { edge: Edge }) {
+  const nodes = useAppStore((s) => s.nodes);
+  const activeRunId = useAppStore((s) => s.activeRunId);
+
+  const source = nodes.get(edge.sourceNodeId);
+  const target = nodes.get(edge.targetNodeId);
+
+  return (
+    <div className="inspector">
+      <span
+        className="inspector-level-badge"
+        style={{ background: edgeColor(edge) }}
+      >
+        edge {edge.type}
+      </span>
+
+      <div className="inspector-meta">
+        <MetaRow label="ID" value={edge.id} />
+        <MetaRow label="Type" value={edge.type} />
+        <MetaRow label="Confidence" value={edge.confidence !== null ? String(edge.confidence) : '-'} />
+        <MetaRow label="Created" value={fmt(edge.createdAt)} />
+      </div>
+
+      <span className="inspector-section-title">Endpoints</span>
+      <div className="inspector-edges">
+        <div
+          className="inspector-edge-row"
+          onClick={() => selectNode(edge.sourceNodeId)}
+        >
+          <span className="inspector-edge-dir">source</span>
+          <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {source?.title ?? source?.contentType ?? edge.sourceNodeId.slice(0, 8)}
+          </span>
+        </div>
+        <div
+          className="inspector-edge-row"
+          onClick={() => selectNode(edge.targetNodeId)}
+        >
+          <span className="inspector-edge-dir">target</span>
+          <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {target?.title ?? target?.contentType ?? edge.targetNodeId.slice(0, 8)}
+          </span>
+        </div>
+      </div>
+
+      {edge.runId && (
+        <>
+          <span className="inspector-section-title">Run</span>
+          <div className="inspector-runs">
+            <div className="inspector-run-row">
+              <span
+                className={`inspector-run-id inspector-run-link${activeRunId === edge.runId ? ' inspector-run-active' : ''}`}
+                title={edge.runId}
+                onClick={() => activeRunId === edge.runId ? clearRunPreview() : previewRun(edge.runId!)}
+              >
+                {edge.runId.slice(0, 12)}...
+              </span>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 function RunActions({ edges }: { edges: Edge[] }) {
   const activeRunId = useAppStore((s) => s.activeRunId);
-  const highlightedNodeIds = useAppStore((s) => s.highlightedNodeIds);
+  const runNodeIds = useAppStore((s) => s.runNodeIds);
   const [purging, setPurging] = useState(false);
 
   const runIds = useMemo(() => {
@@ -167,8 +241,8 @@ function RunActions({ edges }: { edges: Edge[] }) {
   if (runIds.length === 0) return null;
 
   async function handlePurge() {
-    if (!highlightedNodeIds) return;
-    if (!confirm(`Purge ${highlightedNodeIds.size} nodes and all derivatives?`)) return;
+    if (!runNodeIds) return;
+    if (!confirm(`Purge ${runNodeIds.size} nodes and all derivatives?`)) return;
     setPurging(true);
     try {
       const result = await purgeActiveRun();
@@ -197,10 +271,10 @@ function RunActions({ edges }: { edges: Edge[] }) {
         ))}
       </div>
 
-      {activeRunId && highlightedNodeIds && (
+      {activeRunId && runNodeIds && (
         <div className="inspector-run-detail">
           <div className="inspector-run-detail-header">
-            <span style={{ fontSize: 11 }}>{highlightedNodeIds.size} nodes affected</span>
+            <span style={{ fontSize: 11 }}>{runNodeIds.size} nodes affected</span>
             <button
               className="inspector-btn"
               onClick={clearRunPreview}
@@ -214,7 +288,7 @@ function RunActions({ edges }: { edges: Edge[] }) {
             disabled={purging}
             onClick={handlePurge}
           >
-            {purging ? 'Purging...' : `Purge ${highlightedNodeIds.size} nodes`}
+            {purging ? 'Purging...' : `Purge ${runNodeIds.size} nodes`}
           </button>
         </div>
       )}
