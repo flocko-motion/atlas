@@ -60,6 +60,10 @@ github.com/flocko-motion/schemaf v1.7.4 h1:zaXaOrZn+jqN0BKq2o7cfYOphtLIwiaBq860l
 github.com/flocko-motion/schemaf v1.7.4/go.mod h1:Frlpbe99GYD1OrCA7un2Zd18KMkYOdaCIKA6+XIMk/s=
 github.com/flocko-motion/schemaf v1.7.5 h1:D9RyIhIG59EvmzXIbHhgCqSGM/912f3wXF575Z9ViEA=
 github.com/flocko-motion/schemaf v1.7.5/go.mod h1:Frlpbe99GYD1OrCA7un2Zd18KMkYOdaCIKA6+XIMk/s=
+github.com/flocko-motion/schemaf v1.7.6 h1:oWglgaEitFfqYFiY7ghyjEf/7lv+t1zkCd/oWL/HBM4=
+github.com/flocko-motion/schemaf v1.7.6/go.mod h1:Frlpbe99GYD1OrCA7un2Zd18KMkYOdaCIKA6+XIMk/s=
+github.com/flocko-motion/schemaf v1.7.7 h1:U67XdZ/l3niB48Gnmz8e4fDo8Je/WYY+efKa3KK+T6Y=
+github.com/flocko-motion/schemaf v1.7.7/go.mod h1:Frlpbe99GYD1OrCA7un2Zd18KMkYOdaCIKA6+XIMk/s=
 github.com/frankban/quicktest v1.14.6 h1:7Xjx+VpznH+oBnejlPUj8oUpdxnVs4f8XU8WnHkI4W8=
 github.com/frankban/quicktest v1.14.6/go.mod h1:4ptaffx2x8+WTWXmUCuVU6aPUX1/Mz7zb5vbUoiM6w0=
 github.com/fsnotify/fsnotify v1.4.7/go.mod h1:jwhsz4b93w/PPRr/qN1Yymfu8t87LnFCMoQvtojpjFo=

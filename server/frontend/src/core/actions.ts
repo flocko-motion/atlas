@@ -28,10 +28,16 @@ export function loadMockData(count: number): void {
     if (!maxDate || d > maxDate) maxDate = d;
   }
 
-  // Collect all content classes for filter initialization
+  // Enumerate filter variants for show/hide controls
   const allClasses = new Set<string>();
+  const allContentTypes = new Set<string>();
+  const allEncodingClasses = new Set<string>();
+  const allEncodingFormats = new Set<string>();
   for (const node of nodes) {
     allClasses.add(node.contentClass);
+    allContentTypes.add(`${node.contentClass}/${node.contentType}`);
+    allEncodingClasses.add(node.encodingClass);
+    allEncodingFormats.add(`${node.encodingClass}/${node.encodingFormat}`);
   }
 
   store.setState({
@@ -45,6 +51,9 @@ export function loadMockData(count: number): void {
     filters: {
       levels: new Set([0, 1, 2]),
       contentClasses: allClasses,
+      contentTypes: allContentTypes,
+      encodingClasses: allEncodingClasses,
+      encodingFormats: allEncodingFormats,
       dateRange: { from: null, to: null },
       minConfidence: -1,
     },
@@ -66,8 +75,14 @@ export async function loadFromApi(): Promise<void> {
     let minDate: Date | null = null;
     let maxDate: Date | null = null;
     const allClasses = new Set<string>();
+    const allContentTypes = new Set<string>();
+    const allEncodingClasses = new Set<string>();
+    const allEncodingFormats = new Set<string>();
     for (const node of nodes) {
       allClasses.add(node.contentClass);
+      allContentTypes.add(`${node.contentClass}/${node.contentType}`);
+      allEncodingClasses.add(node.encodingClass);
+      allEncodingFormats.add(`${node.encodingClass}/${node.encodingFormat}`);
       const d = node.artifactCreatedAt ?? node.createdAt;
       if (!minDate || d < minDate) minDate = d;
       if (!maxDate || d > maxDate) maxDate = d;
@@ -84,6 +99,9 @@ export async function loadFromApi(): Promise<void> {
       filters: {
         levels: new Set([0, 1, 2]),
         contentClasses: allClasses,
+        contentTypes: allContentTypes,
+        encodingClasses: allEncodingClasses,
+        encodingFormats: allEncodingFormats,
         dateRange: { from: null, to: null },
         minConfidence: -1,
       },
@@ -100,7 +118,9 @@ export function selectNode(id: string, addToSelection = false): void {
   store.setState((s) => {
     const next = addToSelection ? new Set(s.selectedNodeIds) : new Set<string>();
     next.add(id);
-    return { selectedNodeIds: next, selectedEdgeIds: new Set() };
+    const hidden = s.hiddenNodeIds.has(id) ? new Set(s.hiddenNodeIds) : s.hiddenNodeIds;
+    if (hidden !== s.hiddenNodeIds) hidden.delete(id);
+    return { selectedNodeIds: next, selectedEdgeIds: new Set(), hiddenNodeIds: hidden };
   });
 }
 
@@ -116,12 +136,86 @@ export function selectEdge(id: string, addToSelection = false): void {
   store.setState((s) => {
     const next = addToSelection ? new Set(s.selectedEdgeIds) : new Set<string>();
     next.add(id);
-    return { selectedEdgeIds: next, selectedNodeIds: new Set() };
+    const hidden = s.hiddenEdgeIds.has(id) ? new Set(s.hiddenEdgeIds) : s.hiddenEdgeIds;
+    if (hidden !== s.hiddenEdgeIds) hidden.delete(id);
+    return { selectedEdgeIds: next, selectedNodeIds: new Set(), hiddenEdgeIds: hidden };
   });
 }
 
 export function clearSelection(): void {
   store.setState({ selectedNodeIds: new Set(), selectedEdgeIds: new Set() });
+}
+
+// --- Visibility ---
+
+export function hideNode(id: string): void {
+  store.setState((s) => {
+    const next = new Set(s.hiddenNodeIds);
+    next.add(id);
+    return { hiddenNodeIds: next };
+  });
+}
+
+export function showNode(id: string): void {
+  store.setState((s) => {
+    if (!s.hiddenNodeIds.has(id)) return {};
+    const next = new Set(s.hiddenNodeIds);
+    next.delete(id);
+    return { hiddenNodeIds: next };
+  });
+}
+
+export function hideEdge(id: string): void {
+  store.setState((s) => {
+    const next = new Set(s.hiddenEdgeIds);
+    next.add(id);
+    return { hiddenEdgeIds: next };
+  });
+}
+
+export function showEdge(id: string): void {
+  store.setState((s) => {
+    if (!s.hiddenEdgeIds.has(id)) return {};
+    const next = new Set(s.hiddenEdgeIds);
+    next.delete(id);
+    return { hiddenEdgeIds: next };
+  });
+}
+
+export function hideSelected(): void {
+  store.setState((s) => ({
+    hiddenNodeIds: new Set([...s.hiddenNodeIds, ...s.selectedNodeIds]),
+    hiddenEdgeIds: new Set([...s.hiddenEdgeIds, ...s.selectedEdgeIds]),
+    selectedNodeIds: new Set(),
+    selectedEdgeIds: new Set(),
+  }));
+}
+
+export function showAll(): void {
+  store.setState({ hiddenNodeIds: new Set(), hiddenEdgeIds: new Set() });
+}
+
+// --- Emphasis modifiers ---
+
+export function setEmphasisMode(mode: 'neighbors' | 'provenance'): void {
+  store.setState({ emphasisMode: mode });
+}
+
+export function setDeemphasisTreatment(treatment: 'dim' | 'hide'): void {
+  store.setState({ deemphasisTreatment: treatment });
+}
+
+// --- Tool mode ---
+
+export function setToolMode(mode: 'pan' | 'select' | 'drag'): void {
+  store.setState({ toolMode: mode });
+}
+
+export function setSelection(nodeIds: Iterable<string>, edgeIds: Iterable<string>): void {
+  store.setState({
+    selectedNodeIds: new Set(nodeIds),
+    selectedEdgeIds: new Set(edgeIds),
+  });
 }
 
 // --- View ---
@@ -145,6 +239,24 @@ export function setLevelFilter(levels: Set<number>): void {
 export function setContentClassFilter(classes: Set<string>): void {
   store.setState((s) => ({
     filters: { ...s.filters, contentClasses: classes },
+  }));
+}
+
+export function setContentTypeFilter(types: Set<string>): void {
+  store.setState((s) => ({
+    filters: { ...s.filters, contentTypes: types },
+  }));
+}
+
+export function setEncodingClassFilter(classes: Set<string>): void {
+  store.setState((s) => ({
+    filters: { ...s.filters, encodingClasses: classes },
+  }));
+}
+
+export function setEncodingFormatFilter(formats: Set<string>): void {
+  store.setState((s) => ({
+    filters: { ...s.filters, encodingFormats: formats },
   }));
 }
 
@@ -173,11 +285,11 @@ export async function previewRun(runId: string): Promise<void> {
   if (!resp.ok) return;
   const data = await resp.json();
   const ids = new Set<string>((data.nodes ?? []).map((n: { id: string }) => n.id));
-  store.setState({ highlightedNodeIds: ids, activeRunId: runId });
+  store.setState({ runNodeIds: ids, activeRunId: runId });
 }
 
 export function clearRunPreview(): void {
-  store.setState({ highlightedNodeIds: null, activeRunId: null });
+  store.setState({ runNodeIds: null, activeRunId: null });
 }
 
 export async function purgeActiveRun(): Promise<{ nodes_deleted: number; edges_deleted: number } | null> {
@@ -186,7 +298,7 @@ export async function purgeActiveRun(): Promise<{ nodes_deleted: number; edges_d
   const resp = await fetch(`/api/runs/${runId}`, { method: 'DELETE' });
   if (!resp.ok) return null;
   const result = await resp.json();
-  store.setState({ highlightedNodeIds: null, activeRunId: null });
+  store.setState({ runNodeIds: null, activeRunId: null });
   await loadFromApi();
   return result;
 }
