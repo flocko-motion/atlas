@@ -4,7 +4,7 @@
 
 A provenance-first foundation for knowledge systems.
 
-RankeDB is a single graph organized into three levels — Sources (L0), Cognition (L1), and Semantics (L2) — unified behind one API. Provenance edges form a strict DAG; semantic edges may cycle. Every node carries provenance to its inputs. Nothing is ever deleted.
+Please visit [github.com/flocko-motion/ranke-graph](https://github.com/flocko-motion/ranke-graph) to learn about the underlying concepts - this repo focusses on the implementation.
 
 ## Repository structure
 
@@ -14,7 +14,6 @@ RankeDB is a single graph organized into three levels — Sources (L0), Cognitio
 | `go/sdk/` | Worker SDK — typed client for building RankeDB workers |
 | `go/cmd/ranke-cli/` | CLI tool for admin and ingestion |
 | `frontend/` | Graph Explorer (React + Cytoscape) |
-| `papers/` | Research papers |
 
 ## Building workers
 
@@ -35,4 +34,4 @@ Drafts in [`papers/`](papers/):
 
 ## License
 
-MIT (code) · CC-BY-4.0 (papers)
+[Apache 2.0 License](LICENSE)
