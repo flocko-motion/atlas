@@ -28,9 +28,13 @@ See [WORKERS.md](WORKERS.md) — the complete guide for building RankeDB workers
 
 ## Papers
 
-Drafts in [`papers/`](papers/):
+The theory lives in the separate [`ranke-graph`](https://github.com/flocko-motion/ranke-graph)
+repository as Typst (`.typ`) sources — **not in this repo**. Read the `.typ` source directly:
 
-1. [`01-rankedb`](papers/01-rankedb/rankedb.md) — architecture, design philosophy
+1. [`01-ranke-graph/ranke-graph.typ`](https://github.com/flocko-motion/ranke-graph/blob/main/01-ranke-graph/ranke-graph.typ)
+   — foundational model and design philosophy. **Required reading.**
+2. [`02-rankedb/rankedb.typ`](https://github.com/flocko-motion/ranke-graph/blob/main/02-rankedb/rankedb.typ)
+   — the RankeDB architecture paper. *In progress — landing very soon; read it before implementation work once available.*
 
 ## License
 

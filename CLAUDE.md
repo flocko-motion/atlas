@@ -2,7 +2,26 @@
 
 ## Project overview
 
-RankeDB is a provenance-first knowledge graph. Paper 1 (`papers/01-rankedb.md`) defines the architecture; `` contains the Go server, Postgres schema, and API.
+RankeDB is a provenance-first knowledge graph. The theory lives in the separate
+[`ranke-graph`](https://github.com/flocko-motion/ranke-graph) paper repository;
+this repo (`go/`, `frontend/`) is the implementation — server, Postgres schema, and API.
+
+## Read the papers first (obligatory)
+
+Before starting any task, read the foundational paper. The papers do **not** live
+in this repo — they live in the separate
+[`ranke-graph`](https://github.com/flocko-motion/ranke-graph) repository as Typst
+(`.typ`) sources. Read the `.typ` source directly (there is no rendered Markdown):
+
+- **[`01-ranke-graph/ranke-graph.typ`](https://github.com/flocko-motion/ranke-graph/blob/main/01-ranke-graph/ranke-graph.typ)**
+  — the foundational model and design philosophy. **Required reading for every new agent.**
+- **[`02-rankedb/rankedb.typ`](https://github.com/flocko-motion/ranke-graph/blob/main/02-rankedb/rankedb.typ)**
+  — the RankeDB architecture paper. *Not written yet, but landing very soon — once
+  it exists it is also required reading before any implementation work.*
+
+These papers are the source of truth for design decisions. **Never diverge from
+them.** If a concept needs to change: discuss with the user, update the paper with
+explicit consensus, then implement. No silent deviations.
 
 ## Framework: schemaf
 
@@ -23,6 +42,21 @@ Key schemaf rules:
 - **Endpoints:** Typed Go structs implementing the endpoint interface. Codegen generates OpenAPI spec + TypeScript client.
 - **Commands:** `./schemaf.sh codegen` (generate), `./schemaf.sh dev` (run dev), `./schemaf.sh run` (run prod), `./schemaf.sh test` (test).
 
+## Tooling & shell conventions
+
+- **Avoid compound shell commands.** Run one command per invocation — don't stitch
+  unrelated steps together with `&&`, `;`, or pipes. Separate commands are easier to
+  read, fail clearly, and avoid spurious permission prompts (e.g. a `cd` inside a
+  compound command).
+- **Explore code with `sindri code map`, not `grep`.** `sindri code map [path]` prints
+  a structured overview — per file, the arch header plus each type/func with its doc
+  and signature. Use `--grep <text>` to show only the declarations enclosing a match,
+  `--file <substr>` to filter by path, `--depth N` to limit descent. It is faster and
+  far more readable than raw `grep` for understanding Go code.
+- **Lint with `sindri lint all`.** This is the Go linter of choice for this project —
+  run it before considering work done (it exits non-zero if any linter fails). Related:
+  `sindri lint deadcode`, `sindri lint loc`.
+
 ## Architecture quick reference
 
 - **One graph:** nodes table + edges table + runs table in Postgres. S3 for content blobs.
@@ -36,7 +70,7 @@ Key schemaf rules:
 
 ## Key files
 
-- `papers/01-rankedb.md` — the paper (architecture spec)
+- Architecture spec — the papers in [`ranke-graph`](https://github.com/flocko-motion/ranke-graph) (see "Read the papers first" above); not in this repo
 - `API-DRAFT.md` — API endpoint design
 - `go/db/migrations/0001_graph.sql` — canonical Postgres schema
 - `go/main.go` — server entry point
