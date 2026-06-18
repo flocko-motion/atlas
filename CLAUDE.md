@@ -19,6 +19,9 @@ in this repo — they live in the separate
   — the RankeDB architecture paper. *Not written yet, but landing very soon — once
   it exists it is also required reading before any implementation work.*
 
+Run **`make docs`** to pull fresh local copies of all papers into `docs/papers/`
+(gitignored, regenerable) — read those `.typ` files directly.
+
 These papers are the source of truth for design decisions. **Never diverge from
 them.** If a concept needs to change: discuss with the user, update the paper with
 explicit consensus, then implement. No silent deviations.
