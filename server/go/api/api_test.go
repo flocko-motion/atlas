@@ -68,6 +68,45 @@ func TestGetArchiveHidesWhenNotVisible(t *testing.T) {
 	}
 }
 
+func TestPatchArchiveRoute(t *testing.T) {
+	e := PatchArchiveEndpoint{}
+	if e.Method() != "PATCH" {
+		t.Fatalf("method = %q, want PATCH", e.Method())
+	}
+	if e.Path() != "/api/archives/{tenant}/{ra}" {
+		t.Fatalf("path = %q", e.Path())
+	}
+	if !e.Auth() {
+		t.Fatal("patch endpoint must require auth")
+	}
+}
+
+func TestPatchArchiveRejectsBadTarget(t *testing.T) {
+	_, err := PatchArchiveEndpoint{}.Handle(context.Background(),
+		PatchArchiveReq{Tenant: "acme", RA: "main", Target: "bogus"})
+	if !errors.Is(err, schemafapi.ErrBadRequest) {
+		t.Fatalf("an unknown target must be 400; got %v", err)
+	}
+}
+
+func TestPatchArchiveNeedsControlGrant(t *testing.T) {
+	entries := config.Entries{
+		"tenants.acme.archives.main.state":             "running",
+		"tenants.acme.archives.main.storage.backend":   "mem",
+		"tenants.acme.archives.main.sequencer.backend": "mem",
+	}
+	c := core.New(access.New(nil, grantsmem.New()), configmem.NewFrom(entries), assembler.Deps{})
+	if err := c.Reconcile(context.Background()); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	Use(c)
+	_, err := PatchArchiveEndpoint{}.Handle(context.Background(),
+		PatchArchiveReq{Tenant: "acme", RA: "main", Target: "stopped"})
+	if !errors.Is(err, schemafapi.ErrForbidden) {
+		t.Fatalf("a caller without ra.control must be 403; got %v", err)
+	}
+}
+
 func contains(s, sub string) bool {
 	for i := 0; i+len(sub) <= len(s); i++ {
 		if s[i:i+len(sub)] == sub {
