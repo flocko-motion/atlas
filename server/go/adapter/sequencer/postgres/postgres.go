@@ -1,12 +1,14 @@
 // package: postgres / sequencer
 // type:    adapter
-// job:     persist an archive's B_h (the branch-table head Id) as a compare-and-swap row in a user-configured external Postgres
-// limits:  stores 256 bits, not content (-> adapter/storage in ranke-go); the seam is ranke-go's ranke.BranchTableHead, built via sequencer.New. This is ARCHIVE (use-case) data — it lives wherever the archive's config points, NEVER the server's internal operational DB.
+// job:     persist the HISTORY of an archive's B_h (the branch-table head Id) as an append-only sequence in a user-configured external Postgres; the latest entry is the current head
+// limits:  stores head ids, not content (-> adapter/storage in ranke-go); the seam is ranke-go's ranke.BranchTableHead (Load reads the tip / Save appends), built via sequencer.New. This is ARCHIVE (use-case) data — it lives wherever the archive's config points, NEVER the server's internal operational DB.
 //
 // B_h is the single mutable handle in an otherwise immutable, content-addressed
-// system. ranke-go's sequencer.New turns a load/save pair into a
-// BranchTableHead, so a Postgres row backs it with no dedicated ranke-go
-// adapter. Each archive's head is one row keyed by an opaque archive key.
+// system, and the SEQUENCER is the record of its history — the ordered sequence
+// of head revisions, which is what establishes the total order. So the table is
+// append-only (one row per Save, keyed by archive + monotonic seq); Load returns
+// the tip. ranke-go's sequencer.New turns the load/save pair into a
+// BranchTableHead with no dedicated ranke-go adapter.
 //
 // Two constructors:
 //   - New(ctx, dsn, key) — owns its connection (closed on Close). The common
@@ -81,27 +83,32 @@ func newHead(ctx context.Context, conn func() *sql.DB, key string, closeFn func(
 		return nil, fmt.Errorf("adapter/sequencer/postgres: migrate: %w", err)
 	}
 
-	// load returns nil when no head is set yet; save persists, or clears on nil.
+	// The table is APPEND-ONLY: each Save records a new entry, so the row
+	// sequence IS the head's history (what makes this the sequencer). load
+	// reads the tip (latest seq); a NULL head tip means the head was cleared.
 	load := func(ctx context.Context) (ranke.Id, error) {
-		var s string
-		err := conn().QueryRowContext(ctx, `SELECT head FROM `+table+` WHERE key = $1`, key).Scan(&s)
+		var head sql.NullString
+		err := conn().QueryRowContext(ctx,
+			`SELECT head FROM `+table+` WHERE key = $1 ORDER BY seq DESC LIMIT 1`, key,
+		).Scan(&head)
 		if err == sql.ErrNoRows {
-			return nil, nil
+			return nil, nil // no history yet
 		}
 		if err != nil {
 			return nil, fmt.Errorf("adapter/sequencer/postgres: load: %w", err)
 		}
-		return ranke.ParseId(s)
+		if !head.Valid {
+			return nil, nil // tip is a clear marker
+		}
+		return ranke.ParseId(head.String)
 	}
 	save := func(ctx context.Context, id ranke.Id) error {
-		if id == nil {
-			_, err := conn().ExecContext(ctx, `DELETE FROM `+table+` WHERE key = $1`, key)
-			return err
+		var head sql.NullString
+		if id != nil {
+			head = sql.NullString{String: id.String(), Valid: true}
 		}
 		_, err := conn().ExecContext(ctx,
-			`INSERT INTO `+table+` (key, head) VALUES ($1, $2)
-			 ON CONFLICT (key) DO UPDATE SET head = EXCLUDED.head`,
-			key, id.String(),
+			`INSERT INTO `+table+` (key, head) VALUES ($1, $2)`, key, head,
 		)
 		return err
 	}
