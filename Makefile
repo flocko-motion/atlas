@@ -18,7 +18,7 @@ help: ## Show this help
 # no TS, no stale api/db tests — just build/vet/fmt/test of what we're adding.
 # Widen VERIFY_PKGS as more lands; fold into schemaf.sh test once the rest
 # of the server is caught up.
-VERIFY_PKGS ?= ./adapter/... ./seal/... ./access/... ./assembler/... ./core/...
+VERIFY_PKGS ?= ./adapter/... ./seal/... ./access/... ./assembler/... ./core/... ./api/...
 
 # Generated Go files are owned by their generator (schemaf codegen), never
 # hand-maintained — so the brokkr linters skip them. The Go linters only scan
@@ -31,7 +31,7 @@ verify: ## Build/vet/fmt/test the new ranke packages + brokkr lint (no codegen)
 	@cd server/go && set -e; \
 		go build $(VERIFY_PKGS); \
 		go vet $(VERIFY_PKGS); \
-		fmt=$$(gofmt -l adapter seal access assembler core); [ -z "$$fmt" ] || { echo "gofmt needed:"; echo "$$fmt"; exit 1; }; \
+		fmt=$$(gofmt -l adapter seal access assembler core api); [ -z "$$fmt" ] || { echo "gofmt needed:"; echo "$$fmt"; exit 1; }; \
 		go test $(VERIFY_PKGS); \
 		brokkr lint $(BROKKR_IGNORE)
 	@$(MAKE) -s ranke-go-version

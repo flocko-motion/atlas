@@ -213,3 +213,33 @@ func (c *Core) StateOf(tenant, ra string) (State, bool) {
 	}
 	return e.current, true
 }
+
+// Status is an archive's metadata plus its current and target lifecycle state.
+type Status struct {
+	Tenant  string
+	RA      string
+	Title   string
+	Current State
+	Target  State
+}
+
+// Status returns an archive's status if the subject can see its tenant (else
+// ErrNotFound — hiding existence). Unlike Reader it works in ANY lifecycle
+// state: you can see that an archive is stopped or failed. Gate is visibility,
+// not ReadRA — an operator who manages lifecycle but can't read data still sees status.
+func (c *Core) Status(ctx context.Context, subject, tenant, ra string) (Status, error) {
+	visible, err := c.authz.Visible(ctx, subject, tenant)
+	if err != nil {
+		return Status{}, err
+	}
+	if !visible {
+		return Status{}, ErrNotFound // hide existence from a subject with no foothold in the tenant
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	e, ok := c.reg[key(tenant, ra)]
+	if !ok {
+		return Status{}, ErrNotFound
+	}
+	return Status{Tenant: tenant, RA: ra, Title: e.def.Title, Current: e.current, Target: e.def.Target}, nil
+}

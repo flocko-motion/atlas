@@ -89,6 +89,28 @@ func (a *Authz) IsRoot(subject string) bool {
 	return ok
 }
 
+// Visible reports whether subject can see anything in tenant — root, or holding
+// any grant scoped to that tenant. The API uses it for existence-hiding: a
+// subject with no visibility into a tenant gets 404 (not 403) for its resources.
+func (a *Authz) Visible(ctx context.Context, subject, tenant string) (bool, error) {
+	if subject == "" {
+		return false, nil
+	}
+	if a.IsRoot(subject) {
+		return true, nil
+	}
+	held, err := a.store.GrantsFor(ctx, subject)
+	if err != nil {
+		return false, err
+	}
+	for _, g := range held {
+		if g.Scope.Tenant == tenant {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 // Decide answers a Request. The error is non-nil only on a store failure; a
 // refusal is a Decision{Allowed: false}, not an error. Order: root → disabled
 // → tenant-admin/operator of the scope's tenant → matching RA grant → deny.
