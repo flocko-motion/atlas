@@ -12,6 +12,7 @@ func Provider() {
 	schemafapi.Register(schemafapi.NewRoute[GetArchiveReq, GetArchiveResp](GetArchiveEndpoint{}, "Returns an archive's status: its title and current + target", "lifecycle state. Works in any state (a stopped/failed archive still reports);\nhidden (404) from a subject with no visibility into the tenant."))
 	schemafapi.Register(schemafapi.NewRoute[BranchReq, BranchResp](GetBranchEndpoint{}, "Returns one branch: its head, binding time, contributor, and history depth.", ""))
 	schemafapi.Register(schemafapi.NewRoute[ClaimReq, ClaimView](GetClaimEndpoint{}, "Returns a claim: a readable projection plus its canonical bytes.", ""))
+	schemafapi.Register(schemafapi.NewRawRoute(GqlEndpoint{}, "Runs a read-only Cypher/GQL query against an archive — if a layer", "in its stack speaks Cypher. HandleRaw is used so the no-capability case can\nreturn a precise 501 (schemaf has no 501 sentinel). Stub: always 501 after\nthe access/lifecycle gate, until ranke-go ships the capability."))
 	schemafapi.Register(schemafapi.NewRoute[GrantRoleReq, GrantRoleResp](GrantRoleEndpoint{}, "Grants a role to a tenant user (tenant role when ra is", "empty, else an RA role). Gated by tenant-admin."))
 	schemafapi.Register(schemafapi.NewRoute[ArchiveReadReq, ListBranchesResp](ListBranchesEndpoint{}, "Lists an archive's branches with their head ids.", ""))
 	schemafapi.Register(schemafapi.NewRoute[ListSubjectsReq, ListSubjectsResp](ListSubjectsEndpoint{}, "Lists every known subject and its disabled state. Root only.", ""))

@@ -539,6 +539,26 @@ export class Api<
       }),
 
     /**
+     * @description in its stack speaks Cypher. HandleRaw is used so the no-capability case can return a precise 501 (schemaf has no 501 sentinel). Stub: always 501 after the access/lifecycle gate, until ranke-go ships the capability.
+     *
+     * @name PostApiArchivesTenantRaGql
+     * @summary Runs a read-only Cypher/GQL query against an archive — if a layer
+     * @request POST:/api/archives/{tenant}/{ra}/gql
+     * @secure
+     */
+    postApiArchivesTenantRaGql: (
+      tenant: string,
+      ra: string,
+      params: RequestParams = {},
+    ) =>
+      this.request<void, void>({
+        path: `/api/archives/${tenant}/${ra}/gql`,
+        method: "POST",
+        secure: true,
+        ...params,
+      }),
+
+    /**
      * @description tenant-admin; scoped — only this tenant's grants, never other affiliations.
      *
      * @name GetApiTenantsTenantUsers

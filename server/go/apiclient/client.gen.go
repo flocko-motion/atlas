@@ -251,6 +251,9 @@ type ClientInterface interface {
 	// GetApiArchivesTenantRaClaimsId request
 	GetApiArchivesTenantRaClaimsId(ctx context.Context, tenant string, ra string, id string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// PostApiArchivesTenantRaGql request
+	PostApiArchivesTenantRaGql(ctx context.Context, tenant string, ra string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// GetApiTenantsTenantUsers request
 	GetApiTenantsTenantUsers(ctx context.Context, tenant string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -350,6 +353,18 @@ func (c *Client) GetApiArchivesTenantRaBranchesNameVerification(ctx context.Cont
 
 func (c *Client) GetApiArchivesTenantRaClaimsId(ctx context.Context, tenant string, ra string, id string, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewGetApiArchivesTenantRaClaimsIdRequest(c.Server, tenant, ra, id)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) PostApiArchivesTenantRaGql(ctx context.Context, tenant string, ra string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPostApiArchivesTenantRaGqlRequest(c.Server, tenant, ra)
 	if err != nil {
 		return nil, err
 	}
@@ -748,6 +763,47 @@ func NewGetApiArchivesTenantRaClaimsIdRequest(server string, tenant string, ra s
 	return req, nil
 }
 
+// NewPostApiArchivesTenantRaGqlRequest generates requests for PostApiArchivesTenantRaGql
+func NewPostApiArchivesTenantRaGqlRequest(server string, tenant string, ra string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "tenant", tenant, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "ra", ra, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/archives/%s/%s/gql", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
 // NewGetApiTenantsTenantUsersRequest generates requests for GetApiTenantsTenantUsers
 func NewGetApiTenantsTenantUsersRequest(server string, tenant string) (*http.Request, error) {
 	var err error
@@ -1061,6 +1117,9 @@ type ClientWithResponsesInterface interface {
 	// GetApiArchivesTenantRaClaimsIdWithResponse request
 	GetApiArchivesTenantRaClaimsIdWithResponse(ctx context.Context, tenant string, ra string, id string, reqEditors ...RequestEditorFn) (*GetApiArchivesTenantRaClaimsIdResponse, error)
 
+	// PostApiArchivesTenantRaGqlWithResponse request
+	PostApiArchivesTenantRaGqlWithResponse(ctx context.Context, tenant string, ra string, reqEditors ...RequestEditorFn) (*PostApiArchivesTenantRaGqlResponse, error)
+
 	// GetApiTenantsTenantUsersWithResponse request
 	GetApiTenantsTenantUsersWithResponse(ctx context.Context, tenant string, reqEditors ...RequestEditorFn) (*GetApiTenantsTenantUsersResponse, error)
 
@@ -1260,6 +1319,35 @@ func (r GetApiArchivesTenantRaClaimsIdResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r GetApiArchivesTenantRaClaimsIdResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type PostApiArchivesTenantRaGqlResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+}
+
+// Status returns HTTPResponse.Status
+func (r PostApiArchivesTenantRaGqlResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r PostApiArchivesTenantRaGqlResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r PostApiArchivesTenantRaGqlResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -1508,6 +1596,15 @@ func (c *ClientWithResponses) GetApiArchivesTenantRaClaimsIdWithResponse(ctx con
 	return ParseGetApiArchivesTenantRaClaimsIdResponse(rsp)
 }
 
+// PostApiArchivesTenantRaGqlWithResponse request returning *PostApiArchivesTenantRaGqlResponse
+func (c *ClientWithResponses) PostApiArchivesTenantRaGqlWithResponse(ctx context.Context, tenant string, ra string, reqEditors ...RequestEditorFn) (*PostApiArchivesTenantRaGqlResponse, error) {
+	rsp, err := c.PostApiArchivesTenantRaGql(ctx, tenant, ra, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePostApiArchivesTenantRaGqlResponse(rsp)
+}
+
 // GetApiTenantsTenantUsersWithResponse request returning *GetApiTenantsTenantUsersResponse
 func (c *ClientWithResponses) GetApiTenantsTenantUsersWithResponse(ctx context.Context, tenant string, reqEditors ...RequestEditorFn) (*GetApiTenantsTenantUsersResponse, error) {
 	rsp, err := c.GetApiTenantsTenantUsers(ctx, tenant, reqEditors...)
@@ -1737,6 +1834,22 @@ func ParseGetApiArchivesTenantRaClaimsIdResponse(rsp *http.Response) (*GetApiArc
 		}
 		response.JSON200 = &dest
 
+	}
+
+	return response, nil
+}
+
+// ParsePostApiArchivesTenantRaGqlResponse parses an HTTP response from a PostApiArchivesTenantRaGqlWithResponse call
+func ParsePostApiArchivesTenantRaGqlResponse(rsp *http.Response) (*PostApiArchivesTenantRaGqlResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &PostApiArchivesTenantRaGqlResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
 	}
 
 	return response, nil
