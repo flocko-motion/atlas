@@ -10,187 +10,80 @@
  * ---------------------------------------------------------------
  */
 
-export interface CreateRunReq {
-  worker_config_id: string;
+export interface AdmitUserReq {
+  subject: string;
+  tenant: string;
 }
 
-export interface CreateRunResp {
-  run_id: string;
+export interface AdmitUserResp {
+  subject: string;
+  tenant: string;
 }
 
-export interface EdgeProvenanceResp {
-  edge: EdgeResponse;
-  run_id: string;
-  worker_config_node: NodeResponse;
+export interface GetArchiveReq {
+  ra: string;
+  tenant: string;
 }
 
-export interface EdgeResponse {
-  confidence: number;
-  created_at: string;
-  id: string;
-  run_id: string;
-  source_node_id: string;
-  target_node_id: string;
-  type: string;
-}
-
-export interface GetEdgeProvenanceReq {
-  id: string;
-}
-
-export interface GetEdgeReq {
-  id: string;
-}
-
-export interface GetEntityReq {
-  id: string;
-  minConfidence: number;
-}
-
-export interface GetEntityResp {
-  entity: NodeResponse;
-  relations: RelationResponse[];
-}
-
-export interface GetEntityTimelineReq {
-  id: string;
-}
-
-export interface GetEntityTimelineResp {
-  relations: RelationResponse[];
-}
-
-export interface GetNodeEdgesReq {
-  direction: string;
-  id: string;
-  limit: number;
-  offset: number;
-  type: string;
-}
-
-export interface GetNodeEdgesResp {
-  edges: EdgeResponse[];
-}
-
-export interface GetNodeProvenanceReq {
-  id: string;
-}
-
-export interface GetNodeReq {
-  id: string;
-}
-
-export interface GetQueueReq {
-  byClass: string;
-  byConfig: string;
-  byWorker: string;
-  contentClass: string;
-  contentType: string;
-  encodingClass: string;
-  encodingFormat: string;
-  limit: number;
-}
-
-export interface GetQueueResp {
-  nodes: NodeResponse[];
-}
-
-export interface GetRunReq {
-  id: string;
-}
-
-export interface GetRunResp {
-  created_at: string;
-  nodes: NodeResponse[];
-  run_id: string;
-  worker_config_id: string;
-}
-
-export interface ListEdgesReq {
-  limit: number;
-  offset: number;
-  type: string;
-}
-
-export interface ListEdgesResp {
-  edges: EdgeResponse[];
-}
-
-export interface ListNodesReq {
-  contentClass: string;
-  contentType: string;
-  level: number;
-  limit: number;
-  offset: number;
-}
-
-export interface ListNodesResp {
-  nodes: NodeResponse[];
-}
-
-export interface ListRelationsReq {
-  limit: number;
-  offset: number;
-  type: string;
-  unresolved: boolean;
-}
-
-export interface ListRelationsResp {
-  relations: RelationResponse[];
-}
-
-export interface NodeResponse {
-  artifact_created_at: string;
-  artifact_created_at_blur: string;
-  confidence: number;
-  content: string;
-  content_class: string;
-  content_len: number;
-  content_sha256: string;
-  content_type: string;
-  created_at: string;
-  encoding_class: string;
-  encoding_format: string;
-  id: string;
-  level: number;
-  origin: string;
-  original_name: string;
+export interface GetArchiveResp {
+  current: string;
+  ra: string;
+  target: string;
+  tenant: string;
   title: string;
-  valid_from: string;
-  valid_from_blur: string;
-  valid_until: string;
-  valid_until_blur: string;
 }
 
-export interface ProvenanceSubgraph {
-  edges: EdgeResponse[];
-  nodes: NodeResponse[];
+export interface GrantRoleReq {
+  ra: string;
+  role: string;
+  subject: string;
+  tenant: string;
 }
 
-export interface PurgeRunReq {
+export interface GrantRoleResp {
+  ra: string;
+  role: string;
+  subject: string;
+}
+
+export type ListSubjectsReq = object;
+
+export interface ListSubjectsResp {
+  subjects: SubjectView[];
+}
+
+export interface ListTenantUsersReq {
+  tenant: string;
+}
+
+export interface ListTenantUsersResp {
+  users: TenantUser[];
+}
+
+export interface PatchArchiveReq {
+  ra: string;
+  target: string;
+  tenant: string;
+}
+
+export interface RoleEntry {
+  ra: string;
+  role: string;
+}
+
+export interface SetUserDisabledReq {
+  disabled: boolean;
+  subject: string;
+}
+
+export interface SubjectView {
+  disabled: boolean;
   id: string;
 }
 
-export interface PurgeRunResp {
-  edges_deleted: number;
-  nodes_deleted: number;
-}
-
-export interface RelationResponse {
-  head_edges: EdgeResponse[];
-  node: NodeResponse;
-  tail_edges: EdgeResponse[];
-}
-
-export interface SearchEntitiesReq {
-  limit: number;
-  offset: number;
-  q: string;
-  type: string;
-}
-
-export interface SearchEntitiesResp {
-  entities: NodeResponse[];
+export interface TenantUser {
+  roles: RoleEntry[];
+  subject: string;
 }
 
 export type QueryParamsType = Record<string | number, any>;
@@ -457,241 +350,131 @@ export class Api<
 > extends HttpClient<SecurityDataType> {
   api = {
     /**
-     * No description
+     * @description lifecycle state. Works in any state (a stopped/failed archive still reports); hidden (404) from a subject with no visibility into the tenant.
      *
-     * @name GetApiEdges
-     * @summary Returns edges with optional type filter.
-     * @request GET:/api/edges
+     * @name GetApiArchivesTenantRa
+     * @summary Returns an archive's status: its title and current + target
+     * @request GET:/api/archives/{tenant}/{ra}
+     * @secure
      */
-    getApiEdges: (params: RequestParams = {}) =>
-      this.request<ListEdgesResp, void>({
-        path: `/api/edges`,
+    getApiArchivesTenantRa: (
+      tenant: string,
+      ra: string,
+      params: RequestParams = {},
+    ) =>
+      this.request<GetArchiveResp, void>({
+        path: `/api/archives/${tenant}/${ra}`,
         method: "GET",
+        secure: true,
         format: "json",
         ...params,
       }),
 
     /**
-     * No description
+     * @description set read-only) — declarative: it writes the target and core reconciles toward it. Gated by ra.control. Returns the archive's updated status.
      *
-     * @name GetApiEdgesId
-     * @summary Returns an edge by ID with its metadata.
-     * @request GET:/api/edges/{id}
+     * @name PatchApiArchivesTenantRa
+     * @summary Sets an archive's target lifecycle state (start / stop /
+     * @request PATCH:/api/archives/{tenant}/{ra}
+     * @secure
      */
-    getApiEdgesId: (id: string, params: RequestParams = {}) =>
-      this.request<EdgeResponse, void>({
-        path: `/api/edges/${id}`,
-        method: "GET",
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * No description
-     *
-     * @name GetApiEdgesIdProvenance
-     * @summary Returns the provenance context of an edge: run, worker config node.
-     * @request GET:/api/edges/{id}/provenance
-     */
-    getApiEdgesIdProvenance: (id: string, params: RequestParams = {}) =>
-      this.request<EdgeProvenanceResp, void>({
-        path: `/api/edges/${id}/provenance`,
-        method: "GET",
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * No description
-     *
-     * @name GetApiEntities
-     * @summary Searches entities by full-text query over names and aliases.
-     * @request GET:/api/entities
-     */
-    getApiEntities: (params: RequestParams = {}) =>
-      this.request<SearchEntitiesResp, void>({
-        path: `/api/entities`,
-        method: "GET",
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * No description
-     *
-     * @name GetApiEntitiesId
-     * @summary Returns an entity with all its relations, sorted by temporal validity.
-     * @request GET:/api/entities/{id}
-     */
-    getApiEntitiesId: (id: string, params: RequestParams = {}) =>
-      this.request<GetEntityResp, void>({
-        path: `/api/entities/${id}`,
-        method: "GET",
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * No description
-     *
-     * @name GetApiEntitiesIdTimeline
-     * @summary Returns all relations of an entity sorted chronologically by valid_from.
-     * @request GET:/api/entities/{id}/timeline
-     */
-    getApiEntitiesIdTimeline: (id: string, params: RequestParams = {}) =>
-      this.request<GetEntityTimelineResp, void>({
-        path: `/api/entities/${id}/timeline`,
-        method: "GET",
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * No description
-     *
-     * @name GetApiNodes
-     * @summary Returns a filtered, paginated list of nodes.
-     * @request GET:/api/nodes
-     */
-    getApiNodes: (params: RequestParams = {}) =>
-      this.request<ListNodesResp, void>({
-        path: `/api/nodes`,
-        method: "GET",
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description L0 sources use multipart form upload; L1/L2 use JSON. L0 root creation is idempotent via content_sha256.
-     *
-     * @name PostApiNodes
-     * @summary Creates a graph node.
-     * @request POST:/api/nodes
-     */
-    postApiNodes: (params: RequestParams = {}) =>
-      this.request<void, void>({
-        path: `/api/nodes`,
-        method: "POST",
-        ...params,
-      }),
-
-    /**
-     * No description
-     *
-     * @name GetApiNodesId
-     * @summary Returns a node by ID with full metadata and inline content.
-     * @request GET:/api/nodes/{id}
-     */
-    getApiNodesId: (id: string, params: RequestParams = {}) =>
-      this.request<NodeResponse, void>({
-        path: `/api/nodes/${id}`,
-        method: "GET",
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Serves from Postgres cache if available, otherwise proxies from S3.
-     *
-     * @name GetApiNodesIdContent
-     * @summary Returns the raw content bytes of a node.
-     * @request GET:/api/nodes/{id}/content
-     */
-    getApiNodesIdContent: (id: string, params: RequestParams = {}) =>
-      this.request<void, void>({
-        path: `/api/nodes/${id}/content`,
-        method: "GET",
-        ...params,
-      }),
-
-    /**
-     * No description
-     *
-     * @name GetApiNodesIdEdges
-     * @summary Returns edges connected to a node, filterable by direction and type.
-     * @request GET:/api/nodes/{id}/edges
-     */
-    getApiNodesIdEdges: (id: string, params: RequestParams = {}) =>
-      this.request<GetNodeEdgesResp, void>({
-        path: `/api/nodes/${id}/edges`,
-        method: "GET",
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * No description
-     *
-     * @name GetApiNodesIdProvenance
-     * @summary Returns the upstream provenance chain from a node back to L0 roots.
-     * @request GET:/api/nodes/{id}/provenance
-     */
-    getApiNodesIdProvenance: (id: string, params: RequestParams = {}) =>
-      this.request<ProvenanceSubgraph, void>({
-        path: `/api/nodes/${id}/provenance`,
-        method: "GET",
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * No description
-     *
-     * @name GetApiQueue
-     * @summary Returns unprocessed nodes for a given worker type.
-     * @request GET:/api/queue
-     */
-    getApiQueue: (params: RequestParams = {}) =>
-      this.request<GetQueueResp, void>({
-        path: `/api/queue`,
-        method: "GET",
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * No description
-     *
-     * @name GetApiRelations
-     * @summary Returns filtered relation nodes.
-     * @request GET:/api/relations
-     */
-    getApiRelations: (params: RequestParams = {}) =>
-      this.request<ListRelationsResp, void>({
-        path: `/api/relations`,
-        method: "GET",
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * No description
-     *
-     * @name PostApiRuns
-     * @summary Registers a new worker run and returns a run_id.
-     * @request POST:/api/runs
-     */
-    postApiRuns: (data: CreateRunReq, params: RequestParams = {}) =>
-      this.request<CreateRunResp, void>({
-        path: `/api/runs`,
-        method: "POST",
+    patchApiArchivesTenantRa: (
+      tenant: string,
+      ra: string,
+      data: PatchArchiveReq,
+      params: RequestParams = {},
+    ) =>
+      this.request<GetArchiveResp, void>({
+        path: `/api/archives/${tenant}/${ra}`,
+        method: "PATCH",
         body: data,
+        secure: true,
         type: ContentType.Json,
         format: "json",
         ...params,
       }),
 
     /**
-     * @description to any nodes derived from them. L0 root nodes are never deleted.
+     * @description tenant-admin; scoped — only this tenant's grants, never other affiliations.
      *
-     * @name DeleteApiRunsId
-     * @summary Deletes all edges and nodes created in a run, cascading
-     * @request DELETE:/api/runs/{id}
+     * @name GetApiTenantsTenantUsers
+     * @summary Lists the tenant's users and their roles. Gated by
+     * @request GET:/api/tenants/{tenant}/users
+     * @secure
      */
-    deleteApiRunsId: (id: string, params: RequestParams = {}) =>
-      this.request<PurgeRunResp, void>({
-        path: `/api/runs/${id}`,
+    getApiTenantsTenantUsers: (tenant: string, params: RequestParams = {}) =>
+      this.request<ListTenantUsersResp, void>({
+        path: `/api/tenants/${tenant}/users`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description ("enter as valid"). Gated by tenant-admin.
+     *
+     * @name PostApiTenantsTenantUsers
+     * @summary Admits a subject into a tenant — the baseline membership
+     * @request POST:/api/tenants/{tenant}/users
+     * @secure
+     */
+    postApiTenantsTenantUsers: (
+      tenant: string,
+      data: AdmitUserReq,
+      params: RequestParams = {},
+    ) =>
+      this.request<AdmitUserResp, void>({
+        path: `/api/tenants/${tenant}/users`,
+        method: "POST",
+        body: data,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description intact (grants are additive). Gated by tenant-admin.
+     *
+     * @name DeleteApiTenantsTenantUsersSubjectGrants
+     * @summary Revokes one role from a tenant user, leaving other roles
+     * @request DELETE:/api/tenants/{tenant}/users/{subject}/grants
+     * @secure
+     */
+    deleteApiTenantsTenantUsersSubjectGrants: (
+      tenant: string,
+      subject: string,
+      params: RequestParams = {},
+    ) =>
+      this.request<GrantRoleResp, void>({
+        path: `/api/tenants/${tenant}/users/${subject}/grants`,
         method: "DELETE",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description empty, else an RA role). Gated by tenant-admin.
+     *
+     * @name PostApiTenantsTenantUsersSubjectGrants
+     * @summary Grants a role to a tenant user (tenant role when ra is
+     * @request POST:/api/tenants/{tenant}/users/{subject}/grants
+     * @secure
+     */
+    postApiTenantsTenantUsersSubjectGrants: (
+      tenant: string,
+      subject: string,
+      data: GrantRoleReq,
+      params: RequestParams = {},
+    ) =>
+      this.request<GrantRoleResp, void>({
+        path: `/api/tenants/${tenant}/users/${subject}/grants`,
+        method: "POST",
+        body: data,
+        secure: true,
+        type: ContentType.Json,
         format: "json",
         ...params,
       }),
@@ -699,14 +482,39 @@ export class Api<
     /**
      * No description
      *
-     * @name GetApiRunsId
-     * @summary Returns run details and all nodes created in that run (with cascading derivatives).
-     * @request GET:/api/runs/{id}
+     * @name GetApiUsers
+     * @summary Lists every known subject and its disabled state. Root only.
+     * @request GET:/api/users
+     * @secure
      */
-    getApiRunsId: (id: string, params: RequestParams = {}) =>
-      this.request<GetRunResp, void>({
-        path: `/api/runs/${id}`,
+    getApiUsers: (params: RequestParams = {}) =>
+      this.request<ListSubjectsResp, void>({
+        path: `/api/users`,
         method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @name PatchApiUsersSubject
+     * @summary Enables or disables a subject globally. Root only.
+     * @request PATCH:/api/users/{subject}
+     * @secure
+     */
+    patchApiUsersSubject: (
+      subject: string,
+      data: SetUserDisabledReq,
+      params: RequestParams = {},
+    ) =>
+      this.request<SubjectView, void>({
+        path: `/api/users/${subject}`,
+        method: "PATCH",
+        body: data,
+        secure: true,
+        type: ContentType.Json,
         format: "json",
         ...params,
       }),

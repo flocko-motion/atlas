@@ -10,6 +10,11 @@
 # Do not add application logic here — implement it as a Go subcommand.
 set -euo pipefail
 
+# Fail loudly. Under `set -e`, an unexpected error (e.g. a pipeline member killed
+# by SIGPIPE → exit 141) otherwise aborts the script silently with only a numeric
+# exit code. This trap reports the failing command, line, and exit code instead.
+trap 'rc=$?; echo "ERROR: schemaf.sh failed at line ${LINENO}: \"${BASH_COMMAND}\" (exit ${rc})" >&2; exit ${rc}' ERR
+
 if [ ! -f "$(dirname "$0")/schemaf.toml" ]; then
   echo "ERROR: schemaf.toml not found in the same directory as this script."
   echo "       Place schemaf.sh next to your schemaf.toml — see schemaf documentation."
@@ -45,7 +50,8 @@ else
 fi
 
 SCHEMAF_VER=$(cd go && go list -m -f '{{.Version}}' github.com/flocko-motion/schemaf 2>/dev/null || echo "unknown")
-echo "schemaf ${SCHEMAF_VER} — ${PROJECT_NAME}"
+# Banner to stderr, so command stdout stays clean for capture (e.g. auth token).
+echo "schemaf ${SCHEMAF_VER} — ${PROJECT_NAME}" >&2
 
 CMD="${1:-}"
 shift 2>/dev/null || true
@@ -89,8 +95,13 @@ case "$CMD" in
     TARGET="${1:-}"
     if [ -z "$TARGET" ]; then
       # Query GitHub for the latest tag instead of Go proxy (which caches @latest for ~30min).
-      TARGET=$(git ls-remote --tags --sort=-v:refname https://github.com/flocko-motion/schemaf.git 'v*' \
-        | head -1 | sed 's|.*/||')
+      # Capture the full tag list first, then pick the highest version with pure bash.
+      # Piping `git ls-remote` into `head` makes git exit on SIGPIPE (141) once head
+      # closes the pipe after the first line, which trips `set -o pipefail` + `set -e`.
+      TAGS=$(git ls-remote --tags --sort=-v:refname https://github.com/flocko-motion/schemaf.git 'v*' 2>/dev/null || true)
+      TARGET=${TAGS%%$'\n'*}   # first line = highest version
+      TARGET=${TARGET##*/}     # strip the refs/tags/ prefix
+      TARGET=${TARGET%%^*}     # strip any ^{} annotated-tag deref suffix
       if [ -z "$TARGET" ]; then
         echo "ERROR: could not determine latest version from GitHub" >&2
         exit 1
