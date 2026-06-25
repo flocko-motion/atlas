@@ -74,9 +74,45 @@ func (s *Store) DeleteGrant(_ context.Context, subject string, scope grants.Scop
 	return nil
 }
 
-// SetDisabled marks a subject disabled (test/dev helper; not part of grants.Store).
-func (s *Store) SetDisabled(subject string, disabled bool) {
+// GrantsIn returns every grant scoped to tenant, across all subjects.
+func (s *Store) GrantsIn(_ context.Context, tenant string) ([]grants.Grant, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var out []grants.Grant
+	for _, list := range s.grants {
+		for _, g := range list {
+			if g.Scope.Tenant == tenant {
+				out = append(out, g)
+			}
+		}
+	}
+	return out, nil
+}
+
+// Subjects returns every known subject — those with any grant or a disabled flag.
+func (s *Store) Subjects(_ context.Context) ([]grants.Subject, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	seen := map[string]bool{}
+	for id := range s.grants {
+		seen[id] = true
+	}
+	for id := range s.disabled {
+		seen[id] = true
+	}
+	out := make([]grants.Subject, 0, len(seen))
+	for id := range seen {
+		out = append(out, grants.Subject{ID: id, Disabled: s.disabled[id]})
+	}
+	return out, nil
+}
+
+// SetDisabled records whether a subject is disabled.
+func (s *Store) SetDisabled(_ context.Context, subject string, disabled bool) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.disabled[subject] = disabled
+	return nil
 }
+
+var _ grants.Store = (*Store)(nil)

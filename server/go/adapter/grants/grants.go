@@ -50,6 +50,13 @@ type Grant struct {
 	Role    Role
 }
 
+// Subject is a known subject and whether it is disabled. Identity is schemaf's
+// (the opaque id); we hold only its capability state.
+type Subject struct {
+	ID       string
+	Disabled bool
+}
+
 // Store persists authorization data. Backends live under grants/: mem
 // (tests/dev), postgres (production, via schemaf's DB). Grants are additive
 // (MySQL-style — a collection): a subject may hold several roles on one scope.
@@ -58,6 +65,12 @@ type Store interface {
 	Disabled(ctx context.Context, subject string) (bool, error)
 	// GrantsFor returns all grants held by a subject (across tenants).
 	GrantsFor(ctx context.Context, subject string) ([]Grant, error)
+	// GrantsIn returns every grant scoped to a tenant (the tenant itself and its
+	// archives) — for listing a tenant's users and their roles.
+	GrantsIn(ctx context.Context, tenant string) ([]Grant, error)
+	// Subjects returns every known subject (those with a recorded disabled flag
+	// or any grant) — the root-only global user list.
+	Subjects(ctx context.Context) ([]Subject, error)
 	// PutGrant adds the (subject, scope, role) grant, idempotently — it adds the
 	// role without removing others on that scope. Lazy: the subject need not
 	// exist beforehand.
@@ -65,4 +78,6 @@ type Store interface {
 	// DeleteGrant removes the (subject, scope, role) grant if present, leaving
 	// any other roles the subject holds on that scope intact.
 	DeleteGrant(ctx context.Context, subject string, scope Scope, role Role) error
+	// SetDisabled records whether a subject is disabled (a global management op).
+	SetDisabled(ctx context.Context, subject string, disabled bool) error
 }

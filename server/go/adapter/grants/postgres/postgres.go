@@ -129,6 +129,55 @@ func (s *Store) GrantsFor(ctx context.Context, subject string) ([]grants.Grant, 
 	return out, rows.Err()
 }
 
+// GrantsIn returns every grant scoped to tenant (across all subjects).
+func (s *Store) GrantsIn(ctx context.Context, tenant string) ([]grants.Grant, error) {
+	rows, err := s.conn().QueryContext(ctx,
+		`SELECT subject, scope_ra, role FROM `+grantsTable+` WHERE scope_tenant = $1`, tenant,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("access/postgres: grantsIn: %w", err)
+	}
+	defer rows.Close()
+	var out []grants.Grant
+	for rows.Next() {
+		var subject, ra, role string
+		if err := rows.Scan(&subject, &ra, &role); err != nil {
+			return nil, err
+		}
+		out = append(out, grants.Grant{
+			Subject: subject,
+			Scope:   grants.Scope{Tenant: tenant, RA: ra},
+			Role:    grants.Role(role),
+		})
+	}
+	return out, rows.Err()
+}
+
+// Subjects returns every known subject — those with a recorded disabled flag or
+// any grant — and whether each is disabled.
+func (s *Store) Subjects(ctx context.Context) ([]grants.Subject, error) {
+	rows, err := s.conn().QueryContext(ctx,
+		`SELECT id, disabled FROM `+subjectsTable+`
+		 UNION
+		 SELECT DISTINCT g.subject, COALESCE(s.disabled, FALSE)
+		   FROM `+grantsTable+` g LEFT JOIN `+subjectsTable+` s ON s.id = g.subject`,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("access/postgres: subjects: %w", err)
+	}
+	defer rows.Close()
+	var out []grants.Subject
+	for rows.Next() {
+		var id string
+		var disabled bool
+		if err := rows.Scan(&id, &disabled); err != nil {
+			return nil, err
+		}
+		out = append(out, grants.Subject{ID: id, Disabled: disabled})
+	}
+	return out, rows.Err()
+}
+
 // PutGrant adds the (subject, scope, role) grant idempotently. Grants are
 // additive: the conflict target is the full tuple, so adding a role leaves any
 // other roles the subject holds on that scope intact.

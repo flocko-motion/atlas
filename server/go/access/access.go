@@ -200,3 +200,38 @@ func (a *Authz) Revoke(ctx context.Context, actor, subject string, scope grants.
 	}
 	return a.store.DeleteGrant(ctx, subject, scope, role)
 }
+
+// Admit makes subject a member of tenant — the baseline tenant-`user`
+// capability ("enter as valid"), the first onboarding step. Gated by
+// tenant-admin (via Grant). Role grants build on it.
+func (a *Authz) Admit(ctx context.Context, actor, tenant, subject string) error {
+	return a.Grant(ctx, actor, grants.Grant{Subject: subject, Scope: grants.Tenant(tenant), Role: grants.RoleTenantUser})
+}
+
+// TenantUsers returns the grants scoped to tenant (its users and their roles),
+// gated by tenant-admin. Scoped by construction: only this tenant's grants are
+// returned — never a subject's affiliations elsewhere.
+func (a *Authz) TenantUsers(ctx context.Context, actor, tenant string) ([]grants.Grant, error) {
+	if err := a.Require(ctx, Request{Subject: actor, Action: AdminTenant, Scope: grants.Tenant(tenant)}); err != nil {
+		return nil, err
+	}
+	return a.store.GrantsIn(ctx, tenant)
+}
+
+// Subjects returns the global subject list — root only (the only principal that
+// sees the full cross-tenant picture).
+func (a *Authz) Subjects(ctx context.Context, actor string) ([]grants.Subject, error) {
+	if !a.IsRoot(actor) {
+		return nil, &Denied{Subject: actor, Reason: "root only"}
+	}
+	return a.store.Subjects(ctx)
+}
+
+// SetDisabled enables or disables a subject globally (denied everywhere despite
+// a valid token) — root only, since it crosses tenant boundaries.
+func (a *Authz) SetDisabled(ctx context.Context, actor, subject string, disabled bool) error {
+	if !a.IsRoot(actor) {
+		return &Denied{Subject: actor, Reason: "root only"}
+	}
+	return a.store.SetDisabled(ctx, subject, disabled)
+}

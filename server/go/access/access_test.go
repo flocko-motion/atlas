@@ -105,7 +105,7 @@ func TestDisabledSubjectDeniedDespiteGrant(t *testing.T) {
 	store.PutGrant(context.Background(), grants.Grant{
 		Subject: "gone", Scope: grants.Tenant("A"), Role: grants.RoleTenantAdmin,
 	})
-	store.SetDisabled("gone", true)
+	store.SetDisabled(context.Background(), "gone", true)
 	deny(t, a, "gone", grants.Tenant("A"), access.AdminTenant)
 }
 
@@ -143,7 +143,7 @@ func TestDecideExplainsTheAnswer(t *testing.T) {
 	store.PutGrant(ctx, grants.Grant{Subject: "boss", Scope: grants.Tenant("A"), Role: grants.RoleTenantAdmin})
 	store.PutGrant(ctx, grants.Grant{Subject: "r", Scope: grants.Archive("A", "main"), Role: grants.RoleRARead})
 	store.PutGrant(ctx, grants.Grant{Subject: "gone", Scope: grants.Tenant("A"), Role: grants.RoleTenantAdmin})
-	store.SetDisabled("gone", true)
+	store.SetDisabled(context.Background(), "gone", true)
 
 	cases := []struct {
 		name        string
@@ -226,4 +226,66 @@ func TestAdditiveGrantsDoNotClobber(t *testing.T) {
 	}
 	allow(t, a, "s", ra, access.WriteRA)
 	deny(t, a, "s", ra, access.ControlRA)
+}
+
+func TestAdmitAndTenantUsers(t *testing.T) {
+	a, store := newAuthz()
+	ctx := context.Background()
+	store.PutGrant(ctx, grants.Grant{Subject: "boss", Scope: grants.Tenant("A"), Role: grants.RoleTenantAdmin})
+
+	// A tenant-user cannot admit; a tenant-admin can.
+	store.PutGrant(ctx, grants.Grant{Subject: "u", Scope: grants.Tenant("A"), Role: grants.RoleTenantUser})
+	if err := a.Admit(ctx, "u", "A", "newbie"); err == nil {
+		t.Fatal("tenant user must not admit")
+	}
+	if err := a.Admit(ctx, "boss", "A", "newbie"); err != nil {
+		t.Fatalf("Admit: %v", err)
+	}
+	// newbie is now a member (visible).
+	if v, _ := a.Visible(ctx, "newbie", "A"); !v {
+		t.Fatal("admitted subject should be visible in the tenant")
+	}
+
+	// TenantUsers lists this tenant's grants for the admin, and only those.
+	gs, err := a.TenantUsers(ctx, "boss", "A")
+	if err != nil {
+		t.Fatalf("TenantUsers: %v", err)
+	}
+	if len(gs) == 0 {
+		t.Fatal("TenantUsers should include boss/u/newbie grants")
+	}
+	for _, g := range gs {
+		if g.Scope.Tenant != "A" {
+			t.Fatalf("TenantUsers leaked a non-A grant: %+v", g)
+		}
+	}
+	// A non-admin cannot list.
+	if _, err := a.TenantUsers(ctx, "u", "A"); err == nil {
+		t.Fatal("tenant user must not list users")
+	}
+}
+
+func TestSubjectsAndDisableAreRootOnly(t *testing.T) {
+	a, store := newAuthz("root-sub")
+	ctx := context.Background()
+	store.PutGrant(ctx, grants.Grant{Subject: "boss", Scope: grants.Tenant("A"), Role: grants.RoleTenantAdmin})
+
+	// Subjects: root yes, tenant-admin no.
+	if _, err := a.Subjects(ctx, "root-sub"); err != nil {
+		t.Fatalf("root Subjects: %v", err)
+	}
+	if _, err := a.Subjects(ctx, "boss"); err == nil {
+		t.Fatal("non-root must not list all subjects")
+	}
+
+	// SetDisabled: root only, and it takes effect.
+	if err := a.SetDisabled(ctx, "boss", "boss", false); err == nil {
+		t.Fatal("non-root must not disable")
+	}
+	if err := a.SetDisabled(ctx, "root-sub", "boss", true); err != nil {
+		t.Fatalf("root SetDisabled: %v", err)
+	}
+	if d, _ := a.Decide(ctx, access.Request{Subject: "boss", Action: access.AdminTenant, Scope: grants.Tenant("A")}); d.Allowed || d.Reason != "disabled" {
+		t.Fatalf("disabled boss should be denied with reason disabled; got %+v", d)
+	}
 }
