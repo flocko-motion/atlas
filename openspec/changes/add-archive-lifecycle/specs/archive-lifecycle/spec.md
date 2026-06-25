@@ -68,9 +68,10 @@ The system SHALL persist each archive's DESIRED lifecycle state — `running`,
 toward its persisted desired state rather than defaulting every archive to
 running. The transient runtime states `starting` and `failed` SHALL NOT be
 persisted: `failed` is a runtime outcome, retried from the desired state on the
-next boot. Desired-state is a FIELD in the archive's config (persisted via the
-config store, alongside its storage/sequencer/stacking definition), updated by
-the `ra.control` transitions — not a separate store.
+next boot. Only the TARGET (desired) state is persisted — a FIELD in the
+archive's config (alongside its storage/sequencer/stacking definition), updated
+by the `ra.control` transitions, not a separate store. The CURRENT (runtime)
+state is held in memory and recomputed by reconciliation; it is never persisted.
 
 #### Scenario: Stopped stays stopped across restarts
 - **WHEN** an archive is stopped and the server later restarts
