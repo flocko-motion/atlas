@@ -38,6 +38,8 @@ func mapErr(err error) error {
 	switch {
 	case errors.Is(err, core.ErrNotFound):
 		return schemafapi.ErrNotFound
+	case errors.Is(err, core.ErrInvalid):
+		return schemafapi.ErrBadRequest
 	case errors.Is(err, core.ErrReadOnly):
 		return schemafapi.ErrConflict
 	case errors.Is(err, core.ErrUnavailable):

@@ -172,6 +172,59 @@
         ],
         "type": "object"
       },
+      "CreateArchiveReq": {
+        "properties": {
+          "ra": {
+            "type": "string"
+          },
+          "sequencer": {
+            "$ref": "#/components/schemas/StackSequencer"
+          },
+          "storage": {
+            "$ref": "#/components/schemas/StackStorage"
+          },
+          "tenant": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "tenant",
+          "ra",
+          "title",
+          "storage",
+          "sequencer"
+        ],
+        "type": "object"
+      },
+      "DeleteArchiveReq": {
+        "properties": {
+          "ra": {
+            "type": "string"
+          },
+          "tenant": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "tenant",
+          "ra"
+        ],
+        "type": "object"
+      },
+      "DeleteArchiveResp": {
+        "properties": {
+          "deleted": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "deleted"
+        ],
+        "type": "object"
+      },
       "EdgeView": {
         "properties": {
           "direction": {
@@ -378,6 +431,48 @@
         "required": [
           "subject",
           "disabled"
+        ],
+        "type": "object"
+      },
+      "StackSequencer": {
+        "properties": {
+          "backend": {
+            "type": "string"
+          },
+          "dsn": {
+            "type": "string"
+          },
+          "key": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "backend",
+          "path",
+          "dsn",
+          "key"
+        ],
+        "type": "object"
+      },
+      "StackStorage": {
+        "properties": {
+          "backend": {
+            "type": "string"
+          },
+          "dir": {
+            "type": "string"
+          },
+          "dsn": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "backend",
+          "dir",
+          "dsn"
         ],
         "type": "object"
       },
@@ -821,6 +916,109 @@
           }
         ],
         "summary": "Runs a read-only Cypher/GQL query against an archive — if a layer"
+      }
+    },
+    "/api/tenants/{tenant}/archives": {
+      "post": {
+        "description": "brings it up. The stack (storage + sequencer backends) is chosen at runtime by\nthe caller — this is what lets a test suite drive any backend. Gated by tenant-admin.",
+        "operationId": "postApiTenantsTenantArchives",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateArchiveReq"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetArchiveResp"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "description": "Bad Request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Defines a new archive and its persistence stack, then"
+      }
+    },
+    "/api/tenants/{tenant}/archives/{ra}": {
+      "delete": {
+        "operationId": "deleteApiTenantsTenantArchivesRa",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "ra",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeleteArchiveResp"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "description": "Bad Request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Stops an archive and removes its definition. Gated by tenant-admin."
       }
     },
     "/api/tenants/{tenant}/users": {

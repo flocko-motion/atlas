@@ -60,6 +60,20 @@ type ClaimView struct {
 	Type        string     `json:"type"`
 }
 
+// CreateArchiveReq defines model for CreateArchiveReq.
+type CreateArchiveReq struct {
+	Ra        string         `json:"ra"`
+	Sequencer StackSequencer `json:"sequencer"`
+	Storage   StackStorage   `json:"storage"`
+	Tenant    string         `json:"tenant"`
+	Title     string         `json:"title"`
+}
+
+// DeleteArchiveResp defines model for DeleteArchiveResp.
+type DeleteArchiveResp struct {
+	Deleted bool `json:"deleted"`
+}
+
 // EdgeView defines model for EdgeView.
 type EdgeView struct {
 	Direction string `json:"direction"`
@@ -125,6 +139,21 @@ type SetUserDisabledReq struct {
 	Subject  string `json:"subject"`
 }
 
+// StackSequencer defines model for StackSequencer.
+type StackSequencer struct {
+	Backend string `json:"backend"`
+	Dsn     string `json:"dsn"`
+	Key     string `json:"key"`
+	Path    string `json:"path"`
+}
+
+// StackStorage defines model for StackStorage.
+type StackStorage struct {
+	Backend string `json:"backend"`
+	Dir     string `json:"dir"`
+	Dsn     string `json:"dsn"`
+}
+
 // SubjectView defines model for SubjectView.
 type SubjectView struct {
 	Disabled bool   `json:"disabled"`
@@ -148,6 +177,9 @@ type bearerAuthContextKey string
 
 // PatchApiArchivesTenantRaJSONRequestBody defines body for PatchApiArchivesTenantRa for application/json ContentType.
 type PatchApiArchivesTenantRaJSONRequestBody = PatchArchiveReq
+
+// PostApiTenantsTenantArchivesJSONRequestBody defines body for PostApiTenantsTenantArchives for application/json ContentType.
+type PostApiTenantsTenantArchivesJSONRequestBody = CreateArchiveReq
 
 // PostApiTenantsTenantUsersJSONRequestBody defines body for PostApiTenantsTenantUsers for application/json ContentType.
 type PostApiTenantsTenantUsersJSONRequestBody = AdmitUserReq
@@ -253,6 +285,14 @@ type ClientInterface interface {
 
 	// PostApiArchivesTenantRaGql request
 	PostApiArchivesTenantRaGql(ctx context.Context, tenant string, ra string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// PostApiTenantsTenantArchivesWithBody request with any body
+	PostApiTenantsTenantArchivesWithBody(ctx context.Context, tenant string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	PostApiTenantsTenantArchives(ctx context.Context, tenant string, body PostApiTenantsTenantArchivesJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// DeleteApiTenantsTenantArchivesRa request
+	DeleteApiTenantsTenantArchivesRa(ctx context.Context, tenant string, ra string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// GetApiTenantsTenantUsers request
 	GetApiTenantsTenantUsers(ctx context.Context, tenant string, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -365,6 +405,42 @@ func (c *Client) GetApiArchivesTenantRaClaimsId(ctx context.Context, tenant stri
 
 func (c *Client) PostApiArchivesTenantRaGql(ctx context.Context, tenant string, ra string, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewPostApiArchivesTenantRaGqlRequest(c.Server, tenant, ra)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) PostApiTenantsTenantArchivesWithBody(ctx context.Context, tenant string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPostApiTenantsTenantArchivesRequestWithBody(c.Server, tenant, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) PostApiTenantsTenantArchives(ctx context.Context, tenant string, body PostApiTenantsTenantArchivesJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPostApiTenantsTenantArchivesRequest(c.Server, tenant, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) DeleteApiTenantsTenantArchivesRa(ctx context.Context, tenant string, ra string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewDeleteApiTenantsTenantArchivesRaRequest(c.Server, tenant, ra)
 	if err != nil {
 		return nil, err
 	}
@@ -804,6 +880,94 @@ func NewPostApiArchivesTenantRaGqlRequest(server string, tenant string, ra strin
 	return req, nil
 }
 
+// NewPostApiTenantsTenantArchivesRequest calls the generic PostApiTenantsTenantArchives builder with application/json body
+func NewPostApiTenantsTenantArchivesRequest(server string, tenant string, body PostApiTenantsTenantArchivesJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewPostApiTenantsTenantArchivesRequestWithBody(server, tenant, "application/json", bodyReader)
+}
+
+// NewPostApiTenantsTenantArchivesRequestWithBody generates requests for PostApiTenantsTenantArchives with any type of body
+func NewPostApiTenantsTenantArchivesRequestWithBody(server string, tenant string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "tenant", tenant, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/tenants/%s/archives", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewDeleteApiTenantsTenantArchivesRaRequest generates requests for DeleteApiTenantsTenantArchivesRa
+func NewDeleteApiTenantsTenantArchivesRaRequest(server string, tenant string, ra string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "tenant", tenant, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "ra", ra, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/tenants/%s/archives/%s", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodDelete, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
 // NewGetApiTenantsTenantUsersRequest generates requests for GetApiTenantsTenantUsers
 func NewGetApiTenantsTenantUsersRequest(server string, tenant string) (*http.Request, error) {
 	var err error
@@ -1120,6 +1284,14 @@ type ClientWithResponsesInterface interface {
 	// PostApiArchivesTenantRaGqlWithResponse request
 	PostApiArchivesTenantRaGqlWithResponse(ctx context.Context, tenant string, ra string, reqEditors ...RequestEditorFn) (*PostApiArchivesTenantRaGqlResponse, error)
 
+	// PostApiTenantsTenantArchivesWithBodyWithResponse request with any body
+	PostApiTenantsTenantArchivesWithBodyWithResponse(ctx context.Context, tenant string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PostApiTenantsTenantArchivesResponse, error)
+
+	PostApiTenantsTenantArchivesWithResponse(ctx context.Context, tenant string, body PostApiTenantsTenantArchivesJSONRequestBody, reqEditors ...RequestEditorFn) (*PostApiTenantsTenantArchivesResponse, error)
+
+	// DeleteApiTenantsTenantArchivesRaWithResponse request
+	DeleteApiTenantsTenantArchivesRaWithResponse(ctx context.Context, tenant string, ra string, reqEditors ...RequestEditorFn) (*DeleteApiTenantsTenantArchivesRaResponse, error)
+
 	// GetApiTenantsTenantUsersWithResponse request
 	GetApiTenantsTenantUsersWithResponse(ctx context.Context, tenant string, reqEditors ...RequestEditorFn) (*GetApiTenantsTenantUsersResponse, error)
 
@@ -1348,6 +1520,66 @@ func (r PostApiArchivesTenantRaGqlResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r PostApiArchivesTenantRaGqlResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type PostApiTenantsTenantArchivesResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *GetArchiveResp
+}
+
+// Status returns HTTPResponse.Status
+func (r PostApiTenantsTenantArchivesResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r PostApiTenantsTenantArchivesResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r PostApiTenantsTenantArchivesResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type DeleteApiTenantsTenantArchivesRaResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *DeleteArchiveResp
+}
+
+// Status returns HTTPResponse.Status
+func (r DeleteApiTenantsTenantArchivesRaResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r DeleteApiTenantsTenantArchivesRaResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r DeleteApiTenantsTenantArchivesRaResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -1605,6 +1837,32 @@ func (c *ClientWithResponses) PostApiArchivesTenantRaGqlWithResponse(ctx context
 	return ParsePostApiArchivesTenantRaGqlResponse(rsp)
 }
 
+// PostApiTenantsTenantArchivesWithBodyWithResponse request with arbitrary body returning *PostApiTenantsTenantArchivesResponse
+func (c *ClientWithResponses) PostApiTenantsTenantArchivesWithBodyWithResponse(ctx context.Context, tenant string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PostApiTenantsTenantArchivesResponse, error) {
+	rsp, err := c.PostApiTenantsTenantArchivesWithBody(ctx, tenant, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePostApiTenantsTenantArchivesResponse(rsp)
+}
+
+func (c *ClientWithResponses) PostApiTenantsTenantArchivesWithResponse(ctx context.Context, tenant string, body PostApiTenantsTenantArchivesJSONRequestBody, reqEditors ...RequestEditorFn) (*PostApiTenantsTenantArchivesResponse, error) {
+	rsp, err := c.PostApiTenantsTenantArchives(ctx, tenant, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePostApiTenantsTenantArchivesResponse(rsp)
+}
+
+// DeleteApiTenantsTenantArchivesRaWithResponse request returning *DeleteApiTenantsTenantArchivesRaResponse
+func (c *ClientWithResponses) DeleteApiTenantsTenantArchivesRaWithResponse(ctx context.Context, tenant string, ra string, reqEditors ...RequestEditorFn) (*DeleteApiTenantsTenantArchivesRaResponse, error) {
+	rsp, err := c.DeleteApiTenantsTenantArchivesRa(ctx, tenant, ra, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseDeleteApiTenantsTenantArchivesRaResponse(rsp)
+}
+
 // GetApiTenantsTenantUsersWithResponse request returning *GetApiTenantsTenantUsersResponse
 func (c *ClientWithResponses) GetApiTenantsTenantUsersWithResponse(ctx context.Context, tenant string, reqEditors ...RequestEditorFn) (*GetApiTenantsTenantUsersResponse, error) {
 	rsp, err := c.GetApiTenantsTenantUsers(ctx, tenant, reqEditors...)
@@ -1850,6 +2108,58 @@ func ParsePostApiArchivesTenantRaGqlResponse(rsp *http.Response) (*PostApiArchiv
 	response := &PostApiArchivesTenantRaGqlResponse{
 		Body:         bodyBytes,
 		HTTPResponse: rsp,
+	}
+
+	return response, nil
+}
+
+// ParsePostApiTenantsTenantArchivesResponse parses an HTTP response from a PostApiTenantsTenantArchivesWithResponse call
+func ParsePostApiTenantsTenantArchivesResponse(rsp *http.Response) (*PostApiTenantsTenantArchivesResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &PostApiTenantsTenantArchivesResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest GetArchiveResp
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseDeleteApiTenantsTenantArchivesRaResponse parses an HTTP response from a DeleteApiTenantsTenantArchivesRaWithResponse call
+func ParseDeleteApiTenantsTenantArchivesRaResponse(rsp *http.Response) (*DeleteApiTenantsTenantArchivesRaResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &DeleteApiTenantsTenantArchivesRaResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest DeleteArchiveResp
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
 	}
 
 	return response, nil

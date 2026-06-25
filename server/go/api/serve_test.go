@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -100,5 +101,32 @@ func TestServeEndToEnd(t *testing.T) {
 	resp.Body.Close()
 	if len(branches.Branches) != 0 {
 		t.Fatalf("fresh archive should have no branches, got %d", len(branches.Branches))
+	}
+
+	// Define a new archive (runtime stack choice) via REST, then read it back —
+	// the flow the conformance harness uses to set up its target.
+	create, _ := http.NewRequest("POST", srv.URL+"/api/tenants/acme/archives",
+		strings.NewReader(`{"ra":"viarest","title":"Via REST","storage":{"backend":"mem"},"sequencer":{"backend":"mem"}}`))
+	create.Header.Set("Authorization", "Bearer "+tok)
+	create.Header.Set("Content-Type", "application/json")
+	resp, err = http.DefaultClient.Do(create)
+	if err != nil {
+		t.Fatalf("create request: %v", err)
+	}
+	var created GetArchiveResp
+	_ = json.NewDecoder(resp.Body).Decode(&created)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK || created.Current != "running" {
+		t.Fatalf("create archive = %d %+v, want 200 running", resp.StatusCode, created)
+	}
+	req, _ = http.NewRequest("GET", srv.URL+"/api/archives/acme/viarest", nil)
+	req.Header.Set("Authorization", "Bearer "+tok)
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("get created archive: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET created archive = %d, want 200", resp.StatusCode)
 	}
 }

@@ -144,3 +144,47 @@ func TestInvalidNameFailsLoad(t *testing.T) {
 		t.Fatal("Reconcile with an invalid tenant name should error")
 	}
 }
+
+func TestCreateAndDeleteArchive(t *testing.T) {
+	ctx := context.Background()
+	c := newCore(t, configmem.NewFrom(config.Entries{}), grantsmem.New(), "root")
+
+	st, err := c.CreateArchive(ctx, "root", "acme", "fresh", "Fresh", assembler.Spec{
+		Storage:   assembler.StorageSpec{Backend: "mem"},
+		Sequencer: assembler.SequencerSpec{Backend: "mem"},
+	})
+	if err != nil {
+		t.Fatalf("CreateArchive: %v", err)
+	}
+	if st.Current != core.StateRunning {
+		t.Fatalf("created archive state = %q, want running", st.Current)
+	}
+	if s, ok := c.StateOf("acme", "fresh"); !ok || s != core.StateRunning {
+		t.Fatalf("StateOf(fresh) = %q, %v; want running", s, ok)
+	}
+
+	// A missing sequencer backend (B_h is the key) is rejected.
+	if _, err := c.CreateArchive(ctx, "root", "acme", "bad", "", assembler.Spec{
+		Storage: assembler.StorageSpec{Backend: "mem"},
+	}); !errors.Is(err, core.ErrInvalid) {
+		t.Fatalf("missing sequencer.backend should be ErrInvalid; got %v", err)
+	}
+
+	// A non-admin cannot create.
+	_, err = c.CreateArchive(ctx, "stranger", "acme", "x", "", assembler.Spec{
+		Storage:   assembler.StorageSpec{Backend: "mem"},
+		Sequencer: assembler.SequencerSpec{Backend: "mem"},
+	})
+	var d *access.Denied
+	if !errors.As(err, &d) {
+		t.Fatalf("non-admin create should be denied; got %v", err)
+	}
+
+	// Delete removes it.
+	if err := c.DeleteArchive(ctx, "root", "acme", "fresh"); err != nil {
+		t.Fatalf("DeleteArchive: %v", err)
+	}
+	if _, ok := c.StateOf("acme", "fresh"); ok {
+		t.Fatal("archive should be gone after delete")
+	}
+}

@@ -62,6 +62,23 @@ export interface ClaimView {
   type: string;
 }
 
+export interface CreateArchiveReq {
+  ra: string;
+  sequencer: StackSequencer;
+  storage: StackStorage;
+  tenant: string;
+  title: string;
+}
+
+export interface DeleteArchiveReq {
+  ra: string;
+  tenant: string;
+}
+
+export interface DeleteArchiveResp {
+  deleted: boolean;
+}
+
 export interface EdgeView {
   direction: string;
   reference: string;
@@ -126,6 +143,19 @@ export interface RoleEntry {
 export interface SetUserDisabledReq {
   disabled: boolean;
   subject: string;
+}
+
+export interface StackSequencer {
+  backend: string;
+  dsn: string;
+  key: string;
+  path: string;
+}
+
+export interface StackStorage {
+  backend: string;
+  dir: string;
+  dsn: string;
 }
 
 export interface SubjectView {
@@ -555,6 +585,50 @@ export class Api<
         path: `/api/archives/${tenant}/${ra}/gql`,
         method: "POST",
         secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description brings it up. The stack (storage + sequencer backends) is chosen at runtime by the caller — this is what lets a test suite drive any backend. Gated by tenant-admin.
+     *
+     * @name PostApiTenantsTenantArchives
+     * @summary Defines a new archive and its persistence stack, then
+     * @request POST:/api/tenants/{tenant}/archives
+     * @secure
+     */
+    postApiTenantsTenantArchives: (
+      tenant: string,
+      data: CreateArchiveReq,
+      params: RequestParams = {},
+    ) =>
+      this.request<GetArchiveResp, void>({
+        path: `/api/tenants/${tenant}/archives`,
+        method: "POST",
+        body: data,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @name DeleteApiTenantsTenantArchivesRa
+     * @summary Stops an archive and removes its definition. Gated by tenant-admin.
+     * @request DELETE:/api/tenants/{tenant}/archives/{ra}
+     * @secure
+     */
+    deleteApiTenantsTenantArchivesRa: (
+      tenant: string,
+      ra: string,
+      params: RequestParams = {},
+    ) =>
+      this.request<DeleteArchiveResp, void>({
+        path: `/api/tenants/${tenant}/archives/${ra}`,
+        method: "DELETE",
+        secure: true,
+        format: "json",
         ...params,
       }),
 

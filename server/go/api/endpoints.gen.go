@@ -9,6 +9,8 @@ import schemafapi "github.com/flocko-motion/schemaf/api"
 // Wire up in go/main.go: app.AddApi(api.Provider)
 func Provider() {
 	schemafapi.Register(schemafapi.NewRoute[AdmitUserReq, AdmitUserResp](AdmitUserEndpoint{}, "Admits a subject into a tenant — the baseline membership", "(\"enter as valid\"). Gated by tenant-admin."))
+	schemafapi.Register(schemafapi.NewRoute[CreateArchiveReq, GetArchiveResp](CreateArchiveEndpoint{}, "Defines a new archive and its persistence stack, then", "brings it up. The stack (storage + sequencer backends) is chosen at runtime by\nthe caller — this is what lets a test suite drive any backend. Gated by tenant-admin."))
+	schemafapi.Register(schemafapi.NewRoute[DeleteArchiveReq, DeleteArchiveResp](DeleteArchiveEndpoint{}, "Stops an archive and removes its definition. Gated by tenant-admin.", ""))
 	schemafapi.Register(schemafapi.NewRoute[GetArchiveReq, GetArchiveResp](GetArchiveEndpoint{}, "Returns an archive's status: its title and current + target", "lifecycle state. Works in any state (a stopped/failed archive still reports);\nhidden (404) from a subject with no visibility into the tenant."))
 	schemafapi.Register(schemafapi.NewRoute[BranchReq, BranchResp](GetBranchEndpoint{}, "Returns one branch: its head, binding time, contributor, and history depth.", ""))
 	schemafapi.Register(schemafapi.NewRoute[ClaimReq, ClaimView](GetClaimEndpoint{}, "Returns a claim: a readable projection plus its canonical bytes.", ""))

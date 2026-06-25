@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 
 	ranke "github.com/flocko-motion/ranke-go"
@@ -47,6 +48,7 @@ var (
 	ErrNotFound    = errors.New("core: archive not found")
 	ErrReadOnly    = errors.New("core: archive is read-only")
 	ErrUnavailable = errors.New("core: archive is not running")
+	ErrInvalid     = errors.New("core: invalid request") // bad name / missing backend → 400
 )
 
 // entry is the in-memory record for one archive: its definition, current state,
@@ -247,4 +249,80 @@ func (c *Core) Status(ctx context.Context, subject, tenant, ra string) (Status, 
 		return Status{}, ErrNotFound
 	}
 	return Status{Tenant: tenant, RA: ra, Title: e.def.Title, Current: e.current, Target: e.def.Target}, nil
+}
+
+// CreateArchive defines a new archive and its persistence stack, then brings it
+// up — the runtime equivalent of a config entry, so a client (e.g. the test
+// suite) chooses the storage/sequencer backend at runtime. Gated by tenant-admin.
+// Names must be valid slugs and a sequencer backend is required (B_h is the
+// archive's key). Returns the new archive's status — Failed if its backends
+// don't assemble.
+func (c *Core) CreateArchive(ctx context.Context, actor, tenant, ra, title string, spec assembler.Spec) (Status, error) {
+	if err := c.authz.Require(ctx, access.Request{Subject: actor, Action: access.AdminTenant, Scope: grants.Tenant(tenant)}); err != nil {
+		return Status{}, err
+	}
+	if !validName(tenant) || !validName(ra) {
+		return Status{}, fmt.Errorf("%w: tenant/archive names must be valid slugs", ErrInvalid)
+	}
+	if spec.Storage.Backend == "" || spec.Sequencer.Backend == "" {
+		return Status{}, fmt.Errorf("%w: storage.backend and sequencer.backend are required", ErrInvalid)
+	}
+
+	entries, err := c.cfg.Load(ctx)
+	if err != nil {
+		return Status{}, fmt.Errorf("core: load config: %w", err)
+	}
+	p := "tenants." + tenant + ".archives." + ra + "."
+	set := func(k, v string) {
+		if v != "" {
+			entries[p+k] = v
+		}
+	}
+	set("title", title)
+	entries[p+"state"] = string(StateRunning)
+	set("storage.backend", spec.Storage.Backend)
+	set("storage.dir", spec.Storage.Dir)
+	set("storage.dsn", spec.Storage.DSN)
+	set("sequencer.backend", spec.Sequencer.Backend)
+	set("sequencer.path", spec.Sequencer.Path)
+	set("sequencer.dsn", spec.Sequencer.DSN)
+	set("sequencer.key", spec.Sequencer.Key)
+	if err := c.cfg.Save(ctx, entries); err != nil {
+		return Status{}, fmt.Errorf("core: save config: %w", err)
+	}
+	if err := c.Reconcile(ctx); err != nil { // picks up + assembles the new archive
+		return Status{}, err
+	}
+	return c.Status(ctx, actor, tenant, ra)
+}
+
+// DeleteArchive stops an archive and removes its definition. Gated by tenant-admin.
+func (c *Core) DeleteArchive(ctx context.Context, actor, tenant, ra string) error {
+	if err := c.authz.Require(ctx, access.Request{Subject: actor, Action: access.AdminTenant, Scope: grants.Tenant(tenant)}); err != nil {
+		return err
+	}
+	k := key(tenant, ra)
+	c.mu.Lock()
+	e, ok := c.reg[k]
+	if ok {
+		if e.handle != nil {
+			_ = e.handle.Close()
+		}
+		delete(c.reg, k)
+	}
+	c.mu.Unlock()
+	if !ok {
+		return ErrNotFound
+	}
+	entries, err := c.cfg.Load(ctx)
+	if err != nil {
+		return fmt.Errorf("core: load config: %w", err)
+	}
+	prefix := "tenants." + tenant + ".archives." + ra + "."
+	for ck := range entries {
+		if strings.HasPrefix(ck, prefix) {
+			delete(entries, ck)
+		}
+	}
+	return c.cfg.Save(ctx, entries)
 }
