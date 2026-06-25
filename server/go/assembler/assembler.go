@@ -13,6 +13,8 @@ package assembler
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 
 	ranke "github.com/flocko-motion/ranke-go"
@@ -32,12 +34,14 @@ type StorageSpec struct {
 	DSN     string // sqlite: data source name
 }
 
-// SequencerSpec selects and configures the BranchTableHead (B_h) backend.
+// SequencerSpec selects and configures the BranchTableHead (B_h) backend. There
+// is no default: B_h is the archive's key (the Universe is unloadable without
+// it), so where it lives must be chosen explicitly.
 type SequencerSpec struct {
-	Backend string // "mem" | "file" | "postgres"
+	Backend string // "mem" | "file" | "postgres" | "internal"
 	Path    string // file: path to the B_h cell
-	DSN     string // postgres: connection string for the B_h cell
-	Key     string // postgres: row key identifying this archive's head
+	DSN     string // postgres: connection string (an external DB) for the B_h cell
+	Key     string // postgres/internal: row key identifying this archive's head
 }
 
 // Spec is the build recipe for one archive: which 𝒰 and which B_h.
@@ -46,27 +50,65 @@ type Spec struct {
 	Sequencer SequencerSpec
 }
 
-// Assemble builds one ranke.Archive from spec: a Universe from the storage
-// backend, a BranchTableHead from the sequencer backend, composed via
-// ranke.NewArchive. The signing identity used to mint (a ranke.Contributor) is
-// supplied by the caller at AddGraph time, not here.
-func Assemble(ctx context.Context, spec Spec) (ranke.Archive, error) {
+// Deps carries live server resources that opt-in backends may draw on. The
+// default backends (mem/fs/sqlite/file/external-postgres) ignore it; only the
+// "internal" backend choices use InternalDB — the server's own Postgres, which
+// it offers (never imposes) as a place to colocate archive data.
+type Deps struct {
+	InternalDB func() *sql.DB // nil unless the server offers its internal DB
+}
+
+// Handle is an assembled archive plus the means to release it. Close shuts the
+// underlying Universe and BranchTableHead — core calls it to stop an archive
+// (the ranke.Archive does not own those backends, so it cannot close them).
+type Handle struct {
+	Archive ranke.Archive
+	u       ranke.Universe
+	bth     ranke.BranchTableHead
+}
+
+// Close releases the archive's backends (best-effort: both are attempted).
+func (h *Handle) Close() error {
+	var errs []error
+	if h.bth != nil {
+		if err := h.bth.Close(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	if h.u != nil {
+		if err := h.u.Close(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	return errors.Join(errs...)
+}
+
+// Assemble builds one archive from spec: a Universe from the storage backend, a
+// BranchTableHead from the sequencer backend, composed via ranke.NewArchive.
+// deps supplies server resources for opt-in "internal" backends. The signing
+// identity used to mint (a ranke.Contributor) is supplied by the caller at
+// AddGraph time, not here. On any failure the partially-built backends are
+// closed before returning.
+func Assemble(ctx context.Context, spec Spec, deps Deps) (*Handle, error) {
 	u, err := buildUniverse(spec.Storage)
 	if err != nil {
 		return nil, fmt.Errorf("assembler: storage: %w", err)
 	}
-	bth, err := buildSequencer(ctx, spec.Sequencer)
+	bth, err := buildSequencer(ctx, spec.Sequencer, deps)
 	if err != nil {
+		_ = u.Close()
 		return nil, fmt.Errorf("assembler: sequencer: %w", err)
 	}
 	a, err := ranke.NewArchive(ctx, u, bth)
 	if err != nil {
+		_ = bth.Close()
+		_ = u.Close()
 		return nil, fmt.Errorf("assembler: archive: %w", err)
 	}
-	return a, nil
+	return &Handle{Archive: a, u: u, bth: bth}, nil
 }
 
-// buildUniverse selects the 𝒰 backend. More backends (sqlite, s3) slot in here.
+// buildUniverse selects the 𝒰 backend. More backends (s3, …) slot in here.
 func buildUniverse(s StorageSpec) (ranke.Universe, error) {
 	switch s.Backend {
 	case "mem":
@@ -86,9 +128,10 @@ func buildUniverse(s StorageSpec) (ranke.Universe, error) {
 	}
 }
 
-// buildSequencer selects the B_h backend. "postgres" is ranke-db's own CAS cell
-// (a row in its Postgres) — the deployment's sequencing point.
-func buildSequencer(ctx context.Context, s SequencerSpec) (ranke.BranchTableHead, error) {
+// buildSequencer selects the B_h backend. "postgres" is an external DB named by
+// the archive's config; "internal" is the opt-in offer to colocate B_h in the
+// server's own Postgres (requires deps.InternalDB).
+func buildSequencer(ctx context.Context, s SequencerSpec, deps Deps) (ranke.BranchTableHead, error) {
 	switch s.Backend {
 	case "mem":
 		return seqmem.New(), nil
@@ -102,6 +145,14 @@ func buildSequencer(ctx context.Context, s SequencerSpec) (ranke.BranchTableHead
 			return nil, fmt.Errorf("postgres sequencer needs a dsn and a key")
 		}
 		return pgseq.New(ctx, s.DSN, s.Key)
+	case "internal":
+		if deps.InternalDB == nil {
+			return nil, fmt.Errorf("internal sequencer requires the server DB, which this server does not offer")
+		}
+		if s.Key == "" {
+			return nil, fmt.Errorf("internal sequencer needs a key")
+		}
+		return pgseq.NewWithConn(ctx, deps.InternalDB, s.Key)
 	default:
 		return nil, fmt.Errorf("unknown sequencer backend %q", s.Backend)
 	}

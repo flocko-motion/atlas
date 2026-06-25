@@ -2,6 +2,12 @@
 // type:    logic
 // job:     read one archive's build Spec from a flat dotted-key config map (the config→Spec bridge)
 // limits:  takes a plain map so the assembler stays config-agnostic; does not enumerate archives or resolve vault refs (-> core)
+//
+// Both storage.backend and sequencer.backend are REQUIRED — there is no silent
+// default. The sequencer especially: B_h (its stored head) is the KEY to the
+// archive — without it the content-addressed Universe has no entry point and
+// cannot be loaded, and advancing it is the mint authority. So where B_h lives
+// must be a deliberate, configured choice, never assumed.
 package assembler
 
 import (
@@ -46,7 +52,7 @@ func SpecFromConfig(entries map[string]string, name string) (Spec, error) {
 		Key:     get("sequencer.key"),
 	}
 	if seq.Backend == "" {
-		return Spec{}, fmt.Errorf("assembler: archive %q: missing sequencer.backend", name)
+		return Spec{}, fmt.Errorf("assembler: archive %q: missing sequencer.backend — B_h is the archive's key (the Universe is unloadable without it); choose where it is stored explicitly", name)
 	}
 	if seq.Backend == "postgres" && seq.Key == "" {
 		seq.Key = name // sensible default: the archive name keys its head row

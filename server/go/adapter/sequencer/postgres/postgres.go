@@ -1,17 +1,18 @@
 // package: postgres / sequencer
 // type:    adapter
-// job:     persist B_h (the branch-table head Id) as a compare-and-swap row in Postgres — ranke-db as the deployment's sequencing point
-// limits:  stores 256 bits, not content (-> adapter/storage in ranke-go); the seam is ranke-go's ranke.BranchTableHead, built via sequencer.New
+// job:     persist an archive's B_h (the branch-table head Id) as a compare-and-swap row in a user-configured external Postgres
+// limits:  stores 256 bits, not content (-> adapter/storage in ranke-go); the seam is ranke-go's ranke.BranchTableHead, built via sequencer.New. This is ARCHIVE (use-case) data — it lives wherever the archive's config points, NEVER the server's internal operational DB.
 //
 // B_h is the single mutable handle in an otherwise immutable, content-addressed
 // system. ranke-go's sequencer.New turns a load/save pair into a
 // BranchTableHead, so a Postgres row backs it with no dedicated ranke-go
 // adapter. Each archive's head is one row keyed by an opaque archive key.
 //
-// Two constructors, mirroring the config/access stores:
-//   - New(ctx, dsn, key) — owns its connection (closed on Close).
-//   - NewWithConn(ctx, conn, key) — borrows a connection (e.g. schemaf's
-//     built-in Postgres), so the whole deployment sequences through one DB.
+// Two constructors:
+//   - New(ctx, dsn, key) — owns its connection (closed on Close). The common
+//     case: the archive's config names an external Postgres by DSN.
+//   - NewWithConn(ctx, conn, key) — borrows a connection, e.g. to share one
+//     external Postgres across several archives' heads.
 package postgres
 
 import (
@@ -66,8 +67,8 @@ func New(ctx context.Context, dsn, key string) (*Head, error) {
 }
 
 // NewWithConn builds a head over an existing connection supplied by conn — e.g.
-// NewWithConn(ctx, schemafdb.DB, key) to sequence through schemaf's built-in
-// Postgres. The connection is owned by the caller, so Close does not close it.
+// to share one external Postgres across several archives' heads. The connection
+// is owned by the caller, so Close does not close it.
 func NewWithConn(ctx context.Context, conn func() *sql.DB, key string) (*Head, error) {
 	return newHead(ctx, conn, key, nil)
 }
