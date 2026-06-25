@@ -37,6 +37,12 @@ func TestMapErr(t *testing.T) {
 	if !errors.Is(mapErr(core.ErrNotFound), schemafapi.ErrNotFound) {
 		t.Fatal("core.ErrNotFound should map to schemaf ErrNotFound (404)")
 	}
+	if !errors.Is(mapErr(core.ErrReadOnly), schemafapi.ErrConflict) {
+		t.Fatal("core.ErrReadOnly should map to schemaf ErrConflict (409)")
+	}
+	if !errors.Is(mapErr(core.ErrUnavailable), schemafapi.ErrUnavailable) {
+		t.Fatal("core.ErrUnavailable should map to schemaf ErrUnavailable (503)")
+	}
 	denied := &access.Denied{Subject: "alice", Reason: "no grant"}
 	got := mapErr(denied)
 	if !errors.Is(got, schemafapi.ErrForbidden) {

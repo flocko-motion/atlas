@@ -25,20 +25,23 @@ var svc *core.Core
 // Use wires the core the endpoints serve. Call once at startup before serving.
 func Use(c *core.Core) { svc = c }
 
-// mapErr translates core/access errors into schemaf's status sentinels:
-// access denial → 403 (carrying the subject id, for onboarding); not-found /
-// not-visible → 404. schemaf maps these to HTTP status; anything else → 500.
-//
-// NOTE: schemaf v1.8.1 has sentinels only for 400/403/404 — core.ErrReadOnly
-// (409) and core.ErrUnavailable (503) have no mapping yet and fall to 500.
-// They don't arise on the status/metadata path; the data-read endpoints that
-// hit them need either schemaf sentinels (a feature request) or HandleRaw.
+// mapErr translates core/access errors into schemaf's status sentinels
+// (schemaf maps these to HTTP status; anything else → 500):
+//   - *access.Denied            → 403, carrying the subject id (onboarding)
+//   - core.ErrNotFound          → 404 (also covers not-visible — existence hiding)
+//   - core.ErrReadOnly          → 409 (write refused: archive is read-only)
+//   - core.ErrUnavailable       → 503 (archive not serving)
 func mapErr(err error) error {
 	if err == nil {
 		return nil
 	}
-	if errors.Is(err, core.ErrNotFound) {
+	switch {
+	case errors.Is(err, core.ErrNotFound):
 		return schemafapi.ErrNotFound
+	case errors.Is(err, core.ErrReadOnly):
+		return schemafapi.ErrConflict
+	case errors.Is(err, core.ErrUnavailable):
+		return schemafapi.ErrUnavailable
 	}
 	var denied *access.Denied
 	if errors.As(err, &denied) {
