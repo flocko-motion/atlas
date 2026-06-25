@@ -40,7 +40,10 @@ func main() {
 	// need no DB, so we wire core synchronously here (race-free) before Run.
 	// InternalDB (lazy) lets an archive opt into the server's own Postgres.
 	authz := access.New(roots, grantsmem.New())
-	c := core.New(authz, configmem.New(), assembler.Deps{InternalDB: func() *sql.DB { return schemafdb.DB() }})
+	c := core.New(authz, configmem.New(), assembler.Deps{
+		InternalDB: func() *sql.DB { return schemafdb.DB() },
+		DataRoot:   os.Getenv("RANKE_DATA_ROOT"), // base dir for file-based archive backends
+	})
 	if err := c.Reconcile(ctx); err != nil { // empty config at boot → no archives
 		log.Fatalf("core reconcile: %v", err)
 	}

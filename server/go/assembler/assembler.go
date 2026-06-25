@@ -20,6 +20,9 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 
 	ranke "github.com/flocko-motion/ranke-go"
 	seqfile "github.com/flocko-motion/ranke-go/adapter/sequencer/file"
@@ -31,21 +34,22 @@ import (
 	pgseq "rankedb/adapter/sequencer/postgres"
 )
 
-// StorageSpec selects and configures the Universe (𝒰) backend.
+// StorageSpec selects the Universe (𝒰) backend. File-based backends (fs, sqlite)
+// take NO path: the caller never names a server-side path (that would let a
+// client read/write arbitrary locations). The server derives a predictable,
+// confined path from the archive's identity — see adapterDir.
 type StorageSpec struct {
 	Backend string // "mem" | "fs" | "sqlite"
-	Dir     string // fs: the directory holding claims + content blobs
-	DSN     string // sqlite: data source name
 }
 
-// SequencerSpec selects and configures the sequencer backend — the record of
-// B_h's history, whose latest entry is the current branch-table head. There is
-// no default: B_h is the archive's key (the Universe is unloadable without it),
-// so where the sequencer keeps it must be chosen explicitly.
+// SequencerSpec selects the sequencer backend — the record of B_h's history,
+// whose latest entry is the current branch-table head. There is no default: B_h
+// is the archive's key (the Universe is unloadable without it), so it must be
+// chosen explicitly. The file backend takes no path (derived, like StorageSpec);
+// DSN is a client-named EXTERNAL database (a connection string, not a path).
 type SequencerSpec struct {
 	Backend string // "mem" | "file" | "postgres" | "internal"
-	Path    string // file: path to the cell
-	DSN     string // postgres: connection string (an external DB) for the cell
+	DSN     string // postgres: connection string for an external DB
 	Key     string // postgres/internal: row key identifying this archive's head
 }
 
@@ -61,6 +65,7 @@ type Spec struct {
 // it offers (never imposes) as a place to colocate archive data.
 type Deps struct {
 	InternalDB func() *sql.DB // nil unless the server offers its internal DB
+	DataRoot   string         // base dir for file-based backends; "" disables them
 }
 
 // Handle is an assembled archive plus the means to release it. Close shuts the
@@ -94,12 +99,12 @@ func (h *Handle) Close() error {
 // identity used to mint (a ranke.Contributor) is supplied by the caller at
 // AddGraph time, not here. On any failure the partially-built backends are
 // closed before returning.
-func Assemble(ctx context.Context, spec Spec, deps Deps) (*Handle, error) {
-	u, err := buildUniverse(spec.Storage)
+func Assemble(ctx context.Context, tenant, ra string, spec Spec, deps Deps) (*Handle, error) {
+	u, err := buildUniverse(tenant, ra, spec.Storage, deps)
 	if err != nil {
 		return nil, fmt.Errorf("assembler: storage: %w", err)
 	}
-	seq, err := buildSequencer(ctx, spec.Sequencer, deps)
+	seq, err := buildSequencer(ctx, tenant, ra, spec.Sequencer, deps)
 	if err != nil {
 		_ = u.Close()
 		return nil, fmt.Errorf("assembler: sequencer: %w", err)
@@ -114,37 +119,64 @@ func Assemble(ctx context.Context, spec Spec, deps Deps) (*Handle, error) {
 }
 
 // buildUniverse selects the 𝒰 backend. More backends (s3, …) slot in here.
-func buildUniverse(s StorageSpec) (ranke.Universe, error) {
+// File-based backends get a server-derived, confined path (adapterDir).
+func buildUniverse(tenant, ra string, s StorageSpec, deps Deps) (ranke.Universe, error) {
 	switch s.Backend {
 	case "mem":
 		return stormem.New(), nil
 	case "fs":
-		if s.Dir == "" {
-			return nil, fmt.Errorf("fs storage needs a dir")
+		dir, err := adapterDir(deps.DataRoot, tenant, ra, "storage", "fs")
+		if err != nil {
+			return nil, err
 		}
-		return storfs.New(s.Dir)
+		return storfs.New(dir)
 	case "sqlite":
-		if s.DSN == "" {
-			return nil, fmt.Errorf("sqlite storage needs a dsn")
+		dir, err := adapterDir(deps.DataRoot, tenant, ra, "storage", "sqlite")
+		if err != nil {
+			return nil, err
 		}
-		return storsqlite.New(s.DSN)
+		return storsqlite.New(filepath.Join(dir, "store.db"))
 	default:
 		return nil, fmt.Errorf("unknown storage backend %q", s.Backend)
 	}
 }
 
+// adapterDir is the ONLY place a file-based backend's path is decided. The path
+// is fully server-owned and predictable — <data-root>/tenants/<tenant>/<ra>/
+// <type>/<adapter>/ (tenant-owned data lives under tenants/; the server keeps
+// its own under <data-root>/server/) — so a client never names a server-side
+// path. Returns an error if no data root is configured (file backends disabled)
+// or if an identity segment is unsafe (defense in depth: core already validates
+// names as slugs). The directory is created (0700, server-private).
+func adapterDir(root, tenant, ra, kind, adapter string) (string, error) {
+	if root == "" {
+		return "", errors.New("file-based backends require a configured data root (RANKE_DATA_ROOT)")
+	}
+	for _, seg := range []string{tenant, ra} {
+		if seg == "" || strings.ContainsAny(seg, `/\`) || strings.Contains(seg, "..") {
+			return "", fmt.Errorf("unsafe identity segment %q for a file path", seg)
+		}
+	}
+	dir := filepath.Join(root, "tenants", tenant, ra, kind, adapter)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", fmt.Errorf("create archive dir: %w", err)
+	}
+	return dir, nil
+}
+
 // buildSequencer selects the sequencer backend (the cell persisting B_h).
 // "postgres" is an external DB named by the archive's config; "internal" is the
 // opt-in offer to keep B_h in the server's own Postgres (requires deps.InternalDB).
-func buildSequencer(ctx context.Context, s SequencerSpec, deps Deps) (ranke.BranchTableHead, error) {
+func buildSequencer(ctx context.Context, tenant, ra string, s SequencerSpec, deps Deps) (ranke.BranchTableHead, error) {
 	switch s.Backend {
 	case "mem":
 		return seqmem.New(), nil
 	case "file":
-		if s.Path == "" {
-			return nil, fmt.Errorf("file sequencer needs a path")
+		dir, err := adapterDir(deps.DataRoot, tenant, ra, "sequencer", "file")
+		if err != nil {
+			return nil, err
 		}
-		return seqfile.New(s.Path)
+		return seqfile.New(filepath.Join(dir, "head"))
 	case "postgres":
 		if s.DSN == "" || s.Key == "" {
 			return nil, fmt.Errorf("postgres sequencer needs a dsn and a key")

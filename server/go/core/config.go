@@ -79,12 +79,9 @@ func loadArchives(entries config.Entries) ([]archiveDef, error) {
 		spec := assembler.Spec{
 			Storage: assembler.StorageSpec{
 				Backend: get("storage.backend"),
-				Dir:     get("storage.dir"),
-				DSN:     get("storage.dsn"),
 			},
 			Sequencer: assembler.SequencerSpec{
 				Backend: get("sequencer.backend"),
-				Path:    get("sequencer.path"),
 				DSN:     get("sequencer.dsn"),
 				Key:     get("sequencer.key"),
 			},

@@ -109,19 +109,19 @@ type PatchArchiveReq struct {
 
 var _ schemafapi.Endpoint[PatchArchiveReq, GetArchiveResp] = PatchArchiveEndpoint{}
 
-// StackStorage is the storage (𝒰) backend choice for a new archive.
+// StackStorage is the storage (𝒰) backend choice for a new archive. File-based
+// backends take no path — the server derives a confined one from the archive's
+// identity, so a client cannot name a server-side path.
 type StackStorage struct {
 	Backend string `json:"backend"` // mem | fs | sqlite (s3 later)
-	Dir     string `json:"dir,omitempty"`
-	DSN     string `json:"dsn,omitempty"`
 }
 
-// StackSequencer is the sequencer (B_h) backend choice for a new archive.
+// StackSequencer is the sequencer (B_h) backend choice for a new archive. DSN
+// names an EXTERNAL database (postgres only); the file backend's path is derived.
 type StackSequencer struct {
-	Backend string `json:"backend"` // mem | file | postgres | internal
-	Path    string `json:"path,omitempty"`
-	DSN     string `json:"dsn,omitempty"`
-	Key     string `json:"key,omitempty"`
+	Backend string `json:"backend"`       // mem | file | postgres | internal
+	DSN     string `json:"dsn,omitempty"` // postgres: external DB connection string
+	Key     string `json:"key,omitempty"` // postgres/internal: head row key
 }
 
 // CreateArchiveEndpoint defines a new archive and its persistence stack, then
@@ -142,8 +142,8 @@ func (CreateArchiveEndpoint) Auth() bool { return true }
 func (CreateArchiveEndpoint) Handle(ctx context.Context, req CreateArchiveReq) (GetArchiveResp, error) {
 	actor, _ := schemafapi.Subject(ctx)
 	spec := assembler.Spec{
-		Storage:   assembler.StorageSpec{Backend: req.Storage.Backend, Dir: req.Storage.Dir, DSN: req.Storage.DSN},
-		Sequencer: assembler.SequencerSpec{Backend: req.Sequencer.Backend, Path: req.Sequencer.Path, DSN: req.Sequencer.DSN, Key: req.Sequencer.Key},
+		Storage:   assembler.StorageSpec{Backend: req.Storage.Backend},
+		Sequencer: assembler.SequencerSpec{Backend: req.Sequencer.Backend, DSN: req.Sequencer.DSN, Key: req.Sequencer.Key},
 	}
 	st, err := svc.CreateArchive(ctx, actor, req.Tenant, req.RA, req.Title, spec)
 	if err != nil {

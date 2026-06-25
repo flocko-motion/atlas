@@ -144,14 +144,11 @@ type StackSequencer struct {
 	Backend string `json:"backend"`
 	Dsn     string `json:"dsn"`
 	Key     string `json:"key"`
-	Path    string `json:"path"`
 }
 
 // StackStorage defines model for StackStorage.
 type StackStorage struct {
 	Backend string `json:"backend"`
-	Dir     string `json:"dir"`
-	Dsn     string `json:"dsn"`
 }
 
 // SubjectView defines model for SubjectView.

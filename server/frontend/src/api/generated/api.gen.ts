@@ -149,13 +149,10 @@ export interface StackSequencer {
   backend: string;
   dsn: string;
   key: string;
-  path: string;
 }
 
 export interface StackStorage {
   backend: string;
-  dir: string;
-  dsn: string;
 }
 
 export interface SubjectView {

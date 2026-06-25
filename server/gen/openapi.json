@@ -444,14 +444,10 @@
           },
           "key": {
             "type": "string"
-          },
-          "path": {
-            "type": "string"
           }
         },
         "required": [
           "backend",
-          "path",
           "dsn",
           "key"
         ],
@@ -461,18 +457,10 @@
         "properties": {
           "backend": {
             "type": "string"
-          },
-          "dir": {
-            "type": "string"
-          },
-          "dsn": {
-            "type": "string"
           }
         },
         "required": [
-          "backend",
-          "dir",
-          "dsn"
+          "backend"
         ],
         "type": "object"
       },

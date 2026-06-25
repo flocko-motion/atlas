@@ -125,7 +125,7 @@ func (c *Core) reconcileEntry(ctx context.Context, e *entry) {
 	case StateRunning, StateReadonly:
 		if e.handle == nil {
 			e.current = StateStarting
-			h, err := assembler.Assemble(ctx, e.def.Spec, c.deps)
+			h, err := assembler.Assemble(ctx, e.def.Tenant, e.def.RA, e.def.Spec, c.deps)
 			if err != nil {
 				e.current, e.err = StateFailed, err
 				return
@@ -281,10 +281,7 @@ func (c *Core) CreateArchive(ctx context.Context, actor, tenant, ra, title strin
 	set("title", title)
 	entries[p+"state"] = string(StateRunning)
 	set("storage.backend", spec.Storage.Backend)
-	set("storage.dir", spec.Storage.Dir)
-	set("storage.dsn", spec.Storage.DSN)
 	set("sequencer.backend", spec.Sequencer.Backend)
-	set("sequencer.path", spec.Sequencer.Path)
 	set("sequencer.dsn", spec.Sequencer.DSN)
 	set("sequencer.key", spec.Sequencer.Key)
 	if err := c.cfg.Save(ctx, entries); err != nil {
