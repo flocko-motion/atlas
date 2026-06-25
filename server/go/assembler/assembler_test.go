@@ -44,6 +44,21 @@ func TestAssembleFsArchive(t *testing.T) {
 	}
 }
 
+func TestAssembleSqliteArchive(t *testing.T) {
+	ctx := context.Background()
+	dsn := filepath.Join(t.TempDir(), "u.db")
+	a, err := assembler.Assemble(ctx, assembler.Spec{
+		Storage:   assembler.StorageSpec{Backend: "sqlite", DSN: dsn},
+		Sequencer: assembler.SequencerSpec{Backend: "mem"},
+	})
+	if err != nil {
+		t.Fatalf("Assemble(sqlite,mem): %v", err)
+	}
+	if bs := a.Branches(ctx); len(bs) != 0 {
+		t.Fatalf("fresh sqlite archive has %d branches, want 0", len(bs))
+	}
+}
+
 func TestAssembleRejectsBadSpecs(t *testing.T) {
 	ctx := context.Background()
 	cases := []struct {
