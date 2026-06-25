@@ -31,6 +31,166 @@
         ],
         "type": "object"
       },
+      "ArchiveReadReq": {
+        "properties": {
+          "ra": {
+            "type": "string"
+          },
+          "tenant": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "tenant",
+          "ra"
+        ],
+        "type": "object"
+      },
+      "BranchReq": {
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "ra": {
+            "type": "string"
+          },
+          "tenant": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "tenant",
+          "ra",
+          "name"
+        ],
+        "type": "object"
+      },
+      "BranchResp": {
+        "properties": {
+          "contributor": {
+            "type": "string"
+          },
+          "head": {
+            "type": "string"
+          },
+          "history": {
+            "type": "integer"
+          },
+          "name": {
+            "type": "string"
+          },
+          "time": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "head",
+          "time",
+          "contributor",
+          "history"
+        ],
+        "type": "object"
+      },
+      "BranchSummary": {
+        "properties": {
+          "head": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "head"
+        ],
+        "type": "object"
+      },
+      "ClaimReq": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "ra": {
+            "type": "string"
+          },
+          "tenant": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "tenant",
+          "ra",
+          "id"
+        ],
+        "type": "object"
+      },
+      "ClaimView": {
+        "properties": {
+          "canonical": {
+            "type": "string"
+          },
+          "content_hash": {
+            "type": "string"
+          },
+          "contributor": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "edges": {
+            "items": {
+              "$ref": "#/components/schemas/EdgeView"
+            },
+            "type": "array"
+          },
+          "encoding": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "size": {
+            "type": "integer"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "type",
+          "contributor",
+          "encoding",
+          "created_at",
+          "content_hash",
+          "size",
+          "edges",
+          "canonical"
+        ],
+        "type": "object"
+      },
+      "EdgeView": {
+        "properties": {
+          "direction": {
+            "type": "string"
+          },
+          "reference": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "reference",
+          "type",
+          "direction"
+        ],
+        "type": "object"
+      },
       "GetArchiveReq": {
         "properties": {
           "ra": {
@@ -112,6 +272,20 @@
           "subject",
           "ra",
           "role"
+        ],
+        "type": "object"
+      },
+      "ListBranchesResp": {
+        "properties": {
+          "branches": {
+            "items": {
+              "$ref": "#/components/schemas/BranchSummary"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "branches"
         ],
         "type": "object"
       },
@@ -239,6 +413,21 @@
           "roles"
         ],
         "type": "object"
+      },
+      "VerificationResp": {
+        "properties": {
+          "error": {
+            "type": "string"
+          },
+          "valid": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "valid",
+          "error"
+        ],
+        "type": "object"
       }
     },
     "securitySchemes": {
@@ -363,6 +552,231 @@
           }
         ],
         "summary": "Sets an archive's target lifecycle state (start / stop /"
+      }
+    },
+    "/api/archives/{tenant}/{ra}/branches": {
+      "get": {
+        "operationId": "getApiArchivesTenantRaBranches",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "ra",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListBranchesResp"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "description": "Bad Request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Lists an archive's branches with their head ids."
+      }
+    },
+    "/api/archives/{tenant}/{ra}/branches/{name}": {
+      "get": {
+        "operationId": "getApiArchivesTenantRaBranchesName",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "ra",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BranchResp"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "description": "Bad Request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Returns one branch: its head, binding time, contributor, and history depth."
+      }
+    },
+    "/api/archives/{tenant}/{ra}/branches/{name}/verification": {
+      "get": {
+        "description": "Verification failure is a result (200, valid=false), not an HTTP error; a\nmissing branch is 404.",
+        "operationId": "getApiArchivesTenantRaBranchesNameVerification",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "ra",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VerificationResp"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "description": "Bad Request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Runs the §5.10 verification across a branch's provenance."
+      }
+    },
+    "/api/archives/{tenant}/{ra}/claims/{id}": {
+      "get": {
+        "operationId": "getApiArchivesTenantRaClaimsId",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "ra",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClaimView"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "description": "Bad Request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Returns a claim: a readable projection plus its canonical bytes."
       }
     },
     "/api/tenants/{tenant}/users": {

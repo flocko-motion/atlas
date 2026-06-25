@@ -83,4 +83,22 @@ func TestServeEndToEnd(t *testing.T) {
 	if resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("stranger GET = %d, want 404 (hidden)", resp.StatusCode)
 	}
+
+	// Read path: list branches on the running archive (fresh → empty).
+	tok, _ := schemafapi.IssueToken("root", time.Now().Add(time.Hour))
+	req, _ := http.NewRequest("GET", srv.URL+"/api/archives/acme/main/branches", nil)
+	req.Header.Set("Authorization", "Bearer "+tok)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("branches request: %v", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("root GET branches = %d, want 200", resp.StatusCode)
+	}
+	var branches ListBranchesResp
+	_ = json.NewDecoder(resp.Body).Decode(&branches)
+	resp.Body.Close()
+	if len(branches.Branches) != 0 {
+		t.Fatalf("fresh archive should have no branches, got %d", len(branches.Branches))
+	}
 }

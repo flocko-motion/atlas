@@ -20,6 +20,54 @@ export interface AdmitUserResp {
   tenant: string;
 }
 
+export interface ArchiveReadReq {
+  ra: string;
+  tenant: string;
+}
+
+export interface BranchReq {
+  name: string;
+  ra: string;
+  tenant: string;
+}
+
+export interface BranchResp {
+  contributor: string;
+  head: string;
+  history: number;
+  name: string;
+  time: string;
+}
+
+export interface BranchSummary {
+  head: string;
+  name: string;
+}
+
+export interface ClaimReq {
+  id: string;
+  ra: string;
+  tenant: string;
+}
+
+export interface ClaimView {
+  canonical: string;
+  content_hash: string;
+  contributor: string;
+  created_at: string;
+  edges: EdgeView[];
+  encoding: string;
+  id: string;
+  size: number;
+  type: string;
+}
+
+export interface EdgeView {
+  direction: string;
+  reference: string;
+  type: string;
+}
+
 export interface GetArchiveReq {
   ra: string;
   tenant: string;
@@ -44,6 +92,10 @@ export interface GrantRoleResp {
   ra: string;
   role: string;
   subject: string;
+}
+
+export interface ListBranchesResp {
+  branches: BranchSummary[];
 }
 
 export type ListSubjectsReq = object;
@@ -84,6 +136,11 @@ export interface SubjectView {
 export interface TenantUser {
   roles: RoleEntry[];
   subject: string;
+}
+
+export interface VerificationResp {
+  error: string;
+  valid: boolean;
 }
 
 export type QueryParamsType = Record<string | number, any>;
@@ -390,6 +447,93 @@ export class Api<
         body: data,
         secure: true,
         type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @name GetApiArchivesTenantRaBranches
+     * @summary Lists an archive's branches with their head ids.
+     * @request GET:/api/archives/{tenant}/{ra}/branches
+     * @secure
+     */
+    getApiArchivesTenantRaBranches: (
+      tenant: string,
+      ra: string,
+      params: RequestParams = {},
+    ) =>
+      this.request<ListBranchesResp, void>({
+        path: `/api/archives/${tenant}/${ra}/branches`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @name GetApiArchivesTenantRaBranchesName
+     * @summary Returns one branch: its head, binding time, contributor, and history depth.
+     * @request GET:/api/archives/{tenant}/{ra}/branches/{name}
+     * @secure
+     */
+    getApiArchivesTenantRaBranchesName: (
+      tenant: string,
+      ra: string,
+      name: string,
+      params: RequestParams = {},
+    ) =>
+      this.request<BranchResp, void>({
+        path: `/api/archives/${tenant}/${ra}/branches/${name}`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Verification failure is a result (200, valid=false), not an HTTP error; a missing branch is 404.
+     *
+     * @name GetApiArchivesTenantRaBranchesNameVerification
+     * @summary Runs the §5.10 verification across a branch's provenance.
+     * @request GET:/api/archives/{tenant}/{ra}/branches/{name}/verification
+     * @secure
+     */
+    getApiArchivesTenantRaBranchesNameVerification: (
+      tenant: string,
+      ra: string,
+      name: string,
+      params: RequestParams = {},
+    ) =>
+      this.request<VerificationResp, void>({
+        path: `/api/archives/${tenant}/${ra}/branches/${name}/verification`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @name GetApiArchivesTenantRaClaimsId
+     * @summary Returns a claim: a readable projection plus its canonical bytes.
+     * @request GET:/api/archives/{tenant}/{ra}/claims/{id}
+     * @secure
+     */
+    getApiArchivesTenantRaClaimsId: (
+      tenant: string,
+      ra: string,
+      id: string,
+      params: RequestParams = {},
+    ) =>
+      this.request<ClaimView, void>({
+        path: `/api/archives/${tenant}/${ra}/claims/${id}`,
+        method: "GET",
+        secure: true,
         format: "json",
         ...params,
       }),

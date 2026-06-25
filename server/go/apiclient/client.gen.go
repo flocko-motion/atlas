@@ -32,6 +32,41 @@ type AdmitUserResp struct {
 	Tenant  string `json:"tenant"`
 }
 
+// BranchResp defines model for BranchResp.
+type BranchResp struct {
+	Contributor string `json:"contributor"`
+	Head        string `json:"head"`
+	History     int    `json:"history"`
+	Name        string `json:"name"`
+	Time        string `json:"time"`
+}
+
+// BranchSummary defines model for BranchSummary.
+type BranchSummary struct {
+	Head string `json:"head"`
+	Name string `json:"name"`
+}
+
+// ClaimView defines model for ClaimView.
+type ClaimView struct {
+	Canonical   string     `json:"canonical"`
+	ContentHash string     `json:"content_hash"`
+	Contributor string     `json:"contributor"`
+	CreatedAt   string     `json:"created_at"`
+	Edges       []EdgeView `json:"edges"`
+	Encoding    string     `json:"encoding"`
+	Id          string     `json:"id"`
+	Size        int        `json:"size"`
+	Type        string     `json:"type"`
+}
+
+// EdgeView defines model for EdgeView.
+type EdgeView struct {
+	Direction string `json:"direction"`
+	Reference string `json:"reference"`
+	Type      string `json:"type"`
+}
+
 // GetArchiveResp defines model for GetArchiveResp.
 type GetArchiveResp struct {
 	Current string `json:"current"`
@@ -54,6 +89,11 @@ type GrantRoleResp struct {
 	Ra      string `json:"ra"`
 	Role    string `json:"role"`
 	Subject string `json:"subject"`
+}
+
+// ListBranchesResp defines model for ListBranchesResp.
+type ListBranchesResp struct {
+	Branches []BranchSummary `json:"branches"`
 }
 
 // ListSubjectsResp defines model for ListSubjectsResp.
@@ -95,6 +135,12 @@ type SubjectView struct {
 type TenantUser struct {
 	Roles   []RoleEntry `json:"roles"`
 	Subject string      `json:"subject"`
+}
+
+// VerificationResp defines model for VerificationResp.
+type VerificationResp struct {
+	Error string `json:"error"`
+	Valid bool   `json:"valid"`
 }
 
 // bearerAuthContextKey is the context key for bearerAuth security scheme
@@ -193,6 +239,18 @@ type ClientInterface interface {
 
 	PatchApiArchivesTenantRa(ctx context.Context, tenant string, ra string, body PatchApiArchivesTenantRaJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// GetApiArchivesTenantRaBranches request
+	GetApiArchivesTenantRaBranches(ctx context.Context, tenant string, ra string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetApiArchivesTenantRaBranchesName request
+	GetApiArchivesTenantRaBranchesName(ctx context.Context, tenant string, ra string, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetApiArchivesTenantRaBranchesNameVerification request
+	GetApiArchivesTenantRaBranchesNameVerification(ctx context.Context, tenant string, ra string, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetApiArchivesTenantRaClaimsId request
+	GetApiArchivesTenantRaClaimsId(ctx context.Context, tenant string, ra string, id string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// GetApiTenantsTenantUsers request
 	GetApiTenantsTenantUsers(ctx context.Context, tenant string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -244,6 +302,54 @@ func (c *Client) PatchApiArchivesTenantRaWithBody(ctx context.Context, tenant st
 
 func (c *Client) PatchApiArchivesTenantRa(ctx context.Context, tenant string, ra string, body PatchApiArchivesTenantRaJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewPatchApiArchivesTenantRaRequest(c.Server, tenant, ra, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) GetApiArchivesTenantRaBranches(ctx context.Context, tenant string, ra string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetApiArchivesTenantRaBranchesRequest(c.Server, tenant, ra)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) GetApiArchivesTenantRaBranchesName(ctx context.Context, tenant string, ra string, name string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetApiArchivesTenantRaBranchesNameRequest(c.Server, tenant, ra, name)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) GetApiArchivesTenantRaBranchesNameVerification(ctx context.Context, tenant string, ra string, name string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetApiArchivesTenantRaBranchesNameVerificationRequest(c.Server, tenant, ra, name)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) GetApiArchivesTenantRaClaimsId(ctx context.Context, tenant string, ra string, id string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetApiArchivesTenantRaClaimsIdRequest(c.Server, tenant, ra, id)
 	if err != nil {
 		return nil, err
 	}
@@ -453,6 +559,191 @@ func NewPatchApiArchivesTenantRaRequestWithBody(server string, tenant string, ra
 	}
 
 	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewGetApiArchivesTenantRaBranchesRequest generates requests for GetApiArchivesTenantRaBranches
+func NewGetApiArchivesTenantRaBranchesRequest(server string, tenant string, ra string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "tenant", tenant, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "ra", ra, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/archives/%s/%s/branches", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewGetApiArchivesTenantRaBranchesNameRequest generates requests for GetApiArchivesTenantRaBranchesName
+func NewGetApiArchivesTenantRaBranchesNameRequest(server string, tenant string, ra string, name string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "tenant", tenant, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "ra", ra, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam2 string
+
+	pathParam2, err = runtime.StyleParamWithOptions("simple", false, "name", name, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/archives/%s/%s/branches/%s", pathParam0, pathParam1, pathParam2)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewGetApiArchivesTenantRaBranchesNameVerificationRequest generates requests for GetApiArchivesTenantRaBranchesNameVerification
+func NewGetApiArchivesTenantRaBranchesNameVerificationRequest(server string, tenant string, ra string, name string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "tenant", tenant, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "ra", ra, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam2 string
+
+	pathParam2, err = runtime.StyleParamWithOptions("simple", false, "name", name, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/archives/%s/%s/branches/%s/verification", pathParam0, pathParam1, pathParam2)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewGetApiArchivesTenantRaClaimsIdRequest generates requests for GetApiArchivesTenantRaClaimsId
+func NewGetApiArchivesTenantRaClaimsIdRequest(server string, tenant string, ra string, id string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "tenant", tenant, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "ra", ra, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam2 string
+
+	pathParam2, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/archives/%s/%s/claims/%s", pathParam0, pathParam1, pathParam2)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
 
 	return req, nil
 }
@@ -758,6 +1049,18 @@ type ClientWithResponsesInterface interface {
 
 	PatchApiArchivesTenantRaWithResponse(ctx context.Context, tenant string, ra string, body PatchApiArchivesTenantRaJSONRequestBody, reqEditors ...RequestEditorFn) (*PatchApiArchivesTenantRaResponse, error)
 
+	// GetApiArchivesTenantRaBranchesWithResponse request
+	GetApiArchivesTenantRaBranchesWithResponse(ctx context.Context, tenant string, ra string, reqEditors ...RequestEditorFn) (*GetApiArchivesTenantRaBranchesResponse, error)
+
+	// GetApiArchivesTenantRaBranchesNameWithResponse request
+	GetApiArchivesTenantRaBranchesNameWithResponse(ctx context.Context, tenant string, ra string, name string, reqEditors ...RequestEditorFn) (*GetApiArchivesTenantRaBranchesNameResponse, error)
+
+	// GetApiArchivesTenantRaBranchesNameVerificationWithResponse request
+	GetApiArchivesTenantRaBranchesNameVerificationWithResponse(ctx context.Context, tenant string, ra string, name string, reqEditors ...RequestEditorFn) (*GetApiArchivesTenantRaBranchesNameVerificationResponse, error)
+
+	// GetApiArchivesTenantRaClaimsIdWithResponse request
+	GetApiArchivesTenantRaClaimsIdWithResponse(ctx context.Context, tenant string, ra string, id string, reqEditors ...RequestEditorFn) (*GetApiArchivesTenantRaClaimsIdResponse, error)
+
 	// GetApiTenantsTenantUsersWithResponse request
 	GetApiTenantsTenantUsersWithResponse(ctx context.Context, tenant string, reqEditors ...RequestEditorFn) (*GetApiTenantsTenantUsersResponse, error)
 
@@ -837,6 +1140,126 @@ func (r PatchApiArchivesTenantRaResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r PatchApiArchivesTenantRaResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type GetApiArchivesTenantRaBranchesResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *ListBranchesResp
+}
+
+// Status returns HTTPResponse.Status
+func (r GetApiArchivesTenantRaBranchesResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetApiArchivesTenantRaBranchesResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetApiArchivesTenantRaBranchesResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type GetApiArchivesTenantRaBranchesNameResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *BranchResp
+}
+
+// Status returns HTTPResponse.Status
+func (r GetApiArchivesTenantRaBranchesNameResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetApiArchivesTenantRaBranchesNameResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetApiArchivesTenantRaBranchesNameResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type GetApiArchivesTenantRaBranchesNameVerificationResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *VerificationResp
+}
+
+// Status returns HTTPResponse.Status
+func (r GetApiArchivesTenantRaBranchesNameVerificationResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetApiArchivesTenantRaBranchesNameVerificationResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetApiArchivesTenantRaBranchesNameVerificationResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type GetApiArchivesTenantRaClaimsIdResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *ClaimView
+}
+
+// Status returns HTTPResponse.Status
+func (r GetApiArchivesTenantRaClaimsIdResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetApiArchivesTenantRaClaimsIdResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetApiArchivesTenantRaClaimsIdResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -1049,6 +1472,42 @@ func (c *ClientWithResponses) PatchApiArchivesTenantRaWithResponse(ctx context.C
 	return ParsePatchApiArchivesTenantRaResponse(rsp)
 }
 
+// GetApiArchivesTenantRaBranchesWithResponse request returning *GetApiArchivesTenantRaBranchesResponse
+func (c *ClientWithResponses) GetApiArchivesTenantRaBranchesWithResponse(ctx context.Context, tenant string, ra string, reqEditors ...RequestEditorFn) (*GetApiArchivesTenantRaBranchesResponse, error) {
+	rsp, err := c.GetApiArchivesTenantRaBranches(ctx, tenant, ra, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetApiArchivesTenantRaBranchesResponse(rsp)
+}
+
+// GetApiArchivesTenantRaBranchesNameWithResponse request returning *GetApiArchivesTenantRaBranchesNameResponse
+func (c *ClientWithResponses) GetApiArchivesTenantRaBranchesNameWithResponse(ctx context.Context, tenant string, ra string, name string, reqEditors ...RequestEditorFn) (*GetApiArchivesTenantRaBranchesNameResponse, error) {
+	rsp, err := c.GetApiArchivesTenantRaBranchesName(ctx, tenant, ra, name, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetApiArchivesTenantRaBranchesNameResponse(rsp)
+}
+
+// GetApiArchivesTenantRaBranchesNameVerificationWithResponse request returning *GetApiArchivesTenantRaBranchesNameVerificationResponse
+func (c *ClientWithResponses) GetApiArchivesTenantRaBranchesNameVerificationWithResponse(ctx context.Context, tenant string, ra string, name string, reqEditors ...RequestEditorFn) (*GetApiArchivesTenantRaBranchesNameVerificationResponse, error) {
+	rsp, err := c.GetApiArchivesTenantRaBranchesNameVerification(ctx, tenant, ra, name, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetApiArchivesTenantRaBranchesNameVerificationResponse(rsp)
+}
+
+// GetApiArchivesTenantRaClaimsIdWithResponse request returning *GetApiArchivesTenantRaClaimsIdResponse
+func (c *ClientWithResponses) GetApiArchivesTenantRaClaimsIdWithResponse(ctx context.Context, tenant string, ra string, id string, reqEditors ...RequestEditorFn) (*GetApiArchivesTenantRaClaimsIdResponse, error) {
+	rsp, err := c.GetApiArchivesTenantRaClaimsId(ctx, tenant, ra, id, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetApiArchivesTenantRaClaimsIdResponse(rsp)
+}
+
 // GetApiTenantsTenantUsersWithResponse request returning *GetApiTenantsTenantUsersResponse
 func (c *ClientWithResponses) GetApiTenantsTenantUsersWithResponse(ctx context.Context, tenant string, reqEditors ...RequestEditorFn) (*GetApiTenantsTenantUsersResponse, error) {
 	rsp, err := c.GetApiTenantsTenantUsers(ctx, tenant, reqEditors...)
@@ -1169,6 +1628,110 @@ func ParsePatchApiArchivesTenantRaResponse(rsp *http.Response) (*PatchApiArchive
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
 		var dest GetArchiveResp
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetApiArchivesTenantRaBranchesResponse parses an HTTP response from a GetApiArchivesTenantRaBranchesWithResponse call
+func ParseGetApiArchivesTenantRaBranchesResponse(rsp *http.Response) (*GetApiArchivesTenantRaBranchesResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetApiArchivesTenantRaBranchesResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest ListBranchesResp
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetApiArchivesTenantRaBranchesNameResponse parses an HTTP response from a GetApiArchivesTenantRaBranchesNameWithResponse call
+func ParseGetApiArchivesTenantRaBranchesNameResponse(rsp *http.Response) (*GetApiArchivesTenantRaBranchesNameResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetApiArchivesTenantRaBranchesNameResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest BranchResp
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetApiArchivesTenantRaBranchesNameVerificationResponse parses an HTTP response from a GetApiArchivesTenantRaBranchesNameVerificationWithResponse call
+func ParseGetApiArchivesTenantRaBranchesNameVerificationResponse(rsp *http.Response) (*GetApiArchivesTenantRaBranchesNameVerificationResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetApiArchivesTenantRaBranchesNameVerificationResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest VerificationResp
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetApiArchivesTenantRaClaimsIdResponse parses an HTTP response from a GetApiArchivesTenantRaClaimsIdWithResponse call
+func ParseGetApiArchivesTenantRaClaimsIdResponse(rsp *http.Response) (*GetApiArchivesTenantRaClaimsIdResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetApiArchivesTenantRaClaimsIdResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest ClaimView
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}

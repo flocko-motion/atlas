@@ -10,10 +10,14 @@ import schemafapi "github.com/flocko-motion/schemaf/api"
 func Provider() {
 	schemafapi.Register(schemafapi.NewRoute[AdmitUserReq, AdmitUserResp](AdmitUserEndpoint{}, "Admits a subject into a tenant — the baseline membership", "(\"enter as valid\"). Gated by tenant-admin."))
 	schemafapi.Register(schemafapi.NewRoute[GetArchiveReq, GetArchiveResp](GetArchiveEndpoint{}, "Returns an archive's status: its title and current + target", "lifecycle state. Works in any state (a stopped/failed archive still reports);\nhidden (404) from a subject with no visibility into the tenant."))
+	schemafapi.Register(schemafapi.NewRoute[BranchReq, BranchResp](GetBranchEndpoint{}, "Returns one branch: its head, binding time, contributor, and history depth.", ""))
+	schemafapi.Register(schemafapi.NewRoute[ClaimReq, ClaimView](GetClaimEndpoint{}, "Returns a claim: a readable projection plus its canonical bytes.", ""))
 	schemafapi.Register(schemafapi.NewRoute[GrantRoleReq, GrantRoleResp](GrantRoleEndpoint{}, "Grants a role to a tenant user (tenant role when ra is", "empty, else an RA role). Gated by tenant-admin."))
+	schemafapi.Register(schemafapi.NewRoute[ArchiveReadReq, ListBranchesResp](ListBranchesEndpoint{}, "Lists an archive's branches with their head ids.", ""))
 	schemafapi.Register(schemafapi.NewRoute[ListSubjectsReq, ListSubjectsResp](ListSubjectsEndpoint{}, "Lists every known subject and its disabled state. Root only.", ""))
 	schemafapi.Register(schemafapi.NewRoute[ListTenantUsersReq, ListTenantUsersResp](ListTenantUsersEndpoint{}, "Lists the tenant's users and their roles. Gated by", "tenant-admin; scoped — only this tenant's grants, never other affiliations."))
 	schemafapi.Register(schemafapi.NewRoute[PatchArchiveReq, GetArchiveResp](PatchArchiveEndpoint{}, "Sets an archive's target lifecycle state (start / stop /", "set read-only) — declarative: it writes the target and core reconciles toward\nit. Gated by ra.control. Returns the archive's updated status."))
 	schemafapi.Register(schemafapi.NewRoute[GrantRoleReq, GrantRoleResp](RevokeRoleEndpoint{}, "Revokes one role from a tenant user, leaving other roles", "intact (grants are additive). Gated by tenant-admin."))
 	schemafapi.Register(schemafapi.NewRoute[SetUserDisabledReq, SubjectView](SetUserDisabledEndpoint{}, "Enables or disables a subject globally. Root only.", ""))
+	schemafapi.Register(schemafapi.NewRoute[BranchReq, VerificationResp](VerifyBranchEndpoint{}, "Runs the §5.10 verification across a branch's provenance.", "Verification failure is a result (200, valid=false), not an HTTP error; a\nmissing branch is 404."))
 }
