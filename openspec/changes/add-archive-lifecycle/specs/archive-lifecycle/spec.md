@@ -60,3 +60,26 @@ archive's lifecycle is authorized separately from reading or writing its data.
 #### Scenario: Lifecycle control does not require data access
 - **WHEN** a subject authorized for `ra.control` but with no read/write grant restarts an archive
 - **THEN** the transition is permitted even though that subject may not read or mint the archive
+
+### Requirement: Lifecycle desired-state is persisted and restored on boot
+The system SHALL persist each archive's DESIRED lifecycle state — `running`,
+`running-readonly`, or `stopped` — as durable operational state, updated by the
+`ra.control` transitions. On startup the system SHALL reconcile each archive
+toward its persisted desired state rather than defaulting every archive to
+running. The transient runtime states `starting` and `failed` SHALL NOT be
+persisted: `failed` is a runtime outcome, retried from the desired state on the
+next boot. Desired-state is a FIELD in the archive's config (persisted via the
+config store, alongside its storage/sequencer/stacking definition), updated by
+the `ra.control` transitions — not a separate store.
+
+#### Scenario: Stopped stays stopped across restarts
+- **WHEN** an archive is stopped and the server later restarts
+- **THEN** the archive remains stopped — it is not assembled or served — until explicitly started
+
+#### Scenario: Desired-running is reconciled on boot
+- **WHEN** an archive's desired state is `running` and the server restarts
+- **THEN** the core assembles it and brings it to `running` (or `failed` if assembly errors)
+
+#### Scenario: Failure is not persisted as intent
+- **WHEN** an archive with desired state `running` fails to assemble (entering `failed`) and the server restarts
+- **THEN** the core retries assembly — desired state is still `running` — rather than leaving it `failed`
