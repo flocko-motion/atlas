@@ -76,6 +76,11 @@ func New(authz *access.Authz, cfg config.Store, deps assembler.Deps) *Core {
 	return &Core{authz: authz, cfg: cfg, deps: deps, reg: map[string]*entry{}}
 }
 
+// Authz exposes the authorization engine for the API's capability-management
+// endpoints (admit/grant/revoke/disable). Grant administration is an authz
+// concern, distinct from the archive lifecycle this core supervises.
+func (c *Core) Authz() *access.Authz { return c.authz }
+
 func key(tenant, ra string) string { return tenant + "/" + ra }
 
 // Reconcile (re)loads the config and drives every configured archive toward its
