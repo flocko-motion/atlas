@@ -7,7 +7,8 @@ import (
 	"testing"
 
 	"rankedb/access"
-	pgstore "rankedb/adapter/access/postgres"
+	"rankedb/adapter/grants"
+	pgstore "rankedb/adapter/grants/postgres"
 
 	_ "github.com/lib/pq"
 )
@@ -47,7 +48,7 @@ func openStore(t *testing.T) *pgstore.Store {
 func TestStoreRoundTrip(t *testing.T) {
 	s := openStore(t)
 	ctx := context.Background()
-	ra := access.Archive("A", "main")
+	ra := grants.Archive("A", "main")
 
 	// Unknown subject: not disabled, no grants.
 	if d, err := s.Disabled(ctx, "ghost"); err != nil || d {
@@ -58,13 +59,13 @@ func TestStoreRoundTrip(t *testing.T) {
 	}
 
 	// Grants are additive: two roles on one scope coexist; re-putting is idempotent.
-	if err := s.PutGrant(ctx, access.Grant{Subject: "r", Scope: ra, Role: access.RoleRAWrite}); err != nil {
+	if err := s.PutGrant(ctx, grants.Grant{Subject: "r", Scope: ra, Role: grants.RoleRAWrite}); err != nil {
 		t.Fatalf("PutGrant write: %v", err)
 	}
-	if err := s.PutGrant(ctx, access.Grant{Subject: "r", Scope: ra, Role: access.RoleRAOperator}); err != nil {
+	if err := s.PutGrant(ctx, grants.Grant{Subject: "r", Scope: ra, Role: grants.RoleRAOperator}); err != nil {
 		t.Fatalf("PutGrant operator: %v", err)
 	}
-	if err := s.PutGrant(ctx, access.Grant{Subject: "r", Scope: ra, Role: access.RoleRAWrite}); err != nil {
+	if err := s.PutGrant(ctx, grants.Grant{Subject: "r", Scope: ra, Role: grants.RoleRAWrite}); err != nil {
 		t.Fatalf("PutGrant write (idempotent): %v", err)
 	}
 	gs, err := s.GrantsFor(ctx, "r")
@@ -84,14 +85,14 @@ func TestStoreRoundTrip(t *testing.T) {
 	}
 
 	// DeleteGrant removes only the named role, leaving the other intact.
-	if err := s.DeleteGrant(ctx, "r", ra, access.RoleRAOperator); err != nil {
+	if err := s.DeleteGrant(ctx, "r", ra, grants.RoleRAOperator); err != nil {
 		t.Fatalf("DeleteGrant operator: %v", err)
 	}
 	gs, err = s.GrantsFor(ctx, "r")
 	if err != nil {
 		t.Fatalf("GrantsFor after delete: %v", err)
 	}
-	if len(gs) != 1 || gs[0].Role != access.RoleRAWrite {
+	if len(gs) != 1 || gs[0].Role != grants.RoleRAWrite {
 		t.Fatalf("GrantsFor(r) after delete = %+v; want only the write grant", gs)
 	}
 }
@@ -103,17 +104,17 @@ func TestEngineOverPostgres(t *testing.T) {
 	ctx := context.Background()
 	a := access.New([]string{"root-sub"}, s)
 
-	if err := s.PutGrant(ctx, access.Grant{Subject: "boss", Scope: access.Tenant("A"), Role: access.RoleTenantAdmin}); err != nil {
+	if err := s.PutGrant(ctx, grants.Grant{Subject: "boss", Scope: grants.Tenant("A"), Role: grants.RoleTenantAdmin}); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
 
-	if d, _ := a.Decide(ctx, access.Request{Subject: "root-sub", Scope: access.Archive("A", "main"), Action: access.AdminRA}); !d.Allowed || d.Reason != "root" {
+	if d, _ := a.Decide(ctx, access.Request{Subject: "root-sub", Scope: grants.Archive("A", "main"), Action: access.AdminRA}); !d.Allowed || d.Reason != "root" {
 		t.Fatalf("root decision = %+v", d)
 	}
-	if d, _ := a.Decide(ctx, access.Request{Subject: "boss", Scope: access.Archive("A", "x"), Action: access.WriteRA}); !d.Allowed || d.Reason != "tenant-admin" {
+	if d, _ := a.Decide(ctx, access.Request{Subject: "boss", Scope: grants.Archive("A", "x"), Action: access.WriteRA}); !d.Allowed || d.Reason != "tenant-admin" {
 		t.Fatalf("tenant-admin decision = %+v", d)
 	}
-	if d, _ := a.Decide(ctx, access.Request{Subject: "stranger", Scope: access.Archive("A", "main"), Action: access.ReadRA}); d.Allowed || d.Reason != "no grant" {
+	if d, _ := a.Decide(ctx, access.Request{Subject: "stranger", Scope: grants.Archive("A", "main"), Action: access.ReadRA}); d.Allowed || d.Reason != "no grant" {
 		t.Fatalf("stranger decision = %+v", d)
 	}
 }

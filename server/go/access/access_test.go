@@ -6,7 +6,8 @@ import (
 	"testing"
 
 	"rankedb/access"
-	"rankedb/adapter/access/mem"
+	"rankedb/adapter/grants"
+	"rankedb/adapter/grants/mem"
 )
 
 func newAuthz(roots ...string) (*access.Authz, *mem.Store) {
@@ -14,18 +15,18 @@ func newAuthz(roots ...string) (*access.Authz, *mem.Store) {
 	return access.New(roots, store), store
 }
 
-func req(sub string, sc access.Scope, act access.Action) access.Request {
+func req(sub string, sc grants.Scope, act access.Action) access.Request {
 	return access.Request{Subject: sub, Action: act, Scope: sc}
 }
 
-func allow(t *testing.T, a *access.Authz, sub string, sc access.Scope, act access.Action) {
+func allow(t *testing.T, a *access.Authz, sub string, sc grants.Scope, act access.Action) {
 	t.Helper()
 	if err := a.Require(context.Background(), req(sub, sc, act)); err != nil {
 		t.Fatalf("expected ALLOW for %q on %+v/%s, got: %v", sub, sc, act, err)
 	}
 }
 
-func deny(t *testing.T, a *access.Authz, sub string, sc access.Scope, act access.Action) *access.Denied {
+func deny(t *testing.T, a *access.Authz, sub string, sc grants.Scope, act access.Action) *access.Denied {
 	t.Helper()
 	err := a.Require(context.Background(), req(sub, sc, act))
 	var d *access.Denied
@@ -37,13 +38,13 @@ func deny(t *testing.T, a *access.Authz, sub string, sc access.Scope, act access
 
 func TestRootOverridesEverythingEvenEmptyStore(t *testing.T) {
 	a, _ := newAuthz("root-sub")
-	allow(t, a, "root-sub", access.Tenant("A"), access.AdminTenant)
-	allow(t, a, "root-sub", access.Archive("A", "main"), access.WriteRA)
+	allow(t, a, "root-sub", grants.Tenant("A"), access.AdminTenant)
+	allow(t, a, "root-sub", grants.Archive("A", "main"), access.WriteRA)
 }
 
 func TestDefaultDenyCarriesSubject(t *testing.T) {
 	a, _ := newAuthz()
-	d := deny(t, a, "stranger", access.Archive("A", "main"), access.ReadRA)
+	d := deny(t, a, "stranger", grants.Archive("A", "main"), access.ReadRA)
 	if d.Subject != "stranger" {
 		t.Fatalf("Denied.Subject = %q, want stranger (for the 403 onboarding path)", d.Subject)
 	}
@@ -52,69 +53,69 @@ func TestDefaultDenyCarriesSubject(t *testing.T) {
 func TestRARolesLadder(t *testing.T) {
 	a, store := newAuthz()
 	ctx := context.Background()
-	ra := access.Archive("A", "main")
+	ra := grants.Archive("A", "main")
 
-	store.PutGrant(ctx, access.Grant{Subject: "r", Scope: ra, Role: access.RoleRARead})
+	store.PutGrant(ctx, grants.Grant{Subject: "r", Scope: ra, Role: grants.RoleRARead})
 	allow(t, a, "r", ra, access.ReadRA)
 	deny(t, a, "r", ra, access.WriteRA)
 
-	store.PutGrant(ctx, access.Grant{Subject: "w", Scope: ra, Role: access.RoleRAWrite})
+	store.PutGrant(ctx, grants.Grant{Subject: "w", Scope: ra, Role: grants.RoleRAWrite})
 	allow(t, a, "w", ra, access.ReadRA)
 	allow(t, a, "w", ra, access.WriteRA)
 	deny(t, a, "w", ra, access.AdminRA)
 
-	store.PutGrant(ctx, access.Grant{Subject: "ad", Scope: ra, Role: access.RoleRAAdmin})
+	store.PutGrant(ctx, grants.Grant{Subject: "ad", Scope: ra, Role: grants.RoleRAAdmin})
 	allow(t, a, "ad", ra, access.AdminRA)
 }
 
 func TestTenantAdminAuthorisesWholeTenant(t *testing.T) {
 	a, store := newAuthz()
-	store.PutGrant(context.Background(), access.Grant{
-		Subject: "boss", Scope: access.Tenant("A"), Role: access.RoleTenantAdmin,
+	store.PutGrant(context.Background(), grants.Grant{
+		Subject: "boss", Scope: grants.Tenant("A"), Role: grants.RoleTenantAdmin,
 	})
 	// Manage the tenant, and any RA action on any archive in it — without an RA grant.
-	allow(t, a, "boss", access.Tenant("A"), access.AdminTenant)
-	allow(t, a, "boss", access.Archive("A", "main"), access.WriteRA)
-	allow(t, a, "boss", access.Archive("A", "other"), access.AdminRA)
+	allow(t, a, "boss", grants.Tenant("A"), access.AdminTenant)
+	allow(t, a, "boss", grants.Archive("A", "main"), access.WriteRA)
+	allow(t, a, "boss", grants.Archive("A", "other"), access.AdminRA)
 }
 
 func TestTenantUserCannotManageOrAccessWithoutRAGrant(t *testing.T) {
 	a, store := newAuthz()
-	store.PutGrant(context.Background(), access.Grant{
-		Subject: "u", Scope: access.Tenant("A"), Role: access.RoleTenantUser,
+	store.PutGrant(context.Background(), grants.Grant{
+		Subject: "u", Scope: grants.Tenant("A"), Role: grants.RoleTenantUser,
 	})
-	deny(t, a, "u", access.Tenant("A"), access.AdminTenant)
-	deny(t, a, "u", access.Archive("A", "main"), access.ReadRA)
+	deny(t, a, "u", grants.Tenant("A"), access.AdminTenant)
+	deny(t, a, "u", grants.Archive("A", "main"), access.ReadRA)
 }
 
 func TestMultiTenantIndependentRoles(t *testing.T) {
 	a, store := newAuthz()
 	ctx := context.Background()
-	store.PutGrant(ctx, access.Grant{Subject: "x", Scope: access.Tenant("A"), Role: access.RoleTenantAdmin})
-	store.PutGrant(ctx, access.Grant{Subject: "x", Scope: access.Tenant("B"), Role: access.RoleTenantUser})
+	store.PutGrant(ctx, grants.Grant{Subject: "x", Scope: grants.Tenant("A"), Role: grants.RoleTenantAdmin})
+	store.PutGrant(ctx, grants.Grant{Subject: "x", Scope: grants.Tenant("B"), Role: grants.RoleTenantUser})
 
-	allow(t, a, "x", access.Tenant("A"), access.AdminTenant)
-	deny(t, a, "x", access.Tenant("B"), access.AdminTenant)
+	allow(t, a, "x", grants.Tenant("A"), access.AdminTenant)
+	deny(t, a, "x", grants.Tenant("B"), access.AdminTenant)
 	// Tenant-admin in A does not leak to B's archives.
-	deny(t, a, "x", access.Archive("B", "main"), access.WriteRA)
+	deny(t, a, "x", grants.Archive("B", "main"), access.WriteRA)
 }
 
 func TestDisabledSubjectDeniedDespiteGrant(t *testing.T) {
 	a, store := newAuthz()
-	store.PutGrant(context.Background(), access.Grant{
-		Subject: "gone", Scope: access.Tenant("A"), Role: access.RoleTenantAdmin,
+	store.PutGrant(context.Background(), grants.Grant{
+		Subject: "gone", Scope: grants.Tenant("A"), Role: grants.RoleTenantAdmin,
 	})
 	store.SetDisabled("gone", true)
-	deny(t, a, "gone", access.Tenant("A"), access.AdminTenant)
+	deny(t, a, "gone", grants.Tenant("A"), access.AdminTenant)
 }
 
 func TestGrantAndRevokeEnforceTenantAdmin(t *testing.T) {
 	a, store := newAuthz()
 	ctx := context.Background()
-	store.PutGrant(ctx, access.Grant{Subject: "boss", Scope: access.Tenant("A"), Role: access.RoleTenantAdmin})
-	store.PutGrant(ctx, access.Grant{Subject: "u", Scope: access.Tenant("A"), Role: access.RoleTenantUser})
+	store.PutGrant(ctx, grants.Grant{Subject: "boss", Scope: grants.Tenant("A"), Role: grants.RoleTenantAdmin})
+	store.PutGrant(ctx, grants.Grant{Subject: "u", Scope: grants.Tenant("A"), Role: grants.RoleTenantUser})
 
-	target := access.Grant{Subject: "newbie", Scope: access.Archive("A", "main"), Role: access.RoleRAWrite}
+	target := grants.Grant{Subject: "newbie", Scope: grants.Archive("A", "main"), Role: grants.RoleRAWrite}
 
 	// A tenant-user cannot grant.
 	if err := a.Grant(ctx, "u", target); err == nil {
@@ -124,13 +125,13 @@ func TestGrantAndRevokeEnforceTenantAdmin(t *testing.T) {
 	if err := a.Grant(ctx, "boss", target); err != nil {
 		t.Fatalf("tenant admin Grant: %v", err)
 	}
-	allow(t, a, "newbie", access.Archive("A", "main"), access.WriteRA)
+	allow(t, a, "newbie", grants.Archive("A", "main"), access.WriteRA)
 
 	// Revoke removes it.
-	if err := a.Revoke(ctx, "boss", "newbie", access.Archive("A", "main"), access.RoleRAWrite); err != nil {
+	if err := a.Revoke(ctx, "boss", "newbie", grants.Archive("A", "main"), grants.RoleRAWrite); err != nil {
 		t.Fatalf("Revoke: %v", err)
 	}
-	deny(t, a, "newbie", access.Archive("A", "main"), access.WriteRA)
+	deny(t, a, "newbie", grants.Archive("A", "main"), access.WriteRA)
 }
 
 // TestDecideExplainsTheAnswer pins the Decision contract: a request maps to an
@@ -139,9 +140,9 @@ func TestGrantAndRevokeEnforceTenantAdmin(t *testing.T) {
 func TestDecideExplainsTheAnswer(t *testing.T) {
 	a, store := newAuthz("root-sub")
 	ctx := context.Background()
-	store.PutGrant(ctx, access.Grant{Subject: "boss", Scope: access.Tenant("A"), Role: access.RoleTenantAdmin})
-	store.PutGrant(ctx, access.Grant{Subject: "r", Scope: access.Archive("A", "main"), Role: access.RoleRARead})
-	store.PutGrant(ctx, access.Grant{Subject: "gone", Scope: access.Tenant("A"), Role: access.RoleTenantAdmin})
+	store.PutGrant(ctx, grants.Grant{Subject: "boss", Scope: grants.Tenant("A"), Role: grants.RoleTenantAdmin})
+	store.PutGrant(ctx, grants.Grant{Subject: "r", Scope: grants.Archive("A", "main"), Role: grants.RoleRARead})
+	store.PutGrant(ctx, grants.Grant{Subject: "gone", Scope: grants.Tenant("A"), Role: grants.RoleTenantAdmin})
 	store.SetDisabled("gone", true)
 
 	cases := []struct {
@@ -150,12 +151,12 @@ func TestDecideExplainsTheAnswer(t *testing.T) {
 		wantAllowed bool
 		wantReason  string
 	}{
-		{"root", req("root-sub", access.Archive("A", "main"), access.AdminRA), true, "root"},
-		{"tenant-admin", req("boss", access.Archive("A", "x"), access.WriteRA), true, "tenant-admin"},
-		{"grant", req("r", access.Archive("A", "main"), access.ReadRA), true, "grant"},
-		{"no grant", req("r", access.Archive("A", "main"), access.WriteRA), false, "no grant"},
-		{"disabled", req("gone", access.Tenant("A"), access.AdminTenant), false, "disabled"},
-		{"unauthenticated", req("", access.Archive("A", "main"), access.ReadRA), false, "unauthenticated"},
+		{"root", req("root-sub", grants.Archive("A", "main"), access.AdminRA), true, "root"},
+		{"tenant-admin", req("boss", grants.Archive("A", "x"), access.WriteRA), true, "tenant-admin"},
+		{"grant", req("r", grants.Archive("A", "main"), access.ReadRA), true, "grant"},
+		{"no grant", req("r", grants.Archive("A", "main"), access.WriteRA), false, "no grant"},
+		{"disabled", req("gone", grants.Tenant("A"), access.AdminTenant), false, "disabled"},
+		{"unauthenticated", req("", grants.Archive("A", "main"), access.ReadRA), false, "unauthenticated"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -173,45 +174,45 @@ func TestDecideExplainsTheAnswer(t *testing.T) {
 func TestOperatorControlsLifecycleOnly(t *testing.T) {
 	a, store := newAuthz()
 	ctx := context.Background()
-	ra := access.Archive("A", "main")
+	ra := grants.Archive("A", "main")
 
 	// RA-scope operator: may control lifecycle, may NOT read or mint.
-	store.PutGrant(ctx, access.Grant{Subject: "watch", Scope: ra, Role: access.RoleRAOperator})
+	store.PutGrant(ctx, grants.Grant{Subject: "watch", Scope: ra, Role: grants.RoleRAOperator})
 	allow(t, a, "watch", ra, access.ControlRA)
 	deny(t, a, "watch", ra, access.ReadRA)
 	deny(t, a, "watch", ra, access.WriteRA)
 
 	// A writer may mint but may NOT control lifecycle (orthogonal).
-	store.PutGrant(ctx, access.Grant{Subject: "w", Scope: ra, Role: access.RoleRAWrite})
+	store.PutGrant(ctx, grants.Grant{Subject: "w", Scope: ra, Role: grants.RoleRAWrite})
 	allow(t, a, "w", ra, access.WriteRA)
 	deny(t, a, "w", ra, access.ControlRA)
 
 	// RA admin is the superuser: controls lifecycle too.
-	store.PutGrant(ctx, access.Grant{Subject: "ad", Scope: ra, Role: access.RoleRAAdmin})
+	store.PutGrant(ctx, grants.Grant{Subject: "ad", Scope: ra, Role: grants.RoleRAAdmin})
 	allow(t, a, "ad", ra, access.ControlRA)
 }
 
 func TestTenantOperatorControlsEveryArchiveInTenant(t *testing.T) {
 	a, store := newAuthz()
 	// Tenant-scope operator = a watchdog over all archives in the tenant.
-	store.PutGrant(context.Background(), access.Grant{
-		Subject: "watch", Scope: access.Tenant("A"), Role: access.RoleRAOperator,
+	store.PutGrant(context.Background(), grants.Grant{
+		Subject: "watch", Scope: grants.Tenant("A"), Role: grants.RoleRAOperator,
 	})
-	allow(t, a, "watch", access.Archive("A", "main"), access.ControlRA)
-	allow(t, a, "watch", access.Archive("A", "other"), access.ControlRA)
+	allow(t, a, "watch", grants.Archive("A", "main"), access.ControlRA)
+	allow(t, a, "watch", grants.Archive("A", "other"), access.ControlRA)
 	// But not data, and not archives in another tenant.
-	deny(t, a, "watch", access.Archive("A", "main"), access.ReadRA)
-	deny(t, a, "watch", access.Archive("B", "main"), access.ControlRA)
+	deny(t, a, "watch", grants.Archive("A", "main"), access.ReadRA)
+	deny(t, a, "watch", grants.Archive("B", "main"), access.ControlRA)
 }
 
 func TestAdditiveGrantsDoNotClobber(t *testing.T) {
 	a, store := newAuthz()
 	ctx := context.Background()
-	ra := access.Archive("A", "main")
+	ra := grants.Archive("A", "main")
 
 	// Holding write + operator on the same scope: both rights coexist.
-	store.PutGrant(ctx, access.Grant{Subject: "s", Scope: ra, Role: access.RoleRAWrite})
-	store.PutGrant(ctx, access.Grant{Subject: "s", Scope: ra, Role: access.RoleRAOperator})
+	store.PutGrant(ctx, grants.Grant{Subject: "s", Scope: ra, Role: grants.RoleRAWrite})
+	store.PutGrant(ctx, grants.Grant{Subject: "s", Scope: ra, Role: grants.RoleRAOperator})
 	allow(t, a, "s", ra, access.WriteRA)
 	allow(t, a, "s", ra, access.ControlRA)
 
@@ -220,7 +221,7 @@ func TestAdditiveGrantsDoNotClobber(t *testing.T) {
 	}
 
 	// Revoking operator leaves write intact.
-	if err := store.DeleteGrant(ctx, "s", ra, access.RoleRAOperator); err != nil {
+	if err := store.DeleteGrant(ctx, "s", ra, grants.RoleRAOperator); err != nil {
 		t.Fatalf("DeleteGrant: %v", err)
 	}
 	allow(t, a, "s", ra, access.WriteRA)

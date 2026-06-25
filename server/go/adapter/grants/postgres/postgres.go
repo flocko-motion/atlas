@@ -1,6 +1,6 @@
 // package: postgres / store
 // type:    adapter
-// job:     persist access grants + the disabled set in Postgres (an access.Store)
+// job:     persist (subject,scope,role) grants + the disabled set in Postgres (a grants.Store)
 // limits:  storage only — decisions are the engine's (-> access); identity is schemaf's, we key on the opaque subject
 //
 // One store, two constructors:
@@ -24,7 +24,7 @@ import (
 
 	schemafdb "github.com/flocko-motion/schemaf/db"
 
-	"rankedb/access"
+	"rankedb/adapter/grants"
 
 	_ "github.com/lib/pq"
 )
@@ -41,7 +41,7 @@ var migrationFiles embed.FS
 // project. Renaming it makes schemaf believe these migrations were never
 // applied and re-run them against an already-migrated database, which fails.
 var migrations = schemafdb.MigrationSet{
-	Prefix: "rankeaccess", // MUST NEVER CHANGE — permanent migration namespace
+	Prefix: "rankegrants", // MUST NEVER CHANGE — permanent migration namespace
 	Files:  migrationFiles,
 }
 
@@ -50,14 +50,14 @@ const (
 	grantsTable   = "ranke_grants"
 )
 
-// Store is the Postgres-backed access.Store. It also exposes SetDisabled (a
-// management op, not part of the read-side access.Store interface) and Close.
+// Store is the Postgres-backed grants.Store. It also exposes SetDisabled (a
+// management op, not part of the read-side grants.Store interface) and Close.
 type Store struct {
 	conn    func() *sql.DB // resolves the live connection on each use
 	closeFn func() error   // nil for a borrowed connection
 }
 
-var _ access.Store = (*Store)(nil)
+var _ grants.Store = (*Store)(nil)
 
 // New opens an access Store backed by the Postgres at dsn. The connection is
 // owned by the Store and closed on Close.
@@ -106,7 +106,7 @@ func (s *Store) Disabled(ctx context.Context, subject string) (bool, error) {
 }
 
 // GrantsFor returns all grants held by a subject (across tenants).
-func (s *Store) GrantsFor(ctx context.Context, subject string) ([]access.Grant, error) {
+func (s *Store) GrantsFor(ctx context.Context, subject string) ([]grants.Grant, error) {
 	rows, err := s.conn().QueryContext(ctx,
 		`SELECT scope_tenant, scope_ra, role FROM `+grantsTable+` WHERE subject = $1`, subject,
 	)
@@ -114,16 +114,16 @@ func (s *Store) GrantsFor(ctx context.Context, subject string) ([]access.Grant, 
 		return nil, fmt.Errorf("access/postgres: grantsFor: %w", err)
 	}
 	defer rows.Close()
-	var out []access.Grant
+	var out []grants.Grant
 	for rows.Next() {
 		var tenant, ra, role string
 		if err := rows.Scan(&tenant, &ra, &role); err != nil {
 			return nil, err
 		}
-		out = append(out, access.Grant{
+		out = append(out, grants.Grant{
 			Subject: subject,
-			Scope:   access.Scope{Tenant: tenant, RA: ra},
-			Role:    access.Role(role),
+			Scope:   grants.Scope{Tenant: tenant, RA: ra},
+			Role:    grants.Role(role),
 		})
 	}
 	return out, rows.Err()
@@ -132,7 +132,7 @@ func (s *Store) GrantsFor(ctx context.Context, subject string) ([]access.Grant, 
 // PutGrant adds the (subject, scope, role) grant idempotently. Grants are
 // additive: the conflict target is the full tuple, so adding a role leaves any
 // other roles the subject holds on that scope intact.
-func (s *Store) PutGrant(ctx context.Context, g access.Grant) error {
+func (s *Store) PutGrant(ctx context.Context, g grants.Grant) error {
 	_, err := s.conn().ExecContext(ctx,
 		`INSERT INTO `+grantsTable+` (subject, scope_tenant, scope_ra, role)
 		 VALUES ($1, $2, $3, $4)
@@ -147,7 +147,7 @@ func (s *Store) PutGrant(ctx context.Context, g access.Grant) error {
 
 // DeleteGrant removes the (subject, scope, role) grant if present, leaving any
 // other roles the subject holds on that scope intact.
-func (s *Store) DeleteGrant(ctx context.Context, subject string, scope access.Scope, role access.Role) error {
+func (s *Store) DeleteGrant(ctx context.Context, subject string, scope grants.Scope, role grants.Role) error {
 	_, err := s.conn().ExecContext(ctx,
 		`DELETE FROM `+grantsTable+` WHERE subject = $1 AND scope_tenant = $2 AND scope_ra = $3 AND role = $4`,
 		subject, scope.Tenant, scope.RA, string(role),
@@ -159,7 +159,7 @@ func (s *Store) DeleteGrant(ctx context.Context, subject string, scope access.Sc
 }
 
 // SetDisabled records whether a subject is disabled (a management op). It is
-// not part of the read-side access.Store interface.
+// not part of the read-side grants.Store interface.
 func (s *Store) SetDisabled(ctx context.Context, subject string, disabled bool) error {
 	_, err := s.conn().ExecContext(ctx,
 		`INSERT INTO `+subjectsTable+` (id, disabled) VALUES ($1, $2)
