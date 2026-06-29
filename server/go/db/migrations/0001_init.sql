@@ -1,5 +1,0 @@
--- ranke-db keeps no schemaf-managed (project-prefixed) tables: the grant,
--- config, and sequencer stores self-migrate via schemafdb.RunSet under their
--- own prefixes (rankegrants / rankeconfig / rankeseq). This placeholder exists
--- only so AddDb registers a DB-enabled app — which schemaf needs to connect the
--- database and initialise JWT auth (the signing key in _schemaf_config).

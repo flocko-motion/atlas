@@ -1,20 +1,21 @@
-# RankeDB — Agent Instructions
+# ranke-db — Agent Instructions
 
 ## What this repo is
 
-RankeDB is the **server** for the Ranke graph. It is **not** a graph implementation.
+ranke-db is the **server** for the Ranke graph — a slim, **hexagonal** wrapper around
+the `ranke-go` library. It launches **exactly one stack** from a config file and serves
+it. It is **not** a graph implementation.
 
-- The graph itself — claims, the content-addressed Universe, branches + sequencer,
-  signing, verification — lives in the **`ranke-go`** library (separate repo at
-  `../ranke-go`, module `github.com/flocko-motion/ranke-go`, wired via the Go
-  workspace `go.work`). The old in-Postgres graph (nodes/edges/runs tables,
-  L0/L1/L2 levels) has been **purged** — ranke-go owns the model now.
-- This repo provides the **server around** that library: a schemaf app exposing a
-  thin REST API over a ranke-go `Archive`, plus the control plane (config / vault /
-  sequencer adapters, the config-driven assembler, secret-zero sealing, access).
+**The boundary, always:** graph model + verification = **`ranke-go`**; server, the
+adapter ports, config, and access policy = **`ranke-db`**. Never reimplement graph logic
+here — compose the library.
 
-**The boundary, always:** graph + verification = `ranke-go`; server + control plane +
-access policy = `ranke-db`. Never reimplement graph logic here — compose the library.
+## Library: ranke-go (a versioned GitHub module)
+
+Depend on ranke-go as a normal module: `require github.com/flocko-motion/ranke-go vX.Y.Z`,
+bumped via semver. **NEVER** wire it as a sibling path, `go.work use`, or `replace` — and
+never edit a sibling `ranke-go` checkout. It provides the data model (claims, Universe,
+BranchTableHead, Archive), verification, and the **Storage** + **Sequencer** adapters.
 
 ## Read the papers first (obligatory)
 
@@ -23,81 +24,68 @@ The foundational theory lives in the separate
 (`.typ`) sources — read them before design work; they are the source of truth.
 
 - **`01-ranke-graph/ranke-graph.typ`** — the foundational model & philosophy. Required.
-- **`02-rankedb/rankedb.typ`** — the RankeDB architecture paper (landing soon).
+- **`02-rankedb/rankedb.typ`** — the RankeDB architecture paper.
 
-Run **`make docs`** to pull fresh copies into `docs/papers/` (gitignored). **Never
-diverge from the papers** — to change a concept, get explicit consensus and update
-the paper first.
+Run **`make docs`** to pull fresh copies into `docs/papers/` (gitignored). **Never diverge
+from the papers** — to change a concept, get consensus and update the paper first. The
+paper is the user's to write; do not edit it.
 
-## Library: ranke-go
+## Architecture: the hexagon (6 adapter ports)
 
-`../ranke-go`, wired via `go.work` (`use ../ranke-go`). Provides the data model
-(claims, Universe, BranchTableHead, Archive), verification, and the **storage**
-(mem/fs/sqlite/s3/minimal/rest) and **sequencer** (mem/file) adapters. ranke-db
-composes these via the assembler; it does not implement claims/universe/branches.
+One stack, assembled from one config file, no runtime reconfiguration. Admin cycle =
+edit config → run → observe → stop → edit → repeat.
 
-## Framework: schemaf
+- **Driven** (core drives them): **Storage** (𝒰) + **Sequencer** (B_h) — from ranke-go
+  (InMemory/FileSystem/S3/Postgres/neo4j and InMemory/FileSystem/Postgres); **Signer**
+  (a `crypto.Signer` for contributing claims) + **Vault** (secret KV) — here.
+- **Driving** (they drive core): **Auth** (request→subject) + **Endpoints** (REST/HTTP,
+  MCP/HTTP) — here.
+- Postgres/neo4j/S3/Azure/OpenBao are optional **external plugins**; the default mem/fs
+  path needs none.
 
-This project uses **schemaf** for all infrastructure (server, the built-in Postgres,
-Docker, codegen, frontend embedding, JWT auth). Read its docs before touching server
-plumbing:
-- README: https://raw.githubusercontent.com/flocko-motion/schemaf/refs/heads/main/README.md
-- EXTEND: https://raw.githubusercontent.com/flocko-motion/schemaf/refs/heads/main/EXTEND.md
+**Config = the composition root** (`config/`): JSON, with optional whole-file age
+encryption (decrypted by core before parse). Any string field may be `env(KEY)` or
+`vault(KEY)` — resolved at `run` (env first, then build Vault from the env-only vault
+section, then resolve `vault(...)`). `verify` parses + schema-checks only (offline; never
+touches env/vault). Accounts + grants are a **static config section**.
 
-**Golden rule:** generalize into schemaf; if you hit a schemaf gap, file an issue at
-`flocko-motion/schemaf` rather than hacking around it locally.
+**Access** (`access/`): a struct request answered by a checker — `Action ∈ {Read ⊂ Write
+⊂ Admin}` (read = query incl. Cypher-read; write = contribute; admin = privileged). No
+runtime grant mutation.
 
-Key rules:
-- **Normative structure:** Go in `go/`, API endpoints in `go/api/`, frontend in `frontend/`.
-- **Generated files:** all `*.gen.*` come from `./schemaf.sh codegen` — never hand-edit; commit them.
-- **Single binary** gateway (API + frontend), default port 7000.
-- **Built-in Postgres** stores the *control plane* (config + access), NOT the graph.
-  Our config table is created via schemaf's `RunSet` from `go/adapter/config/postgres`
-  (prefix `rankeconfig`, never rename) — not via `go/db/migrations/`.
-- **Auth** is schemaf's: JWT over an opaque subject (`api.Subject(ctx)`, `IssueToken`).
-- Commands: `./schemaf.sh codegen | dev | run | test`.
+## OpenAPI-first
 
-## Control-plane (this repo)
+`openapi/openapi.yaml` is the **single source of truth** for the REST API. `make generate`
+produces, from it:
+- **Go** server interface + models → `api/openapi.gen.go` (oapi-codegen, strict net/http)
+- **TS/JS** client → `frontend/src/api/generated/api.gen.ts`
+- **HTML** reference → `docs/api/index.html`
 
-- `go/adapter/config` — server-config datatype (`Field` provenance) + `Store` + `Cell`;
-  backends `file` (yaml/json/toml/.env, suffix-detected), `env`, `postgres`
-  (external via DSN **or** built-in via `NewWithConn(schemafdb.DB)`), `mem`.
-- `go/adapter/vault` — secret store: `Vault` (`Secret`/`Signer`) + `SignerFromPEM` +
-  `Opener` (declares `NeedsSecret`); backends `env`, `file` (no-security/testing),
-  `age` (production: age-encrypted blob held in a config `Cell`).
-- `go/seal` — boots LOCKED; secret-zero via env **or** the `/unlock` endpoint
-  (rate-limited). Only stood up when the chosen vault's `Opener.NeedsSecret()`.
-- **(to build) assembler** — config → ranke-go `Archive`(s); wires `seal.Gate.Open`
-  to the configured vault.
-- **(to build) thin REST** — schemaf endpoints over the `Archive` + `/unlock`.
-
-## Access policy
-
-schemaf does **authentication**; we do **authorization** only, enforced at the API
-(orthogonal to ranke-go verification — anyone can verify regardless). Tiers collapse to
-`root` (env-seeded break-glass) / `user` (authenticated) / `anyone` (unauth); everything
-else is a grant `(subject, scope, role)` — tenant `{user, admin}`, RA `{read, write,
-admin}`. Multi-tenant, tenant-scoped visibility, default-deny, lazy grants, 403 hands a
-user their own id. Spec'd under `openspec/`.
+Never hand-edit `*.gen.*` or the generated client — change the spec and regenerate.
 
 ## Tooling & shell conventions
 
-- **One command per invocation.** No `&&` / `;` / pipe chaining of unrelated steps —
-  separate commands read clearly, fail clearly, and avoid spurious permission prompts.
-  (If you find yourself chaining, that's a missing target — add it to a Makefile.)
-- **Explore Go with `sindri code map`, not grep** (`--grep`, `--file`, `--depth`).
-- **Lint with `sindri lint all`** before considering work done (`sindri lint deadcode|loc`).
-- **Verify our packages with `make verify`** (scoped build/vet/fmt/test of `adapter/*` +
-  `seal`). Full project: `./schemaf.sh test`.
+- **Trust the project's own tooling.** The `make` targets are built and tuned for this
+  workflow; their output is concise and meaningful. Run them **directly**.
+- **Avoid compound commands.** No `&&` / `;` chaining, and do **not** pipe target output
+  through `tail`/`grep`/`head` or redirect it to "manage" it. One command per invocation —
+  it reads clearly, fails clearly, and avoids spurious permission prompts. If you feel the
+  urge to chain or filter, that's a signal the target is missing or noisy — **fix the
+  target**, don't paper over it.
+- **`make verify`** is the green-gate (build + vet + gofmt-check + test), optimized for
+  agent use. Run it after changes instead of hand-rolled `go build`/`go test` chains.
+- **`make generate`** regenerates everything from the OpenAPI spec.
+- **`make check-tools`** reports any missing generation tool (go + node) with install hints.
 
-## Specs
+## Layout
 
-- `openspec/` — OpenSpec change proposals + capability specs (server / access / config behavior).
-- Foundational model — the `ranke-graph` paper (above).
+Classical single-module Go repo at the repo root (module `github.com/flocko-motion/rankedb`).
 
-## Key files
+- `openapi/` — the API spec (source of truth) · `api/` — generated Go server (`*.gen.go`)
+- `cmd/ranke-db/` — the binary (`run <config>`, `verify <config>`; later `tui`/config edit)
+- `core/` · `config/` · `access/` · `port/` · `adapter/<port>/` — the hexagon
+- `frontend/` — kept, but **no longer part of ranke-db** (possible future app-layer tooling)
+- `docs/`, `openspec/` — docs & specs
 
-- `go/main.go` — schemaf entry (minimal; assembler + endpoints wire here).
-- `go/adapter/`, `go/seal/` — the control-plane code.
-- `../ranke-go` — the library (the graph).
-- `openspec/` — specs.
+Status: mid-refactor on `refactor/hexagonal` — schemaf/tenants/multi-stack purged; the
+spec + `make generate`/`verify` pipeline is in place; `core`/adapters/`cmd` are being built.

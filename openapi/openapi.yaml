@@ -1,0 +1,427 @@
+openapi: 3.0.3
+
+info:
+  title: ranke-db API
+  version: 0.1.0
+  description: |
+    REST API for a single **ranke-db** stack: contribute signed claims and read
+    the verifiable graph they form.
+
+    A server hosts exactly **one stack**, launched from a config file — there is
+    no tenant or archive routing in the paths. Authentication is configurable
+    (none / JWT / API key); authorization is capability-based with a simple
+    lattice **read ⊂ write ⊂ admin**:
+
+      - **read**  — query branches, claims, run verification, Cypher reads
+      - **write** — contribute claims
+      - **admin** — privileged operations (reserved)
+
+    Claims are **content-addressed and signed**. A client *contributes* the
+    content of a claim (a node plus its edges); the server signs it with the
+    stack's configured signer (the contributor identity) and appends it. Every
+    claim is returned with its embedded **canonical signed bytes**, so any
+    response is independently verifiable — never merely reconstructable.
+
+servers:
+  - url: /
+
+security:
+  - bearerAuth: []
+  - apiKeyAuth: []
+
+paths:
+  /health:
+    get:
+      operationId: health
+      summary: Liveness and readiness of the stack
+      security: []
+      tags: [system]
+      responses:
+        "200":
+          description: The stack is up.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Health" }
+
+  /branches:
+    get:
+      operationId: listBranches
+      summary: List branches
+      description: Returns every branch with its current head. Requires `read`.
+      tags: [read]
+      responses:
+        "200":
+          description: The branches in this stack.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BranchList" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /branches/{name}:
+    parameters:
+      - $ref: "#/components/parameters/BranchName"
+    get:
+      operationId: getBranch
+      summary: Get one branch
+      description: The branch's head, contributor, time, and revision count. Requires `read`.
+      tags: [read]
+      responses:
+        "200":
+          description: The branch.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Branch" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /branches/{name}/verification:
+    parameters:
+      - $ref: "#/components/parameters/BranchName"
+    get:
+      operationId: verifyBranch
+      summary: Verify a branch
+      description: |
+        Runs full verification over the branch's claims (signatures, content
+        hashes, and closure) and reports the result. Requires `read`.
+      tags: [read]
+      responses:
+        "200":
+          description: The verification result.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Verification" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /branches/{name}/claims:
+    parameters:
+      - $ref: "#/components/parameters/BranchName"
+    post:
+      operationId: contribute
+      summary: Contribute a claim
+      description: |
+        Contribute one claim to the branch: a node (its type, encoding, and
+        content) plus any edges to existing nodes. The server signs the claim
+        with the stack's signer and appends it, advancing the branch head.
+        Returns the resulting signed claim. Requires `write`.
+
+        Edges reference nodes by **id**, which must already exist. To build a
+        relation like "alice likes apple", contribute the target node first,
+        capture its id from the response, then contribute the source node with
+        an edge to it. (Batch / atomic-subgraph contribution is a deliberate
+        open question — see the discussion notes.)
+      tags: [write]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Contribution" }
+      responses:
+        "201":
+          description: The claim was contributed and signed.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Claim" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /claims/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: The content-addressed claim id.
+        schema: { type: string }
+    get:
+      operationId: getClaim
+      summary: Get a claim by id
+      description: Returns the claim, including its embedded canonical signed bytes. Requires `read`.
+      tags: [read]
+      responses:
+        "200":
+          description: The claim.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Claim" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /gql:
+    post:
+      operationId: query
+      summary: Cypher query (read-only)
+      description: |
+        Run a read-only Cypher query against the graph. Mutation is never
+        expressed in Cypher — claims are only created via `contribute` — and a
+        query observes the **exact same filter rules** as native reads (no
+        superseded, contradicted, or out-of-closure claims). Requires `read`.
+
+        Returns `501` if the configured storage backend provides no Cypher
+        surface (only graph-native backends such as neo4j do).
+      tags: [read]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Query" }
+      responses:
+        "200":
+          description: The query result.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/QueryResult" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "501":
+          description: The configured backend has no Cypher surface.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Used when the stack's auth mode is `jwt`.
+    apiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: Used when the stack's auth mode is `apikey`. (Mode `noauth` ignores credentials.)
+
+  parameters:
+    BranchName:
+      name: name
+      in: path
+      required: true
+      description: The branch name.
+      schema: { type: string }
+
+  responses:
+    BadRequest:
+      description: The request was malformed.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Unauthorized:
+      description: Authentication is required or failed.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Forbidden:
+      description: |
+        The subject lacks the required capability. The body carries the
+        subject id so an operator can grant it in config (onboarding).
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    NotFound:
+      description: No such branch or claim.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Conflict:
+      description: The contribution conflicts with the current head.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+
+  schemas:
+    Health:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          example: ok
+        signer:
+          type: string
+          description: The contributor identity this stack signs with.
+          example: "did:key:z6Mk..."
+
+    BranchSummary:
+      type: object
+      required: [name, head]
+      properties:
+        name:
+          type: string
+        head:
+          type: string
+          description: The content-addressed head claim id.
+
+    BranchList:
+      type: object
+      required: [branches]
+      properties:
+        branches:
+          type: array
+          items: { $ref: "#/components/schemas/BranchSummary" }
+
+    Branch:
+      type: object
+      required: [name, head, history, contributor, time]
+      properties:
+        name:
+          type: string
+        head:
+          type: string
+        history:
+          type: integer
+          description: Number of head revisions recorded for this branch.
+        contributor:
+          type: string
+          description: Contributor of the head claim.
+        time:
+          type: string
+          format: date-time
+          description: Time the head was recorded.
+
+    Verification:
+      type: object
+      required: [branch, head, ok, checked]
+      properties:
+        branch:
+          type: string
+        head:
+          type: string
+        ok:
+          type: boolean
+          description: True if every checked claim verified.
+        checked:
+          type: integer
+          description: Number of claims verified.
+        failures:
+          type: array
+          description: Ids of claims that failed verification (empty when ok).
+          items: { type: string }
+
+    NodeInput:
+      type: object
+      required: [type, encoding, content]
+      properties:
+        type:
+          type: string
+          description: The node type, application-defined (e.g. person, fruit).
+          example: person
+        encoding:
+          type: string
+          description: The content encoding.
+          example: application/json
+        content:
+          type: string
+          format: byte
+          description: The node's content, base64-encoded.
+
+    EdgeInput:
+      type: object
+      required: [reference, type]
+      properties:
+        reference:
+          type: string
+          description: The id of an existing node this edge points at.
+        type:
+          type: string
+          description: The relation type.
+          example: likes
+        direction:
+          type: string
+          enum: [outgoing, incoming]
+          default: outgoing
+          description: Relation direction from this node's perspective.
+
+    Contribution:
+      type: object
+      required: [node]
+      description: The content of a claim to contribute. The server adds the contributor and signature.
+      properties:
+        node: { $ref: "#/components/schemas/NodeInput" }
+        edges:
+          type: array
+          items: { $ref: "#/components/schemas/EdgeInput" }
+
+    EdgeView:
+      type: object
+      required: [reference, type, direction]
+      properties:
+        reference:
+          type: string
+        type:
+          type: string
+        direction:
+          type: string
+          enum: [outgoing, incoming]
+
+    Claim:
+      type: object
+      required: [id, node, type, encoding, content_hash, created_at, contributor, edges, canonical]
+      properties:
+        id:
+          type: string
+          description: Content-addressed claim id.
+        node:
+          type: string
+          description: Content-addressed node id.
+        type:
+          type: string
+        encoding:
+          type: string
+        content_hash:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        contributor:
+          type: string
+        edges:
+          type: array
+          items: { $ref: "#/components/schemas/EdgeView" }
+        canonical:
+          type: string
+          format: byte
+          description: The canonical signed bytes (base64); verify the claim independently from these.
+
+    Query:
+      type: object
+      required: [query]
+      properties:
+        query:
+          type: string
+          description: A read-only Cypher query.
+        parameters:
+          type: object
+          additionalProperties: true
+          description: Optional named query parameters.
+
+    QueryResult:
+      type: object
+      required: [columns, rows]
+      properties:
+        columns:
+          type: array
+          items: { type: string }
+        rows:
+          type: array
+          description: Row-major result; each row aligns with columns.
+          items:
+            type: array
+            items: {}
+
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+          description: Human-readable message.
+        subject:
+          type: string
+          description: On 403, the subject id to grant in config.
