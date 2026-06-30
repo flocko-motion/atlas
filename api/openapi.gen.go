@@ -12,6 +12,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"path"
@@ -22,59 +23,46 @@ import (
 	"github.com/oapi-codegen/runtime"
 )
 
+// Defines values for VerificationFailureMode.
 const (
-	ApiKeyAuthScopes apiKeyAuthContextKey = "apiKeyAuth.Scopes"
-	BearerAuthScopes bearerAuthContextKey = "bearerAuth.Scopes"
+	CorruptBytes   VerificationFailureMode = "corrupt-bytes"
+	InvalidContent VerificationFailureMode = "invalid-content"
 )
 
-// Defines values for EdgeInputDirection.
-const (
-	EdgeInputDirectionIncoming EdgeInputDirection = "incoming"
-	EdgeInputDirectionOutgoing EdgeInputDirection = "outgoing"
-)
-
-// Valid indicates whether the value is a known member of the EdgeInputDirection enum.
-func (e EdgeInputDirection) Valid() bool {
+// Valid indicates whether the value is a known member of the VerificationFailureMode enum.
+func (e VerificationFailureMode) Valid() bool {
 	switch e {
-	case EdgeInputDirectionIncoming:
+	case CorruptBytes:
 		return true
-	case EdgeInputDirectionOutgoing:
+	case InvalidContent:
 		return true
 	default:
 		return false
 	}
 }
 
-// Defines values for EdgeViewDirection.
+// Defines values for VerificationReportStatus.
 const (
-	EdgeViewDirectionIncoming EdgeViewDirection = "incoming"
-	EdgeViewDirectionOutgoing EdgeViewDirection = "outgoing"
+	VerificationReportStatusComplete VerificationReportStatus = "complete"
+	VerificationReportStatusError    VerificationReportStatus = "error"
+	VerificationReportStatusRunning  VerificationReportStatus = "running"
+	VerificationReportStatusStopped  VerificationReportStatus = "stopped"
 )
 
-// Valid indicates whether the value is a known member of the EdgeViewDirection enum.
-func (e EdgeViewDirection) Valid() bool {
+// Valid indicates whether the value is a known member of the VerificationReportStatus enum.
+func (e VerificationReportStatus) Valid() bool {
 	switch e {
-	case EdgeViewDirectionIncoming:
+	case VerificationReportStatusComplete:
 		return true
-	case EdgeViewDirectionOutgoing:
+	case VerificationReportStatusError:
+		return true
+	case VerificationReportStatusRunning:
+		return true
+	case VerificationReportStatusStopped:
 		return true
 	default:
 		return false
 	}
-}
-
-// Branch defines model for Branch.
-type Branch struct {
-	// Contributor Contributor of the head claim.
-	Contributor string `json:"contributor"`
-	Head        string `json:"head"`
-
-	// History Number of head revisions recorded for this branch.
-	History int    `json:"history"`
-	Name    string `json:"name"`
-
-	// Time Time the head was recorded.
-	Time time.Time `json:"time"`
 }
 
 // BranchList defines model for BranchList.
@@ -89,54 +77,11 @@ type BranchSummary struct {
 	Name string `json:"name"`
 }
 
-// Claim defines model for Claim.
-type Claim struct {
-	// Canonical The canonical signed bytes (base64); verify the claim independently from these.
-	Canonical   []byte     `json:"canonical"`
-	ContentHash string     `json:"content_hash"`
-	Contributor string     `json:"contributor"`
-	CreatedAt   time.Time  `json:"created_at"`
-	Edges       []EdgeView `json:"edges"`
-	Encoding    string     `json:"encoding"`
-
-	// Id Content-addressed claim id.
-	Id string `json:"id"`
-
-	// Node Content-addressed node id.
-	Node string `json:"node"`
-	Type string `json:"type"`
+// ContributionResult The result of a contribution transaction — the ids (handles) of the appended claims.
+type ContributionResult struct {
+	// Ids Content-addressed ids of the contributed claims, in order.
+	Ids []string `json:"ids"`
 }
-
-// Contribution The content of a claim to contribute. The server adds the contributor and signature.
-type Contribution struct {
-	Edges *[]EdgeInput `json:"edges,omitempty"`
-	Node  NodeInput    `json:"node"`
-}
-
-// EdgeInput defines model for EdgeInput.
-type EdgeInput struct {
-	// Direction Relation direction from this node's perspective.
-	Direction *EdgeInputDirection `json:"direction,omitempty"`
-
-	// Reference The id of an existing node this edge points at.
-	Reference string `json:"reference"`
-
-	// Type The relation type.
-	Type string `json:"type"`
-}
-
-// EdgeInputDirection Relation direction from this node's perspective.
-type EdgeInputDirection string
-
-// EdgeView defines model for EdgeView.
-type EdgeView struct {
-	Direction EdgeViewDirection `json:"direction"`
-	Reference string            `json:"reference"`
-	Type      string            `json:"type"`
-}
-
-// EdgeViewDirection defines model for EdgeView.Direction.
-type EdgeViewDirection string
 
 // Error defines model for Error.
 type Error struct {
@@ -147,27 +92,8 @@ type Error struct {
 	Subject *string `json:"subject,omitempty"`
 }
 
-// Health defines model for Health.
-type Health struct {
-	// Signer The contributor identity this stack signs with.
-	Signer *string `json:"signer,omitempty"`
-	Status string  `json:"status"`
-}
-
-// NodeInput defines model for NodeInput.
-type NodeInput struct {
-	// Content The node's content, base64-encoded.
-	Content []byte `json:"content"`
-
-	// Encoding The content encoding.
-	Encoding string `json:"encoding"`
-
-	// Type The node type, application-defined (e.g. person, fruit).
-	Type string `json:"type"`
-}
-
-// Query defines model for Query.
-type Query struct {
+// GqlQuery defines model for GqlQuery.
+type GqlQuery struct {
 	// Parameters Optional named query parameters.
 	Parameters *map[string]interface{} `json:"parameters,omitempty"`
 
@@ -175,27 +101,99 @@ type Query struct {
 	Query string `json:"query"`
 }
 
-// QueryResult defines model for QueryResult.
-type QueryResult struct {
+// GqlResult defines model for GqlResult.
+type GqlResult struct {
 	Columns []string `json:"columns"`
 
 	// Rows Row-major result; each row aligns with columns.
 	Rows [][]interface{} `json:"rows"`
 }
 
-// Verification defines model for Verification.
-type Verification struct {
-	Branch string `json:"branch"`
+// Health defines model for Health.
+type Health struct {
+	// Signer The contributor identity this stack signs with.
+	Signer *string `json:"signer,omitempty"`
+	Status string  `json:"status"`
+}
 
-	// Checked Number of claims verified.
-	Checked int `json:"checked"`
+// StorageLayer defines model for StorageLayer.
+type StorageLayer struct {
+	Name string `json:"name"`
 
-	// Failures Ids of claims that failed verification (empty when ok).
-	Failures *[]string `json:"failures,omitempty"`
-	Head     string    `json:"head"`
+	// Type Adapter type (e.g. memory, filesystem, s3, postgres, neo4j).
+	Type string `json:"type"`
+}
 
-	// Ok True if every checked claim verified.
-	Ok bool `json:"ok"`
+// StorageLayerList defines model for StorageLayerList.
+type StorageLayerList struct {
+	// Layers Read-through tiers, top (cache) to bottom (authoritative).
+	Layers []StorageLayer `json:"layers"`
+}
+
+// VerificationConfig Parameters for a verification run — the same shape whether declared in
+// the stack config (scheduled/automatic) or posted ad-hoc.
+type VerificationConfig struct {
+	// Closure Root of the closure to verify — a branch name or a claim id.
+	Closure string `json:"closure"`
+
+	// ContentThreshold Max content size, in bytes, to re-read and re-hash per claim. Larger
+	// content is skipped this run (the claim's signature is still checked).
+	// Omit to verify all content regardless of size.
+	ContentThreshold *int `json:"contentThreshold,omitempty"`
+
+	// Layer Storage layer (by name) to read directly. Omit to read the composed
+	// read-through view — which may mask the loss of an object on a deeper
+	// layer, so name a layer to verify it without blind spots.
+	Layer *string `json:"layer,omitempty"`
+}
+
+// VerificationFailure defines model for VerificationFailure.
+type VerificationFailure struct {
+	Detail *string `json:"detail,omitempty"`
+
+	// Id The claim or object id that failed.
+	Id string `json:"id"`
+
+	// Layer The layer where the failure was observed.
+	Layer string `json:"layer"`
+
+	// Mode corrupt-bytes — stored bytes don't match their hash (storage rot/loss;
+	// self-heals via read-through if a deeper layer is intact).
+	// invalid-content — the claim itself doesn't validate (e.g. bad
+	// signature); unrepairable.
+	Mode VerificationFailureMode `json:"mode"`
+}
+
+// VerificationFailureMode corrupt-bytes — stored bytes don't match their hash (storage rot/loss;
+// self-heals via read-through if a deeper layer is intact).
+// invalid-content — the claim itself doesn't validate (e.g. bad
+// signature); unrepairable.
+type VerificationFailureMode string
+
+// VerificationReport A point-in-time record of a verification run; embeds the config that produced it.
+type VerificationReport struct {
+	BytesRead     *int       `json:"bytesRead,omitempty"`
+	ClaimsChecked *int       `json:"claimsChecked,omitempty"`
+	CompletedAt   *time.Time `json:"completedAt,omitempty"`
+
+	// Config Parameters for a verification run — the same shape whether declared in
+	// the stack config (scheduled/automatic) or posted ad-hoc.
+	Config   VerificationConfig     `json:"config"`
+	Failures *[]VerificationFailure `json:"failures,omitempty"`
+	Id       string                 `json:"id"`
+
+	// Ok True when no failures were found in this run.
+	Ok        bool                     `json:"ok"`
+	StartedAt time.Time                `json:"startedAt"`
+	Status    VerificationReportStatus `json:"status"`
+}
+
+// VerificationReportStatus defines model for VerificationReport.Status.
+type VerificationReportStatus string
+
+// VerificationReportList defines model for VerificationReportList.
+type VerificationReportList struct {
+	Reports []VerificationReport `json:"reports"`
 }
 
 // BranchName defines model for BranchName.
@@ -216,41 +214,50 @@ type NotFound = Error
 // Unauthorized defines model for Unauthorized.
 type Unauthorized = Error
 
-// apiKeyAuthContextKey is the context key for apiKeyAuth security scheme
-type apiKeyAuthContextKey string
+// GqlJSONRequestBody defines body for Gql for application/json ContentType.
+type GqlJSONRequestBody = GqlQuery
 
-// bearerAuthContextKey is the context key for bearerAuth security scheme
-type bearerAuthContextKey string
-
-// ContributeJSONRequestBody defines body for Contribute for application/json ContentType.
-type ContributeJSONRequestBody = Contribution
-
-// QueryJSONRequestBody defines body for Query for application/json ContentType.
-type QueryJSONRequestBody = Query
+// StartVerificationJSONRequestBody defines body for StartVerification for application/json ContentType.
+type StartVerificationJSONRequestBody = VerificationConfig
 
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
-	// List branches
+	// List branch names with their current head
 	// (GET /branches)
 	ListBranches(w http.ResponseWriter, r *http.Request)
-	// Get one branch
-	// (GET /branches/{name})
-	GetBranch(w http.ResponseWriter, r *http.Request, name BranchName)
-	// Contribute a claim
+	// Contribute a set of claims (bulk)
 	// (POST /branches/{name}/claims)
 	Contribute(w http.ResponseWriter, r *http.Request, name BranchName)
-	// Verify a branch
-	// (GET /branches/{name}/verification)
-	VerifyBranch(w http.ResponseWriter, r *http.Request, name BranchName)
-	// Get a claim by id
-	// (GET /claims/{id})
-	GetClaim(w http.ResponseWriter, r *http.Request, id string)
-	// Cypher query (read-only)
-	// (POST /gql)
-	Query(w http.ResponseWriter, r *http.Request)
+	// Fetch a claim within a branch's closure
+	// (GET /branches/{name}/claims/{id})
+	GetClaim(w http.ResponseWriter, r *http.Request, name BranchName, id string)
+	// Contribute a single claim
+	// (PUT /branches/{name}/claims/{id})
+	PutClaim(w http.ResponseWriter, r *http.Request, name BranchName, id string)
+	// Fetch content bytes within a branch's closure
+	// (GET /branches/{name}/contents/{hash})
+	GetContent(w http.ResponseWriter, r *http.Request, name BranchName, hash string)
+	// Cypher query over a branch (optional)
+	// (POST /branches/{name}/gql)
+	Gql(w http.ResponseWriter, r *http.Request, name BranchName)
 	// Liveness and readiness of the stack
 	// (GET /health)
 	Health(w http.ResponseWriter, r *http.Request)
+	// List storage layers
+	// (GET /storage/layers)
+	ListStorageLayers(w http.ResponseWriter, r *http.Request)
+	// List verification runs
+	// (GET /verification)
+	ListVerifications(w http.ResponseWriter, r *http.Request)
+	// Start a verification run
+	// (POST /verification)
+	StartVerification(w http.ResponseWriter, r *http.Request)
+	// Stop a verification run
+	// (DELETE /verification/{reportId})
+	StopVerification(w http.ResponseWriter, r *http.Request, reportId string)
+	// Show a verification run
+	// (GET /verification/{reportId})
+	GetVerification(w http.ResponseWriter, r *http.Request, reportId string)
 }
 
 // ServerInterfaceWrapper converts contexts to parameters.
@@ -265,50 +272,8 @@ type MiddlewareFunc func(http.Handler) http.Handler
 // ListBranches operation middleware
 func (siw *ServerInterfaceWrapper) ListBranches(w http.ResponseWriter, r *http.Request) {
 
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	ctx = context.WithValue(ctx, ApiKeyAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ListBranches(w, r)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// GetBranch operation middleware
-func (siw *ServerInterfaceWrapper) GetBranch(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "name" -------------
-	var name BranchName
-
-	err = runtime.BindStyledParameterWithOptions("simple", "name", r.PathValue("name"), &name, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
-		return
-	}
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	ctx = context.WithValue(ctx, ApiKeyAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.GetBranch(w, r, name)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -333,50 +298,8 @@ func (siw *ServerInterfaceWrapper) Contribute(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	ctx = context.WithValue(ctx, ApiKeyAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.Contribute(w, r, name)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// VerifyBranch operation middleware
-func (siw *ServerInterfaceWrapper) VerifyBranch(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "name" -------------
-	var name BranchName
-
-	err = runtime.BindStyledParameterWithOptions("simple", "name", r.PathValue("name"), &name, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
-		return
-	}
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	ctx = context.WithValue(ctx, ApiKeyAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.VerifyBranch(w, r, name)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -392,6 +315,15 @@ func (siw *ServerInterfaceWrapper) GetClaim(w http.ResponseWriter, r *http.Reque
 	var err error
 	_ = err
 
+	// ------------- Path parameter "name" -------------
+	var name BranchName
+
+	err = runtime.BindStyledParameterWithOptions("simple", "name", r.PathValue("name"), &name, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
 	// ------------- Path parameter "id" -------------
 	var id string
 
@@ -401,16 +333,8 @@ func (siw *ServerInterfaceWrapper) GetClaim(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	ctx = context.WithValue(ctx, ApiKeyAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.GetClaim(w, r, id)
+		siw.Handler.GetClaim(w, r, name, id)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -420,19 +344,93 @@ func (siw *ServerInterfaceWrapper) GetClaim(w http.ResponseWriter, r *http.Reque
 	handler.ServeHTTP(w, r)
 }
 
-// Query operation middleware
-func (siw *ServerInterfaceWrapper) Query(w http.ResponseWriter, r *http.Request) {
+// PutClaim operation middleware
+func (siw *ServerInterfaceWrapper) PutClaim(w http.ResponseWriter, r *http.Request) {
 
-	ctx := r.Context()
+	var err error
+	_ = err
 
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+	// ------------- Path parameter "name" -------------
+	var name BranchName
 
-	ctx = context.WithValue(ctx, ApiKeyAuthScopes, []string{})
+	err = runtime.BindStyledParameterWithOptions("simple", "name", r.PathValue("name"), &name, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
 
-	r = r.WithContext(ctx)
+	// ------------- Path parameter "id" -------------
+	var id string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.Query(w, r)
+		siw.Handler.PutClaim(w, r, name, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetContent operation middleware
+func (siw *ServerInterfaceWrapper) GetContent(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "name" -------------
+	var name BranchName
+
+	err = runtime.BindStyledParameterWithOptions("simple", "name", r.PathValue("name"), &name, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "hash" -------------
+	var hash string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "hash", r.PathValue("hash"), &hash, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "hash", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetContent(w, r, name, hash)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// Gql operation middleware
+func (siw *ServerInterfaceWrapper) Gql(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "name" -------------
+	var name BranchName
+
+	err = runtime.BindStyledParameterWithOptions("simple", "name", r.PathValue("name"), &name, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.Gql(w, r, name)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -447,6 +445,100 @@ func (siw *ServerInterfaceWrapper) Health(w http.ResponseWriter, r *http.Request
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.Health(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListStorageLayers operation middleware
+func (siw *ServerInterfaceWrapper) ListStorageLayers(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListStorageLayers(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListVerifications operation middleware
+func (siw *ServerInterfaceWrapper) ListVerifications(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListVerifications(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// StartVerification operation middleware
+func (siw *ServerInterfaceWrapper) StartVerification(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.StartVerification(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// StopVerification operation middleware
+func (siw *ServerInterfaceWrapper) StopVerification(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "reportId" -------------
+	var reportId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "reportId", r.PathValue("reportId"), &reportId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "reportId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.StopVerification(w, r, reportId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetVerification operation middleware
+func (siw *ServerInterfaceWrapper) GetVerification(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "reportId" -------------
+	var reportId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "reportId", r.PathValue("reportId"), &reportId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "reportId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetVerification(w, r, reportId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -577,12 +669,17 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	}
 
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/branches", wrapper.ListBranches)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/branches/{name}", wrapper.GetBranch)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/branches/{name}/claims", wrapper.Contribute)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/branches/{name}/verification", wrapper.VerifyBranch)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/claims/{id}", wrapper.GetClaim)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/gql", wrapper.Query)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/branches/{name}/claims/{id}", wrapper.GetClaim)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/branches/{name}/claims/{id}", wrapper.PutClaim)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/branches/{name}/contents/{hash}", wrapper.GetContent)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/branches/{name}/gql", wrapper.Gql)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/health", wrapper.Health)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/storage/layers", wrapper.ListStorageLayers)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/verification", wrapper.ListVerifications)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/verification", wrapper.StartVerification)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/verification/{reportId}", wrapper.StopVerification)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/verification/{reportId}", wrapper.GetVerification)
 
 	return m
 }
@@ -646,80 +743,16 @@ func (response ListBranches403JSONResponse) VisitListBranchesResponse(w http.Res
 	return err
 }
 
-type GetBranchRequestObject struct {
-	Name BranchName `json:"name"`
-}
-
-type GetBranchResponseObject interface {
-	VisitGetBranchResponse(w http.ResponseWriter) error
-}
-
-type GetBranch200JSONResponse Branch
-
-func (response GetBranch200JSONResponse) VisitGetBranchResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(200)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type GetBranch401JSONResponse struct{ UnauthorizedJSONResponse }
-
-func (response GetBranch401JSONResponse) VisitGetBranchResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(401)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type GetBranch403JSONResponse struct{ ForbiddenJSONResponse }
-
-func (response GetBranch403JSONResponse) VisitGetBranchResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(403)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type GetBranch404JSONResponse struct{ NotFoundJSONResponse }
-
-func (response GetBranch404JSONResponse) VisitGetBranchResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(404)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
 type ContributeRequestObject struct {
 	Name BranchName `json:"name"`
-	Body *ContributeJSONRequestBody
+	Body io.Reader
 }
 
 type ContributeResponseObject interface {
 	VisitContributeResponse(w http.ResponseWriter) error
 }
 
-type Contribute201JSONResponse Claim
+type Contribute201JSONResponse ContributionResult
 
 func (response Contribute201JSONResponse) VisitContributeResponse(w http.ResponseWriter) error {
 
@@ -803,89 +836,32 @@ func (response Contribute409JSONResponse) VisitContributeResponse(w http.Respons
 	return err
 }
 
-type VerifyBranchRequestObject struct {
-	Name BranchName `json:"name"`
-}
-
-type VerifyBranchResponseObject interface {
-	VisitVerifyBranchResponse(w http.ResponseWriter) error
-}
-
-type VerifyBranch200JSONResponse Verification
-
-func (response VerifyBranch200JSONResponse) VisitVerifyBranchResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(200)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type VerifyBranch401JSONResponse struct{ UnauthorizedJSONResponse }
-
-func (response VerifyBranch401JSONResponse) VisitVerifyBranchResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(401)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type VerifyBranch403JSONResponse struct{ ForbiddenJSONResponse }
-
-func (response VerifyBranch403JSONResponse) VisitVerifyBranchResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(403)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type VerifyBranch404JSONResponse struct{ NotFoundJSONResponse }
-
-func (response VerifyBranch404JSONResponse) VisitVerifyBranchResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(404)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
 type GetClaimRequestObject struct {
-	Id string `json:"id"`
+	Name BranchName `json:"name"`
+	Id   string     `json:"id"`
 }
 
 type GetClaimResponseObject interface {
 	VisitGetClaimResponse(w http.ResponseWriter) error
 }
 
-type GetClaim200JSONResponse Claim
+type GetClaim200ApplicationcborResponse struct {
+	Body          io.Reader
+	ContentLength int64
+}
 
-func (response GetClaim200JSONResponse) VisitGetClaimResponse(w http.ResponseWriter) error {
+func (response GetClaim200ApplicationcborResponse) VisitGetClaimResponse(w http.ResponseWriter) error {
 
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
+	w.Header().Set("Content-Type", "application/cbor")
+	if response.ContentLength != 0 {
+		w.Header().Set("Content-Length", fmt.Sprint(response.ContentLength))
 	}
-	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(200)
-	_, err := buf.WriteTo(w)
+
+	if closer, ok := response.Body.(io.ReadCloser); ok {
+		defer closer.Close()
+	}
+	_, err := io.Copy(w, response.Body)
 	return err
 }
 
@@ -931,31 +907,41 @@ func (response GetClaim404JSONResponse) VisitGetClaimResponse(w http.ResponseWri
 	return err
 }
 
-type QueryRequestObject struct {
-	Body *QueryJSONRequestBody
+type PutClaimRequestObject struct {
+	Name BranchName `json:"name"`
+	Id   string     `json:"id"`
+	Body io.Reader
 }
 
-type QueryResponseObject interface {
-	VisitQueryResponse(w http.ResponseWriter) error
+type PutClaimResponseObject interface {
+	VisitPutClaimResponse(w http.ResponseWriter) error
 }
 
-type Query200JSONResponse QueryResult
+type PutClaim204Response struct {
+}
 
-func (response Query200JSONResponse) VisitQueryResponse(w http.ResponseWriter) error {
+func (response PutClaim204Response) VisitPutClaimResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type PutClaim400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response PutClaim400JSONResponse) VisitPutClaimResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
 		return err
 	}
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(200)
+	w.WriteHeader(400)
 	_, err := buf.WriteTo(w)
 	return err
 }
 
-type Query401JSONResponse struct{ UnauthorizedJSONResponse }
+type PutClaim401JSONResponse struct{ UnauthorizedJSONResponse }
 
-func (response Query401JSONResponse) VisitQueryResponse(w http.ResponseWriter) error {
+func (response PutClaim401JSONResponse) VisitPutClaimResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -967,9 +953,9 @@ func (response Query401JSONResponse) VisitQueryResponse(w http.ResponseWriter) e
 	return err
 }
 
-type Query403JSONResponse struct{ ForbiddenJSONResponse }
+type PutClaim403JSONResponse struct{ ForbiddenJSONResponse }
 
-func (response Query403JSONResponse) VisitQueryResponse(w http.ResponseWriter) error {
+func (response PutClaim403JSONResponse) VisitPutClaimResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -981,9 +967,173 @@ func (response Query403JSONResponse) VisitQueryResponse(w http.ResponseWriter) e
 	return err
 }
 
-type Query501JSONResponse Error
+type PutClaim404JSONResponse struct{ NotFoundJSONResponse }
 
-func (response Query501JSONResponse) VisitQueryResponse(w http.ResponseWriter) error {
+func (response PutClaim404JSONResponse) VisitPutClaimResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PutClaim409JSONResponse struct{ ConflictJSONResponse }
+
+func (response PutClaim409JSONResponse) VisitPutClaimResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetContentRequestObject struct {
+	Name BranchName `json:"name"`
+	Hash string     `json:"hash"`
+}
+
+type GetContentResponseObject interface {
+	VisitGetContentResponse(w http.ResponseWriter) error
+}
+
+type GetContent200ApplicationoctetStreamResponse struct {
+	Body          io.Reader
+	ContentLength int64
+}
+
+func (response GetContent200ApplicationoctetStreamResponse) VisitGetContentResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", "application/octet-stream")
+	if response.ContentLength != 0 {
+		w.Header().Set("Content-Length", fmt.Sprint(response.ContentLength))
+	}
+	w.WriteHeader(200)
+
+	if closer, ok := response.Body.(io.ReadCloser); ok {
+		defer closer.Close()
+	}
+	_, err := io.Copy(w, response.Body)
+	return err
+}
+
+type GetContent401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response GetContent401JSONResponse) VisitGetContentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetContent403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response GetContent403JSONResponse) VisitGetContentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetContent404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response GetContent404JSONResponse) VisitGetContentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GqlRequestObject struct {
+	Name BranchName `json:"name"`
+	Body *GqlJSONRequestBody
+}
+
+type GqlResponseObject interface {
+	VisitGqlResponse(w http.ResponseWriter) error
+}
+
+type Gql200JSONResponse GqlResult
+
+func (response Gql200JSONResponse) VisitGqlResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type Gql401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response Gql401JSONResponse) VisitGqlResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type Gql403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response Gql403JSONResponse) VisitGqlResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type Gql404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response Gql404JSONResponse) VisitGqlResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type Gql501JSONResponse Error
+
+func (response Gql501JSONResponse) VisitGqlResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -1016,29 +1166,334 @@ func (response Health200JSONResponse) VisitHealthResponse(w http.ResponseWriter)
 	return err
 }
 
+type ListStorageLayersRequestObject struct {
+}
+
+type ListStorageLayersResponseObject interface {
+	VisitListStorageLayersResponse(w http.ResponseWriter) error
+}
+
+type ListStorageLayers200JSONResponse StorageLayerList
+
+func (response ListStorageLayers200JSONResponse) VisitListStorageLayersResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListStorageLayers401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response ListStorageLayers401JSONResponse) VisitListStorageLayersResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListStorageLayers403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response ListStorageLayers403JSONResponse) VisitListStorageLayersResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListVerificationsRequestObject struct {
+}
+
+type ListVerificationsResponseObject interface {
+	VisitListVerificationsResponse(w http.ResponseWriter) error
+}
+
+type ListVerifications200JSONResponse VerificationReportList
+
+func (response ListVerifications200JSONResponse) VisitListVerificationsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListVerifications401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response ListVerifications401JSONResponse) VisitListVerificationsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListVerifications403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response ListVerifications403JSONResponse) VisitListVerificationsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StartVerificationRequestObject struct {
+	Body *StartVerificationJSONRequestBody
+}
+
+type StartVerificationResponseObject interface {
+	VisitStartVerificationResponse(w http.ResponseWriter) error
+}
+
+type StartVerification202JSONResponse VerificationReport
+
+func (response StartVerification202JSONResponse) VisitStartVerificationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(202)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StartVerification400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response StartVerification400JSONResponse) VisitStartVerificationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StartVerification401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response StartVerification401JSONResponse) VisitStartVerificationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StartVerification403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response StartVerification403JSONResponse) VisitStartVerificationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StopVerificationRequestObject struct {
+	ReportId string `json:"reportId"`
+}
+
+type StopVerificationResponseObject interface {
+	VisitStopVerificationResponse(w http.ResponseWriter) error
+}
+
+type StopVerification200JSONResponse VerificationReport
+
+func (response StopVerification200JSONResponse) VisitStopVerificationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StopVerification401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response StopVerification401JSONResponse) VisitStopVerificationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StopVerification403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response StopVerification403JSONResponse) VisitStopVerificationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StopVerification404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response StopVerification404JSONResponse) VisitStopVerificationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetVerificationRequestObject struct {
+	ReportId string `json:"reportId"`
+}
+
+type GetVerificationResponseObject interface {
+	VisitGetVerificationResponse(w http.ResponseWriter) error
+}
+
+type GetVerification200JSONResponse VerificationReport
+
+func (response GetVerification200JSONResponse) VisitGetVerificationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetVerification401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response GetVerification401JSONResponse) VisitGetVerificationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetVerification403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response GetVerification403JSONResponse) VisitGetVerificationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetVerification404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response GetVerification404JSONResponse) VisitGetVerificationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 // StrictServerInterface represents all server handlers.
 type StrictServerInterface interface {
-	// List branches
+	// List branch names with their current head
 	// (GET /branches)
 	ListBranches(ctx context.Context, request ListBranchesRequestObject) (ListBranchesResponseObject, error)
-	// Get one branch
-	// (GET /branches/{name})
-	GetBranch(ctx context.Context, request GetBranchRequestObject) (GetBranchResponseObject, error)
-	// Contribute a claim
+	// Contribute a set of claims (bulk)
 	// (POST /branches/{name}/claims)
 	Contribute(ctx context.Context, request ContributeRequestObject) (ContributeResponseObject, error)
-	// Verify a branch
-	// (GET /branches/{name}/verification)
-	VerifyBranch(ctx context.Context, request VerifyBranchRequestObject) (VerifyBranchResponseObject, error)
-	// Get a claim by id
-	// (GET /claims/{id})
+	// Fetch a claim within a branch's closure
+	// (GET /branches/{name}/claims/{id})
 	GetClaim(ctx context.Context, request GetClaimRequestObject) (GetClaimResponseObject, error)
-	// Cypher query (read-only)
-	// (POST /gql)
-	Query(ctx context.Context, request QueryRequestObject) (QueryResponseObject, error)
+	// Contribute a single claim
+	// (PUT /branches/{name}/claims/{id})
+	PutClaim(ctx context.Context, request PutClaimRequestObject) (PutClaimResponseObject, error)
+	// Fetch content bytes within a branch's closure
+	// (GET /branches/{name}/contents/{hash})
+	GetContent(ctx context.Context, request GetContentRequestObject) (GetContentResponseObject, error)
+	// Cypher query over a branch (optional)
+	// (POST /branches/{name}/gql)
+	Gql(ctx context.Context, request GqlRequestObject) (GqlResponseObject, error)
 	// Liveness and readiness of the stack
 	// (GET /health)
 	Health(ctx context.Context, request HealthRequestObject) (HealthResponseObject, error)
+	// List storage layers
+	// (GET /storage/layers)
+	ListStorageLayers(ctx context.Context, request ListStorageLayersRequestObject) (ListStorageLayersResponseObject, error)
+	// List verification runs
+	// (GET /verification)
+	ListVerifications(ctx context.Context, request ListVerificationsRequestObject) (ListVerificationsResponseObject, error)
+	// Start a verification run
+	// (POST /verification)
+	StartVerification(ctx context.Context, request StartVerificationRequestObject) (StartVerificationResponseObject, error)
+	// Stop a verification run
+	// (DELETE /verification/{reportId})
+	StopVerification(ctx context.Context, request StopVerificationRequestObject) (StopVerificationResponseObject, error)
+	// Show a verification run
+	// (GET /verification/{reportId})
+	GetVerification(ctx context.Context, request GetVerificationRequestObject) (GetVerificationResponseObject, error)
 }
 
 type StrictHandlerFunc func(ctx context.Context, w http.ResponseWriter, r *http.Request, request any) (any, error)
@@ -1094,44 +1549,13 @@ func (sh *strictHandler) ListBranches(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// GetBranch operation middleware
-func (sh *strictHandler) GetBranch(w http.ResponseWriter, r *http.Request, name BranchName) {
-	var request GetBranchRequestObject
-
-	request.Name = name
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.GetBranch(ctx, request.(GetBranchRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "GetBranch")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(GetBranchResponseObject); ok {
-		if err := validResponse.VisitGetBranchResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
 // Contribute operation middleware
 func (sh *strictHandler) Contribute(w http.ResponseWriter, r *http.Request, name BranchName) {
 	var request ContributeRequestObject
 
 	request.Name = name
 
-	var body ContributeJSONRequestBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
-		return
-	}
-	request.Body = &body
+	request.Body = r.Body
 
 	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
 		return sh.ssi.Contribute(ctx, request.(ContributeRequestObject))
@@ -1153,36 +1577,11 @@ func (sh *strictHandler) Contribute(w http.ResponseWriter, r *http.Request, name
 	}
 }
 
-// VerifyBranch operation middleware
-func (sh *strictHandler) VerifyBranch(w http.ResponseWriter, r *http.Request, name BranchName) {
-	var request VerifyBranchRequestObject
-
-	request.Name = name
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.VerifyBranch(ctx, request.(VerifyBranchRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "VerifyBranch")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(VerifyBranchResponseObject); ok {
-		if err := validResponse.VisitVerifyBranchResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
 // GetClaim operation middleware
-func (sh *strictHandler) GetClaim(w http.ResponseWriter, r *http.Request, id string) {
+func (sh *strictHandler) GetClaim(w http.ResponseWriter, r *http.Request, name BranchName, id string) {
 	var request GetClaimRequestObject
 
+	request.Name = name
 	request.Id = id
 
 	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
@@ -1205,11 +1604,69 @@ func (sh *strictHandler) GetClaim(w http.ResponseWriter, r *http.Request, id str
 	}
 }
 
-// Query operation middleware
-func (sh *strictHandler) Query(w http.ResponseWriter, r *http.Request) {
-	var request QueryRequestObject
+// PutClaim operation middleware
+func (sh *strictHandler) PutClaim(w http.ResponseWriter, r *http.Request, name BranchName, id string) {
+	var request PutClaimRequestObject
 
-	var body QueryJSONRequestBody
+	request.Name = name
+	request.Id = id
+
+	request.Body = r.Body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.PutClaim(ctx, request.(PutClaimRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "PutClaim")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(PutClaimResponseObject); ok {
+		if err := validResponse.VisitPutClaimResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetContent operation middleware
+func (sh *strictHandler) GetContent(w http.ResponseWriter, r *http.Request, name BranchName, hash string) {
+	var request GetContentRequestObject
+
+	request.Name = name
+	request.Hash = hash
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetContent(ctx, request.(GetContentRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetContent")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetContentResponseObject); ok {
+		if err := validResponse.VisitGetContentResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// Gql operation middleware
+func (sh *strictHandler) Gql(w http.ResponseWriter, r *http.Request, name BranchName) {
+	var request GqlRequestObject
+
+	request.Name = name
+
+	var body GqlJSONRequestBody
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
 		return
@@ -1217,18 +1674,18 @@ func (sh *strictHandler) Query(w http.ResponseWriter, r *http.Request) {
 	request.Body = &body
 
 	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.Query(ctx, request.(QueryRequestObject))
+		return sh.ssi.Gql(ctx, request.(GqlRequestObject))
 	}
 	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "Query")
+		handler = middleware(handler, "Gql")
 	}
 
 	response, err := handler(r.Context(), w, r, request)
 
 	if err != nil {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(QueryResponseObject); ok {
-		if err := validResponse.VisitQueryResponse(w); err != nil {
+	} else if validResponse, ok := response.(GqlResponseObject); ok {
+		if err := validResponse.VisitGqlResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -1260,61 +1717,220 @@ func (sh *strictHandler) Health(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// ListStorageLayers operation middleware
+func (sh *strictHandler) ListStorageLayers(w http.ResponseWriter, r *http.Request) {
+	var request ListStorageLayersRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListStorageLayers(ctx, request.(ListStorageLayersRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListStorageLayers")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListStorageLayersResponseObject); ok {
+		if err := validResponse.VisitListStorageLayersResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListVerifications operation middleware
+func (sh *strictHandler) ListVerifications(w http.ResponseWriter, r *http.Request) {
+	var request ListVerificationsRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListVerifications(ctx, request.(ListVerificationsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListVerifications")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListVerificationsResponseObject); ok {
+		if err := validResponse.VisitListVerificationsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// StartVerification operation middleware
+func (sh *strictHandler) StartVerification(w http.ResponseWriter, r *http.Request) {
+	var request StartVerificationRequestObject
+
+	var body StartVerificationJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.StartVerification(ctx, request.(StartVerificationRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "StartVerification")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(StartVerificationResponseObject); ok {
+		if err := validResponse.VisitStartVerificationResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// StopVerification operation middleware
+func (sh *strictHandler) StopVerification(w http.ResponseWriter, r *http.Request, reportId string) {
+	var request StopVerificationRequestObject
+
+	request.ReportId = reportId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.StopVerification(ctx, request.(StopVerificationRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "StopVerification")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(StopVerificationResponseObject); ok {
+		if err := validResponse.VisitStopVerificationResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetVerification operation middleware
+func (sh *strictHandler) GetVerification(w http.ResponseWriter, r *http.Request, reportId string) {
+	var request GetVerificationRequestObject
+
+	request.ReportId = reportId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetVerification(ctx, request.(GetVerificationRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetVerification")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetVerificationResponseObject); ok {
+		if err := validResponse.VisitGetVerificationResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // Base64 encoded, compressed with deflate, json marshaled OpenAPI spec.
 // Stored as a slice of fixed-width chunks rather than one concatenated
 // const string: with thousands of chunks the chained `+` fold is several
 // times slower for the Go compiler than parsing a slice literal.
 var swaggerSpec = []string{
-	"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",
+	"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",
+	"3kYx1bj95fZ/AgAA//8=",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,

@@ -30,103 +30,91 @@ export interface BranchList {
   branches: BranchSummary[];
 }
 
-export interface Branch {
+export interface StorageLayer {
   name: string;
-  head: string;
-  /** Number of head revisions recorded for this branch. */
-  history: number;
-  /** Contributor of the head claim. */
-  contributor: string;
-  /**
-   * Time the head was recorded.
-   * @format date-time
-   */
-  time: string;
-}
-
-export interface Verification {
-  branch: string;
-  head: string;
-  /** True if every checked claim verified. */
-  ok: boolean;
-  /** Number of claims verified. */
-  checked: number;
-  /** Ids of claims that failed verification (empty when ok). */
-  failures?: string[];
-}
-
-export interface NodeInput {
-  /**
-   * The node type, application-defined (e.g. person, fruit).
-   * @example "person"
-   */
+  /** Adapter type (e.g. memory, filesystem, s3, postgres, neo4j). */
   type: string;
-  /**
-   * The content encoding.
-   * @example "application/json"
-   */
-  encoding: string;
-  /**
-   * The node's content, base64-encoded.
-   * @format byte
-   */
-  content: Blob;
 }
 
-export interface EdgeInput {
-  /** The id of an existing node this edge points at. */
-  reference: string;
+export interface StorageLayerList {
+  /** Read-through tiers, top (cache) to bottom (authoritative). */
+  layers: StorageLayer[];
+}
+
+/**
+ * Parameters for a verification run — the same shape whether declared in
+ * the stack config (scheduled/automatic) or posted ad-hoc.
+ */
+export interface VerificationConfig {
+  /** Root of the closure to verify — a branch name or a claim id. */
+  closure: string;
   /**
-   * The relation type.
-   * @example "likes"
+   * Storage layer (by name) to read directly. Omit to read the composed
+   * read-through view — which may mask the loss of an object on a deeper
+   * layer, so name a layer to verify it without blind spots.
    */
-  type: string;
+  layer?: string;
   /**
-   * Relation direction from this node's perspective.
-   * @default "outgoing"
+   * Max content size, in bytes, to re-read and re-hash per claim. Larger
+   * content is skipped this run (the claim's signature is still checked).
+   * Omit to verify all content regardless of size.
    */
-  direction?: "outgoing" | "incoming";
+  contentThreshold?: number;
 }
 
-/** The content of a claim to contribute. The server adds the contributor and signature. */
-export interface Contribution {
-  node: NodeInput;
-  edges?: EdgeInput[];
-}
-
-export interface EdgeView {
-  reference: string;
-  type: string;
-  direction: "outgoing" | "incoming";
-}
-
-export interface Claim {
-  /** Content-addressed claim id. */
+/** A point-in-time record of a verification run; embeds the config that produced it. */
+export interface VerificationReport {
   id: string;
-  /** Content-addressed node id. */
-  node: string;
-  type: string;
-  encoding: string;
-  content_hash: string;
-  /** @format date-time */
-  created_at: string;
-  contributor: string;
-  edges: EdgeView[];
   /**
-   * The canonical signed bytes (base64); verify the claim independently from these.
-   * @format byte
+   * Parameters for a verification run — the same shape whether declared in
+   * the stack config (scheduled/automatic) or posted ad-hoc.
    */
-  canonical: Blob;
+  config: VerificationConfig;
+  status: "running" | "complete" | "stopped" | "error";
+  /** @format date-time */
+  startedAt: string;
+  /** @format date-time */
+  completedAt?: string;
+  claimsChecked?: number;
+  bytesRead?: number;
+  /** True when no failures were found in this run. */
+  ok: boolean;
+  failures?: VerificationFailure[];
 }
 
-export interface Query {
+export interface VerificationReportList {
+  reports: VerificationReport[];
+}
+
+export interface VerificationFailure {
+  /** The claim or object id that failed. */
+  id: string;
+  /**
+   * corrupt-bytes — stored bytes don't match their hash (storage rot/loss;
+   * self-heals via read-through if a deeper layer is intact).
+   * invalid-content — the claim itself doesn't validate (e.g. bad
+   * signature); unrepairable.
+   */
+  mode: "corrupt-bytes" | "invalid-content";
+  /** The layer where the failure was observed. */
+  layer: string;
+  detail?: string;
+}
+
+/** The result of a contribution transaction — the ids (handles) of the appended claims. */
+export interface ContributionResult {
+  /** Content-addressed ids of the contributed claims, in order. */
+  ids: string[];
+}
+
+export interface GqlQuery {
   /** A read-only Cypher query. */
   query: string;
   /** Optional named query parameters. */
   parameters?: Record<string, any>;
 }
 
-export interface QueryResult {
+export interface GqlResult {
   columns: string[];
   /** Row-major result; each row aligns with columns. */
   rows: any[][];
@@ -403,19 +391,31 @@ export class HttpClient<SecurityDataType = unknown> {
  * the verifiable graph they form.
  *
  * A server hosts exactly **one stack**, launched from a config file — there is
- * no tenant or archive routing in the paths. Authentication is configurable
- * (none / JWT / API key); authorization is capability-based with a simple
- * lattice **read ⊂ write ⊂ admin**:
+ * no tenant or archive routing in the paths.
  *
- *   - **read**  — query branches, claims, run verification, Cypher reads
+ * **Authentication is a pluggable adapter** (e.g. NoAuth, JWT, API key — and
+ * extensible), chosen by the stack's config; this contract therefore pins no
+ * auth scheme. Send whatever credential the configured adapter expects — the
+ * endpoints, the capability model, and the `401`/`403` outcomes are identical
+ * under any auth mode. Authorization is capability-based with a simple lattice
+ * **read ⊂ write ⊂ admin**:
+ *
+ *   - **read**  — list branches, fetch claims within a closure, Cypher reads
  *   - **write** — contribute claims
- *   - **admin** — privileged operations (reserved)
+ *   - **admin** — verification runs, storage-layer introspection, other privileged ops
  *
- * Claims are **content-addressed and signed**. A client *contributes* the
- * content of a claim (a node plus its edges); the server signs it with the
- * stack's configured signer (the contributor identity) and appends it. Every
- * claim is returned with its embedded **canonical signed bytes**, so any
- * response is independently verifiable — never merely reconstructable.
+ * Claims are **signed CBOR** objects, content-addressed and referenced by their
+ * id (the handle). The API carries claims as their raw CBOR bytes
+ * (`application/cbor`) in both directions — there is **no JSON projection** of a
+ * claim. A client *contributes* one claim (PUT) or a set (POST, an atomic
+ * transaction) by sending the CBOR; a read returns the claim's CBOR, which is
+ * the canonical signed form — independently verifiable, never reconstructed.
+ *
+ * **Every read is bounded by a branch closure.** All access to claims and
+ * content goes through a branch name; you can only fetch what lies in that
+ * branch's closure. There is no branch-free access by raw id — that is an
+ * internal system operation and is never exposed. A claim outside the named
+ * branch's closure is `404`, indistinguishable from one that does not exist.
  */
 export class Api<
   SecurityDataType extends unknown,
@@ -439,119 +439,187 @@ export class Api<
   };
   branches = {
     /**
-     * @description Returns every branch with its current head. Requires `read`.
+     * @description Lists the branch names that exist, each with its current head id — a point-in-time snapshot (the head moves on every contribution). This is the entry point for discovery: a head is just a claim, so to inspect it fetch it via `GET /branches/{name}/claims/{id}`. Requires `read`.
      *
      * @tags read
      * @name ListBranches
-     * @summary List branches
+     * @summary List branch names with their current head
      * @request GET:/branches
-     * @secure
      */
     listBranches: (params: RequestParams = {}) =>
       this.request<BranchList, Error>({
         path: `/branches`,
         method: "GET",
-        secure: true,
         format: "json",
         ...params,
       }),
 
     /**
-     * @description The branch's head, contributor, time, and revision count. Requires `read`.
-     *
-     * @tags read
-     * @name GetBranch
-     * @summary Get one branch
-     * @request GET:/branches/{name}
-     * @secure
-     */
-    getBranch: (name: string, params: RequestParams = {}) =>
-      this.request<Branch, Error>({
-        path: `/branches/${name}`,
-        method: "GET",
-        secure: true,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Runs full verification over the branch's claims (signatures, content hashes, and closure) and reports the result. Requires `read`.
-     *
-     * @tags read
-     * @name VerifyBranch
-     * @summary Verify a branch
-     * @request GET:/branches/{name}/verification
-     * @secure
-     */
-    verifyBranch: (name: string, params: RequestParams = {}) =>
-      this.request<Verification, Error>({
-        path: `/branches/${name}/verification`,
-        method: "GET",
-        secure: true,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Contribute one claim to the branch: a node (its type, encoding, and content) plus any edges to existing nodes. The server signs the claim with the stack's signer and appends it, advancing the branch head. Returns the resulting signed claim. Requires `write`. Edges reference nodes by **id**, which must already exist. To build a relation like "alice likes apple", contribute the target node first, capture its id from the response, then contribute the source node with an edge to it. (Batch / atomic-subgraph contribution is a deliberate open question — see the discussion notes.)
+     * @description Contribute a **set** of claims to branch `{name}` as a single **atomic transaction** — all are appended, or none are. The request body is the claims as **signed CBOR** in ranke's bundle format (a subgraph; claims reference each other by their content-addressed ids). Content-addressed, so it is **idempotent**: re-contributing yields the same ids with no duplicates. Returns the ids (handles) of the contributed claims. For a single claim, **PUT it by id** instead. Requires `write`.
      *
      * @tags write
      * @name Contribute
-     * @summary Contribute a claim
+     * @summary Contribute a set of claims (bulk)
      * @request POST:/branches/{name}/claims
-     * @secure
      */
-    contribute: (
-      name: string,
-      data: Contribution,
-      params: RequestParams = {},
-    ) =>
-      this.request<Claim, Error>({
+    contribute: (name: string, data: File, params: RequestParams = {}) =>
+      this.request<ContributionResult, Error>({
         path: `/branches/${name}/claims`,
         method: "POST",
         body: data,
-        secure: true,
-        type: ContentType.Json,
         format: "json",
         ...params,
       }),
-  };
-  claims = {
+
     /**
-     * @description Returns the claim, including its embedded canonical signed bytes. Requires `read`.
+     * @description Returns claim `{id}` as its **signed CBOR** bytes, **only if it lies in branch `{name}`'s closure** — the fundamental access guarantee. A claim that is superseded, contradicted, or otherwise outside the closure returns `404`, indistinguishable from one that does not exist. Raw by-id access (unbounded by a branch) is an internal system operation, never exposed. Requires `read`.
      *
      * @tags read
      * @name GetClaim
-     * @summary Get a claim by id
-     * @request GET:/claims/{id}
-     * @secure
+     * @summary Fetch a claim within a branch's closure
+     * @request GET:/branches/{name}/claims/{id}
      */
-    getClaim: (id: string, params: RequestParams = {}) =>
-      this.request<Claim, Error>({
-        path: `/claims/${id}`,
+    getClaim: (name: string, id: string, params: RequestParams = {}) =>
+      this.request<File, Error>({
+        path: `/branches/${name}/claims/${id}`,
         method: "GET",
-        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Contribute a single claim to branch `{name}`, idempotently. The request body is the claim's **signed CBOR** bytes; its content-addressed id must equal `{id}` (otherwise `400`). Re-putting the same claim is a no-op. For more than one claim, POST the set to the collection as a transaction. Requires `write`.
+     *
+     * @tags write
+     * @name PutClaim
+     * @summary Contribute a single claim
+     * @request PUT:/branches/{name}/claims/{id}
+     */
+    putClaim: (
+      name: string,
+      id: string,
+      data: File,
+      params: RequestParams = {},
+    ) =>
+      this.request<void, Error>({
+        path: `/branches/${name}/claims/${id}`,
+        method: "PUT",
+        body: data,
+        ...params,
+      }),
+
+    /**
+     * @description Streams the content blob addressed by `{hash}` — **only if a claim in branch `{name}`'s closure references it** (same closure guarantee as claims; out-of-closure or unknown → `404`). The bytes verify against `{hash}` and size as they stream. This is the "source content" step of a read: walk claims by id, then pull the bytes you need. Requires `read`.
+     *
+     * @tags read
+     * @name GetContent
+     * @summary Fetch content bytes within a branch's closure
+     * @request GET:/branches/{name}/contents/{hash}
+     */
+    getContent: (name: string, hash: string, params: RequestParams = {}) =>
+      this.request<Blob, Error>({
+        path: `/branches/${name}/contents/${hash}`,
+        method: "GET",
+        ...params,
+      }),
+
+    /**
+     * @description Run a read-only Cypher query against branch `{name}`'s closure. This is an **optional feature**, available only when the stack is configured with a graph-native storage layer (e.g. neo4j) — otherwise it returns `501`. It is not the primary read path (see the `read` endpoints). Mutation is never expressed in Cypher (claims are created only via contribute), and a query observes the **exact same filter rules** as native reads (no superseded, contradicted, or out-of-closure claims). Requires `read`.
+     *
+     * @tags read
+     * @name Gql
+     * @summary Cypher query over a branch (optional)
+     * @request POST:/branches/{name}/gql
+     */
+    gql: (name: string, data: GqlQuery, params: RequestParams = {}) =>
+      this.request<GqlResult, Error>({
+        path: `/branches/${name}/gql`,
+        method: "POST",
+        body: data,
+        type: ContentType.Json,
         format: "json",
         ...params,
       }),
   };
-  gql = {
+  storage = {
     /**
-     * @description Run a read-only Cypher query against the graph. Mutation is never expressed in Cypher — claims are only created via `contribute` — and a query observes the **exact same filter rules** as native reads (no superseded, contradicted, or out-of-closure claims). Requires `read`. Returns `501` if the configured storage backend provides no Cypher surface (only graph-native backends such as neo4j do).
+     * @description Lists the stack's storage layers (read-through tiers) by **name and type only** — never connection details or secrets. Naming layers is what lets a verification run target one directly (a read-through view can mask the loss of an object on a deeper layer). Requires `admin`.
      *
-     * @tags read
-     * @name Query
-     * @summary Cypher query (read-only)
-     * @request POST:/gql
-     * @secure
+     * @tags system
+     * @name ListStorageLayers
+     * @summary List storage layers
+     * @request GET:/storage/layers
      */
-    query: (data: Query, params: RequestParams = {}) =>
-      this.request<QueryResult, Error>({
-        path: `/gql`,
+    listStorageLayers: (params: RequestParams = {}) =>
+      this.request<StorageLayerList, Error>({
+        path: `/storage/layers`,
+        method: "GET",
+        format: "json",
+        ...params,
+      }),
+  };
+  verification = {
+    /**
+     * @description Verification runs, newest first. Each report is a **point-in-time record**: a layer repaired externally (outage recovered, files restored) shows clean in a later run, so reports accumulate rather than overwrite. Requires `admin`.
+     *
+     * @tags verify
+     * @name ListVerifications
+     * @summary List verification runs
+     * @request GET:/verification
+     */
+    listVerifications: (params: RequestParams = {}) =>
+      this.request<VerificationReportList, Error>({
+        path: `/verification`,
+        method: "GET",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Start a run from a `VerificationConfig`: walk the closure rooted at `closure`, reading the named `layer` directly, re-checking each claim's signature and re-hashing its content up to `contentThreshold` bytes (larger content is skipped this run). Async — returns the running report immediately. May root at any branch or id: it returns *findings*, not contents, so it never leaks across closures. Requires `admin`.
+     *
+     * @tags verify
+     * @name StartVerification
+     * @summary Start a verification run
+     * @request POST:/verification
+     */
+    startVerification: (data: VerificationConfig, params: RequestParams = {}) =>
+      this.request<VerificationReport, Error>({
+        path: `/verification`,
         method: "POST",
         body: data,
-        secure: true,
         type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description The report for a run (poll until `status` is `complete`). Requires `admin`.
+     *
+     * @tags verify
+     * @name GetVerification
+     * @summary Show a verification run
+     * @request GET:/verification/{reportId}
+     */
+    getVerification: (reportId: string, params: RequestParams = {}) =>
+      this.request<VerificationReport, Error>({
+        path: `/verification/${reportId}`,
+        method: "GET",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Stop a running verification; returns the report with `status` `stopped`. Requires `admin`.
+     *
+     * @tags verify
+     * @name StopVerification
+     * @summary Stop a verification run
+     * @request DELETE:/verification/{reportId}
+     */
+    stopVerification: (reportId: string, params: RequestParams = {}) =>
+      this.request<VerificationReport, Error>({
+        path: `/verification/${reportId}`,
+        method: "DELETE",
         format: "json",
         ...params,
       }),

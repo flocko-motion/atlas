@@ -12,8 +12,12 @@ RANKE_GRAPH_REPO ?= https://github.com/flocko-motion/ranke-graph
 RANKE_GRAPH_REF  ?= main
 PAPERS_DIR       := docs/papers
 
-.PHONY: help check-tools generate gen-go gen-ts gen-html verify \
+.PHONY: all help check-tools generate gen-go gen-ts gen-html verify \
         ranke-go-version release major minor patch breaking feature fix docs docs-clean
+
+.DEFAULT_GOAL := all
+
+all: generate verify ## Default: regenerate from the spec, then build/vet/test
 
 help: ## Show this help
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) \
