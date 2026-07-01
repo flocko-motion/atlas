@@ -1,0 +1,13 @@
+{
+  "signer": {
+    "type": "inmemory",
+    "key": "env(RANKE_SIGNER_KEY)"
+  },
+  "auth": {
+    "type": "noauth",
+    "subject": "ops"
+  },
+  "storage": [
+    { "mode": "eager", "type": "mem", "maxContentSize": "8kb" }
+  ]
+}

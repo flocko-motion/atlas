@@ -9,6 +9,7 @@
 .sidecar-start.sh
 .sidecar-base
 .td-root
+bin/
 papers/bin/
 ranke-cli/bin/
 docs/papers/

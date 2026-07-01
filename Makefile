@@ -12,8 +12,10 @@ RANKE_GRAPH_REPO ?= https://github.com/flocko-motion/ranke-graph
 RANKE_GRAPH_REF  ?= main
 PAPERS_DIR       := docs/papers
 
-.PHONY: all help check-tools generate gen-go gen-ts gen-html verify \
+.PHONY: all help check-tools generate gen-go gen-ts gen-html verify tidy build smoke \
         ranke-go-version release major minor patch breaking feature fix docs docs-clean
+
+BIN := bin/ranke-db
 
 .DEFAULT_GOAL := all
 
@@ -52,6 +54,16 @@ gen-html: ## OpenAPI → self-contained HTML reference
 	@npx --yes @redocly/cli@latest build-docs $(OPENAPI) -o $(API_DOCS)/index.html >/dev/null
 
 # --- Build / test ----------------------------------------------------------
+
+tidy: ## Sync go.mod/go.sum with imports (adds transitive deps)
+	@go mod tidy
+
+build: ## Compile the ranke-db binary to bin/
+	@echo ">> build → $(BIN)"
+	@go build -o $(BIN) ./cmd/ranke-db
+
+smoke: build ## Launch ranke-db run against the minimal example, check health, shut down
+	@./scripts/smoke.sh $(BIN)
 
 verify: ## Build, vet, test, and gofmt-check the module
 	@set -e; \
