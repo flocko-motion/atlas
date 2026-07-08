@@ -37,11 +37,11 @@ func resolveValue(ctx context.Context, s string, box *vaultBox) (string, error) 
 		return val, nil
 	}
 	if m := vaultRef.FindStringSubmatch(s); m != nil {
-		v, err := box.get(ctx)
+		val, err := box.secret(ctx, m[1])
 		if err != nil {
 			return "", fmt.Errorf("vault(%s): %w", m[1], err)
 		}
-		return v.Secret(ctx, m[1])
+		return val, nil
 	}
 	return s, nil
 }

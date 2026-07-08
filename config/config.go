@@ -178,8 +178,9 @@ func load(r io.Reader) (*Config, error) {
 		}
 	}
 	// Seed the shared secret-store holder from the vault section; it builds the
-	// store lazily, only if some section resolves a vault() reference.
-	c.box = &vaultBox{cfg: c.Vault}
+	// store lazily, only if some section resolves a vault() reference, and caches
+	// each resolved secret for vaultTTL.
+	c.box = newVaultBox(c.Vault)
 	return &c, nil
 }
 

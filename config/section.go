@@ -20,22 +20,45 @@ import (
 	"fmt"
 	"sort"
 	"sync"
+	"time"
 
 	"github.com/flocko-motion/rankedb/adapters/vault"
 	"github.com/flocko-motion/rankedb/config/scope"
 )
 
-// vaultBox owns the secret store's lifecycle for one config. It builds the store
-// on the first vault() reference resolved and caches it, so a config that never
-// references vault() never dials one — and a LevelConnect check reaches only the
-// backends actually used. It is shared by every section derived from the config
-// (propagated on navigation), so the store is built at most once. The vault
-// section itself gets a nil box, since a vault cannot resolve its own secrets.
+// vaultTTL is how long a resolved vault secret is cached before it is re-fetched.
+// Short enough that a rotated secret takes effect within a couple of minutes, long
+// enough that a hot path (a per-request verifier) does not hammer the vault.
+const vaultTTL = 2 * time.Minute
+
+// vaultBox owns the secret store's lifecycle for one config. It builds the client
+// once on the first vault() reference (so a config that never references vault()
+// never dials one, and a LevelConnect check reaches only the backends used) and
+// caches each resolved secret for vaultTTL. It is shared by every section derived
+// from the config (propagated on navigation), so the client is built once and the
+// cache is process-wide for that config. The vault section itself gets a nil box,
+// since a vault cannot resolve its own secrets.
 type vaultBox struct {
 	cfg  map[string]json.RawMessage
 	once sync.Once
 	v    vault.Vault
 	err  error
+
+	ttl   time.Duration
+	now   func() time.Time // injectable clock for deterministic expiry tests
+	mu    sync.Mutex
+	cache map[string]cached
+}
+
+// cached is one secret value held until exp.
+type cached struct {
+	val string
+	exp time.Time
+}
+
+// newVaultBox seeds a box from the vault section, with the default TTL and clock.
+func newVaultBox(cfg map[string]json.RawMessage) *vaultBox {
+	return &vaultBox{cfg: cfg, ttl: vaultTTL, now: time.Now, cache: map[string]cached{}}
 }
 
 // get returns the secret store, building it once from the vault section (resolved
@@ -53,6 +76,46 @@ func (b *vaultBox) get(ctx context.Context) (vault.Vault, error) {
 		b.v, b.err = vault.New(ctx, cfgSection{raw: b.cfg})
 	})
 	return b.v, b.err
+}
+
+// secret resolves ref. A fresh cached value is returned as-is; once it expires the
+// store is re-fetched, and the cache is updated only on success. If the re-fetch
+// fails but a previous value is cached, that stale value is served — a vault blip
+// does not break a server that already knows the secret (the outage is silent to
+// callers, so it belongs on a health probe, not in this path). An error is
+// returned only when nothing is cached to fall back to.
+func (b *vaultBox) secret(ctx context.Context, ref string) (string, error) {
+	if b == nil {
+		return "", errors.New("vault() is not resolvable here")
+	}
+
+	b.mu.Lock()
+	prev, had := b.cache[ref]
+	if had && b.now().Before(prev.exp) {
+		b.mu.Unlock()
+		return prev.val, nil
+	}
+	b.mu.Unlock()
+
+	v, err := b.get(ctx)
+	if err != nil {
+		if had {
+			return prev.val, nil // serve stale: the vault is unreachable
+		}
+		return "", err
+	}
+	val, err := v.Secret(ctx, ref)
+	if err != nil {
+		if had {
+			return prev.val, nil // serve stale: the fetch failed
+		}
+		return "", err
+	}
+
+	b.mu.Lock()
+	b.cache[ref] = cached{val: val, exp: b.now().Add(b.ttl)}
+	b.mu.Unlock()
+	return val, nil
 }
 
 // section wraps one of the config's raw objects as a scope.Section bound to the

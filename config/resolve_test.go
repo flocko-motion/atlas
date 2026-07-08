@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/flocko-motion/rankedb/adapters/vault"
 )
@@ -25,9 +26,34 @@ func (s stubVault) Secret(_ context.Context, ref string) (string, error) {
 // be exercised against a double without building a real backend. Its once is spent
 // up front, so get returns v without dialing.
 func testBox(v vault.Vault) *vaultBox {
-	b := &vaultBox{v: v}
+	b := newVaultBox(nil)
+	b.v = v
 	b.once.Do(func() {})
 	return b
+}
+
+// countingVault records how many times Secret is called, to observe caching.
+type countingVault struct {
+	val string
+	n   *int
+}
+
+func (c countingVault) Secret(context.Context, string) (string, error) {
+	*c.n++
+	return c.val, nil
+}
+
+// flakyVault errors while *fail is set, to observe serve-stale behaviour.
+type flakyVault struct {
+	val  string
+	fail *bool
+}
+
+func (f flakyVault) Secret(context.Context, string) (string, error) {
+	if *f.fail {
+		return "", fmt.Errorf("flaky: vault unreachable")
+	}
+	return f.val, nil
 }
 
 // TestResolveValue asserts literals pass through, env() references resolve (and
@@ -57,5 +83,59 @@ func TestResolveValue(t *testing.T) {
 	}
 	if _, err := resolveValue(ctx, "vault(sig)", nil); err == nil {
 		t.Fatal("vault ref with no box: want error")
+	}
+}
+
+// TestVaultBoxCaches asserts a resolved secret is cached for the TTL — repeated
+// reads within it hit the vault once — and re-fetched once the TTL lapses.
+func TestVaultBoxCaches(t *testing.T) {
+	ctx := context.Background()
+	n := 0
+	b := testBox(countingVault{val: "s3cr3t", n: &n})
+	now := time.Unix(1000, 0)
+	b.now = func() time.Time { return now }
+	b.ttl = time.Minute
+
+	for i := 0; i < 3; i++ {
+		if got, err := b.secret(ctx, "key"); err != nil || got != "s3cr3t" {
+			t.Fatalf("read %d: got %q, err %v", i, got, err)
+		}
+	}
+	if n != 1 {
+		t.Fatalf("within TTL: %d vault calls, want 1", n)
+	}
+
+	now = now.Add(2 * time.Minute) // lapse the TTL
+	if _, err := b.secret(ctx, "key"); err != nil {
+		t.Fatalf("post-TTL read: %v", err)
+	}
+	if n != 2 {
+		t.Fatalf("after TTL: %d vault calls, want 2", n)
+	}
+}
+
+// TestVaultBoxServesStaleOnError asserts a cached secret survives a vault outage:
+// once primed, an expired entry falls back to the last-known-good value when the
+// re-fetch fails, and a ref never cached still errors.
+func TestVaultBoxServesStaleOnError(t *testing.T) {
+	ctx := context.Background()
+	fail := false
+	b := testBox(flakyVault{val: "s3cr3t", fail: &fail})
+	now := time.Unix(1000, 0)
+	b.now = func() time.Time { return now }
+	b.ttl = time.Minute
+
+	if got, err := b.secret(ctx, "key"); err != nil || got != "s3cr3t" {
+		t.Fatalf("prime: got %q, err %v", got, err)
+	}
+
+	fail = true                    // vault goes down
+	now = now.Add(2 * time.Minute) // and the cached entry expires
+	if got, err := b.secret(ctx, "key"); err != nil || got != "s3cr3t" {
+		t.Fatalf("stale read: got %q, err %v, want the last-known-good value", got, err)
+	}
+
+	if _, err := b.secret(ctx, "never-cached"); err == nil {
+		t.Fatal("a ref never cached must error when the vault is down")
 	}
 }
