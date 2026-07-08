@@ -138,6 +138,31 @@ func (v cfgValue) Get(ctx context.Context) (string, error) {
 	return resolveValue(ctx, s, v.vault)
 }
 
+// resolveSection resolves every leaf under sec (recursing through nested
+// sections and arrays), discarding the values — a pass that surfaces any
+// unresolvable env()/vault() reference. Verify uses it at LevelResolve.
+func resolveSection(ctx context.Context, sec scope.Section) error {
+	for _, k := range sec.Keys() {
+		switch {
+		case sec.HasValue(k):
+			if _, err := sec.GetValue(k).Get(ctx); err != nil {
+				return err
+			}
+		case sec.HasSection(k):
+			if err := resolveSection(ctx, sec.GetSection(k)); err != nil {
+				return err
+			}
+		case sec.HasArray(k):
+			for _, e := range sec.GetArray(k) {
+				if err := resolveSection(ctx, e); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	return nil
+}
+
 // isObject reports whether raw is a JSON object, distinguishing a nested section
 // from a leaf value.
 func isObject(raw json.RawMessage) bool {

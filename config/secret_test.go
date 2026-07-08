@@ -3,7 +3,6 @@ package config
 import (
 	"bytes"
 	"io"
-	"strings"
 	"testing"
 
 	"filippo.io/age"
@@ -33,68 +32,41 @@ func encryptForTest(t *testing.T, plaintext, passphrase string) []byte {
 	return buf.Bytes()
 }
 
-// TestDecryptRoundTrip encrypts a config and decrypts it through each non-prompt
-// passphrase source, asserting the plaintext returns intact.
+// TestDecryptRoundTrip encrypts a config and decrypts it through a passphrase
+// source, asserting the plaintext returns intact.
 func TestDecryptRoundTrip(t *testing.T) {
-	const plaintext = `{"auth":{"type":"noauth","subject":"ops"}}`
+	const plaintext = `{"auth":[{"type":"noauth","subject":"ops"}]}`
 	const pass = "correct horse battery staple"
 	enc := encryptForTest(t, plaintext, pass)
 
-	t.Run("env", func(t *testing.T) {
-		t.Setenv("RANKE_TEST_AGE_KEY", pass)
-		src, err := PassphraseFrom("env:RANKE_TEST_AGE_KEY", nil)
-		if err != nil {
-			t.Fatalf("PassphraseFrom: %v", err)
-		}
-		got, err := Decrypt(enc, src)
-		if err != nil {
-			t.Fatalf("Decrypt: %v", err)
-		}
-		if string(got) != plaintext {
-			t.Fatalf("decrypted = %q, want %q", got, plaintext)
-		}
-	})
-
-	t.Run("stdin", func(t *testing.T) {
-		src, err := PassphraseFrom("stdin", strings.NewReader(pass+"\n"))
-		if err != nil {
-			t.Fatalf("PassphraseFrom: %v", err)
-		}
-		got, err := Decrypt(enc, src)
-		if err != nil {
-			t.Fatalf("Decrypt: %v", err)
-		}
-		if string(got) != plaintext {
-			t.Fatalf("decrypted = %q, want %q", got, plaintext)
-		}
-	})
+	src := PassphraseSource(func() (string, error) { return pass, nil })
+	got, err := decrypt(enc, src)
+	if err != nil {
+		t.Fatalf("decrypt: %v", err)
+	}
+	if string(got) != plaintext {
+		t.Fatalf("decrypted = %q, want %q", got, plaintext)
+	}
 }
 
 // TestDecryptPlaintextPassthrough asserts a plaintext config is returned
 // unchanged and needs no key source.
 func TestDecryptPlaintextPassthrough(t *testing.T) {
-	plain := []byte(`{"auth":{"type":"noauth"}}`)
-	got, err := Decrypt(plain, nil)
+	plain := []byte(`{"auth":[{"type":"noauth"}]}`)
+	got, err := decrypt(plain, nil)
 	if err != nil {
-		t.Fatalf("Decrypt: %v", err)
+		t.Fatalf("decrypt: %v", err)
 	}
 	if !bytes.Equal(got, plain) {
 		t.Fatalf("plaintext passthrough = %q, want %q", got, plain)
 	}
 }
 
-// TestDecryptEncryptedNoKey asserts an encrypted config with no key source
-// fails loud rather than silently.
+// TestDecryptEncryptedNoKey asserts an encrypted config with no key source fails
+// loud rather than silently.
 func TestDecryptEncryptedNoKey(t *testing.T) {
 	enc := encryptForTest(t, `{}`, "pw")
-	if _, err := Decrypt(enc, nil); err == nil {
-		t.Fatal("Decrypt of encrypted config with nil source = nil error, want error")
-	}
-}
-
-// TestPassphraseFromBadSpec rejects an unknown source spec.
-func TestPassphraseFromBadSpec(t *testing.T) {
-	if _, err := PassphraseFrom("literal-secret", nil); err == nil {
-		t.Fatal("PassphraseFrom(literal) = nil error; a CLI literal must be rejected")
+	if _, err := decrypt(enc, nil); err == nil {
+		t.Fatal("decrypt of encrypted config with nil source = nil error, want error")
 	}
 }

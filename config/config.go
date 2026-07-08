@@ -1,18 +1,22 @@
 // package: config / composition
 // type:    struct
-// job:     parse the launch config, slice each section into a scope.Section, and assemble the adapter stack
-// limits:  the only component that sees the whole config; adapters get scope.Section slices (-> Build)
+// job:     decrypt/parse the launch config and either check it (Verify) or assemble the adapter stack (Run)
+// limits:  the only component that sees the whole config; adapters get scope.Section slices (-> Verify, Run)
 //
-// Package config is the composition root. It parses the JSON launch artifact and
-// hands each adapter instance its own slice as a scope.Section — that section's
-// keys and nothing else. env(KEY)/vault(ref) delegations are not expanded
-// eagerly; a section's leaves resolve lazily when the adapter reads them, so a
-// rotating secret is fetched at use. config is the ONE component that sees the
-// whole config; a backend can read neither another port's secrets nor a sibling
-// instance's — the narrowing is by containment, not visibility.
+// Package config is the composition root. Its public surface is two entry points
+// that mirror the CLI verbs: Verify checks an (optionally age-encrypted) config
+// to a chosen depth without assembling anything; Run decrypts, parses, and
+// assembles the live adapter stack. Both take the config bytes and a
+// PassphraseSource the frontend supplies. config hands each adapter its own slice
+// as a scope.Section — that section's keys and nothing else; env(KEY)/vault(ref)
+// delegations resolve lazily when the adapter reads them, so a rotating secret is
+// fetched at use. config is the ONE component that sees the whole config; a
+// backend can read neither another port's secrets nor a sibling instance's — the
+// narrowing is by containment, not visibility.
 package config
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -29,7 +33,7 @@ import (
 // Config is the parsed launch artifact. Each section is an open key/value map
 // (backend-specific keys), so the schema fixes only which ports exist, not
 // which settings each backend takes. Values may be env()/vault() placeholders
-// until Build resolves them.
+// until they are read.
 type Config struct {
 	Signer    section   `json:"signer"`
 	Endpoints []section `json:"endpoints"`
@@ -40,10 +44,10 @@ type Config struct {
 }
 
 // section is one adapter's raw config: keys to undecoded JSON values, resolved
-// per value into a scope when the adapter is built.
+// per value into a scope when the adapter reads them.
 type section map[string]json.RawMessage
 
-// App is the assembled adapter stack Build produces, in bootstrap order.
+// App is the assembled adapter stack Run produces, in bootstrap order.
 type App struct {
 	Storage   storage.Storage
 	Signer    signer.Signer
@@ -54,10 +58,68 @@ type App struct {
 	// secrets, and nobody downstream holds it.
 }
 
-// Load parses the JSON launch artifact from r without resolving delegations —
-// the offline shape check used by the verify command. Unknown top-level
-// sections are rejected. Call Build to resolve secrets and assemble adapters.
-func Load(r io.Reader) (*Config, error) {
+// Level is the depth of a Verify check.
+type Level int
+
+const (
+	// LevelSyntax parses and shape-checks the config offline — no environment,
+	// no vault, no assembly.
+	LevelSyntax Level = iota
+	// LevelResolve additionally resolves every env()/vault() reference, catching
+	// an unset variable or a missing vault key without assembling any adapter.
+	LevelResolve
+)
+
+// Verify checks an (optionally age-encrypted) config to the given level. It
+// decrypts with pass when the bytes are encrypted, parses, and shape-checks
+// (LevelSyntax); at LevelResolve it also builds the vault and resolves every
+// reference. It assembles no adapter and reaches no backend.
+func Verify(ctx context.Context, cfg io.Reader, pass PassphraseSource, level Level) error {
+	c, err := decode(cfg, pass)
+	if err != nil {
+		return err
+	}
+	if level < LevelResolve {
+		return nil
+	}
+	v, err := c.buildVault(ctx)
+	if err != nil {
+		return err
+	}
+	return c.resolveAll(ctx, v)
+}
+
+// Run decrypts with pass when needed, parses, builds the vault, and assembles the
+// adapter stack, returning the live App.
+func Run(ctx context.Context, cfg io.Reader, pass PassphraseSource) (*App, error) {
+	c, err := decode(cfg, pass)
+	if err != nil {
+		return nil, err
+	}
+	v, err := c.buildVault(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return c.build(ctx, v)
+}
+
+// decode reads, decrypts (when encrypted), and parses the config — the shared
+// front of Verify and Run. pass is consulted only if the bytes are encrypted.
+func decode(cfg io.Reader, pass PassphraseSource) (*Config, error) {
+	data, err := io.ReadAll(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("config: read: %w", err)
+	}
+	plaintext, err := decrypt(data, pass)
+	if err != nil {
+		return nil, err
+	}
+	return load(bytes.NewReader(plaintext))
+}
+
+// load parses the JSON launch artifact without resolving delegations — the
+// offline shape check. Unknown top-level sections are rejected.
+func load(r io.Reader) (*Config, error) {
 	var c Config
 	dec := json.NewDecoder(r)
 	dec.DisallowUnknownFields()
@@ -67,14 +129,14 @@ func Load(r io.Reader) (*Config, error) {
 	return &c, nil
 }
 
-// Build assembles the adapter stack bottom-up in dependency order: the leaf
+// build assembles the adapter stack bottom-up in dependency order: the leaf
 // ports (storage, signer, auth) first, then the sequencer (which needs storage
 // and the signing identity), then the endpoints (each of which needs the
 // sequencer and the full set of authenticators). Each adapter is handed only its
 // own section as a scope.Section, whose env()/vault() delegations resolve against
 // v when the adapter reads them. An absent section yields a nil/empty adapter, so
-// a partial config (storage-only, verify-only) assembles just what it carries.
-func (c *Config) Build(ctx context.Context, v vault.Vault) (*App, error) {
+// a partial config (storage-only) assembles just what it carries.
+func (c *Config) build(ctx context.Context, v vault.Vault) (*App, error) {
 	var app App
 
 	if len(c.Storage) > 0 {
@@ -120,12 +182,12 @@ func (c *Config) Build(ctx context.Context, v vault.Vault) (*App, error) {
 	return &app, nil
 }
 
-// BuildVault constructs the secret store from the vault section, resolved
+// buildVault constructs the secret store from the vault section, resolved
 // env-only — it cannot resolve vault() before the vault exists, so secret-zero
 // collapses to an inline (encrypted) literal or an env() reference. It returns a
 // nil Vault when no vault section is configured, in which case any vault()
 // reference elsewhere fails loud when it is read.
-func (c *Config) BuildVault(ctx context.Context) (vault.Vault, error) {
+func (c *Config) buildVault(ctx context.Context) (vault.Vault, error) {
 	if len(c.Vault) == 0 {
 		return nil, nil
 	}
@@ -138,4 +200,42 @@ func (c *Config) BuildVault(ctx context.Context) (vault.Vault, error) {
 		return nil, fmt.Errorf("config: vault: %w", err)
 	}
 	return nil, fmt.Errorf("config: vault backend %q not yet implemented", t)
+}
+
+// resolveAll resolves every env()/vault() reference in the config against v,
+// assembling no adapter — the LevelResolve verification pass. It fails on the
+// first unresolvable reference (an unset env var, a missing vault key).
+func (c *Config) resolveAll(ctx context.Context, v vault.Vault) error {
+	singles := []struct {
+		name string
+		sec  section
+	}{
+		{"signer", c.Signer},
+		{"vault", c.Vault},
+		{"storage", c.Storage},
+		{"sequencer", c.Sequencer},
+	}
+	for _, s := range singles {
+		if len(s.sec) == 0 {
+			continue
+		}
+		if err := resolveSection(ctx, newSection(s.sec, v)); err != nil {
+			return fmt.Errorf("config: %s: %w", s.name, err)
+		}
+	}
+	lists := []struct {
+		name string
+		secs []section
+	}{
+		{"auth", c.Auth},
+		{"endpoints", c.Endpoints},
+	}
+	for _, l := range lists {
+		for i, sec := range l.secs {
+			if err := resolveSection(ctx, newSection(sec, v)); err != nil {
+				return fmt.Errorf("config: %s[%d]: %w", l.name, i, err)
+			}
+		}
+	}
+	return nil
 }

@@ -38,13 +38,9 @@ func TestBuildResolvesAndWires(t *testing.T) {
 		"auth":   [{"type": "noauth", "subject": "ops"}]
 	}`
 
-	c, err := Load(strings.NewReader(cfgJSON))
+	app, err := Run(context.Background(), strings.NewReader(cfgJSON), nil)
 	if err != nil {
-		t.Fatalf("Load: %v", err)
-	}
-	app, err := c.Build(context.Background(), nil)
-	if err != nil {
-		t.Fatalf("Build: %v", err)
+		t.Fatalf("Run: %v", err)
 	}
 
 	if app.Signer == nil {
@@ -74,11 +70,27 @@ func TestBuildResolvesAndWires(t *testing.T) {
 // rather than yielding an empty key.
 func TestBuildMissingEnvFails(t *testing.T) {
 	const cfgJSON = `{"signer": {"type": "inmemory", "key": "env(RANKE_TEST_ABSENT)"}}`
-	c, err := Load(strings.NewReader(cfgJSON))
-	if err != nil {
-		t.Fatalf("Load: %v", err)
+	if _, err := Run(context.Background(), strings.NewReader(cfgJSON), nil); err == nil {
+		t.Fatal("Run succeeded with an unset env delegation; want error")
 	}
-	if _, err := c.Build(context.Background(), nil); err == nil {
-		t.Fatal("Build succeeded with an unset env delegation; want error")
+}
+
+// TestVerify exercises the two verify depths: syntax is offline (needs no env),
+// resolve additionally requires every reference to resolve.
+func TestVerify(t *testing.T) {
+	const good = `{"signer": {"type": "inmemory", "key": "env(RANKE_TEST_VERIFY_KEY)"}}`
+
+	if err := Verify(context.Background(), strings.NewReader(good), nil, LevelSyntax); err != nil {
+		t.Fatalf("Verify syntax: %v", err)
+	}
+	if err := Verify(context.Background(), strings.NewReader(`{"nope": {}}`), nil, LevelSyntax); err == nil {
+		t.Fatal("Verify syntax accepted an unknown section")
+	}
+	if err := Verify(context.Background(), strings.NewReader(good), nil, LevelResolve); err == nil {
+		t.Fatal("Verify resolve accepted an unset env reference")
+	}
+	t.Setenv("RANKE_TEST_VERIFY_KEY", "x")
+	if err := Verify(context.Background(), strings.NewReader(good), nil, LevelResolve); err != nil {
+		t.Fatalf("Verify resolve: %v", err)
 	}
 }

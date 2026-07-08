@@ -24,13 +24,9 @@ func TestBuildStorageStack(t *testing.T) {
 		}
 	}`
 
-	c, err := Load(strings.NewReader(cfgJSON))
+	app, err := Run(context.Background(), strings.NewReader(cfgJSON), nil)
 	if err != nil {
-		t.Fatalf("Load: %v", err)
-	}
-	app, err := c.Build(context.Background(), nil)
-	if err != nil {
-		t.Fatalf("Build: %v", err)
+		t.Fatalf("Run: %v", err)
 	}
 	if app.Storage == nil {
 		t.Fatal("nil storage universe")
