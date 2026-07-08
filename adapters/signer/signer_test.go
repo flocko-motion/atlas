@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/flocko-motion/rankedb/adapters/signer/inmemory/inmemorytest"
+	"github.com/flocko-motion/rankedb/adapters/signer/openbao/openbaotest"
 	"github.com/flocko-motion/rankedb/config/scope"
 )
 
@@ -22,6 +23,7 @@ type backend struct {
 
 var backends = []backend{
 	{name: "inmemory", setup: inmemorytest.Setup},
+	{name: "openbao", setup: openbaotest.Setup},
 }
 
 // TestConformance runs every backend through its setup, the test-view

@@ -22,6 +22,7 @@ import (
 	"fmt"
 
 	"github.com/flocko-motion/rankedb/adapters/signer/inmemory"
+	"github.com/flocko-motion/rankedb/adapters/signer/openbao"
 	"github.com/flocko-motion/rankedb/config/scope"
 )
 
@@ -65,6 +66,8 @@ func newTestSigner(ctx context.Context, cfg scope.Section) (testSigner, error) {
 	switch t {
 	case "inmemory":
 		return inmemory.New(ctx, cfg)
+	case "openbao":
+		return openbao.New(ctx, cfg)
 	case "":
 		return nil, fmt.Errorf("signer: no backend type configured")
 	default:

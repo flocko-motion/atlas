@@ -2,58 +2,39 @@ package openbao
 
 import (
 	"context"
-	"fmt"
-	"net"
-	"os/exec"
 	"testing"
 	"time"
 
 	openbao "github.com/openbao/openbao/api/v2"
 
 	"github.com/flocko-motion/rankedb/config/scope"
+	"github.com/flocko-motion/rankedb/tools/podman"
 )
 
-const (
-	testImage = "ghcr.io/openbao/openbao:latest"
-	testToken = "root-token-for-test"
-)
+const testToken = "root-token-for-test"
 
-// step narrates a phase of the test; visible under `go test -v` (which the
-// `make test/...` targets pass).
+// step narrates a phase of the test; visible under `go test -v`.
 func step(t *testing.T, format string, args ...any) {
 	t.Helper()
 	t.Logf("▸ "+format, args...)
 }
 
-// TestSecret spins up a real OpenBao dev server via podman, seeds a KV v2
-// secret, and asserts the adapter reads it back through the vault.Vault port. It
-// skips when podman is unavailable so the offline gate stays green — an adapter's
-// only meaningful test drives its real counterpart, never a mock.
+// TestSecret spins up a real OpenBao dev server via podman, seeds a KV v2 secret,
+// and asserts the adapter reads it back through the vault.Vault port. It skips
+// when podman is unavailable so the offline gate stays green — an adapter's only
+// meaningful test drives its real counterpart, never a mock.
 func TestSecret(t *testing.T) {
-	if _, err := exec.LookPath("podman"); err != nil {
-		t.Skip("podman not found; skipping OpenBao adapter test")
-	}
 	ctx := context.Background()
-
-	addr := fmt.Sprintf("127.0.0.1:%d", freePort(t))
-	const name = "ranke-openbao-test"
-	step(t, "starting OpenBao dev server (image %s, container %s) on %s", testImage, name, addr)
-	start := exec.Command("podman", "run", "--rm", "-d",
-		"--name", name,
-		"-p", addr+":8200",
-		"-e", "BAO_DEV_ROOT_TOKEN_ID="+testToken,
-		testImage,
-		"server", "-dev", "-dev-listen-address=0.0.0.0:8200")
-	if out, err := start.CombinedOutput(); err != nil {
-		t.Fatalf("podman run: %v: %s", err, out)
-	}
-	t.Cleanup(func() {
-		step(t, "removing container %s", name)
-		_ = exec.Command("podman", "rm", "-f", name).Run()
+	addr, teardown := podman.Run(t, podman.Spec{
+		Image: "ghcr.io/openbao/openbao:latest",
+		Port:  8200,
+		Env:   map[string]string{"BAO_DEV_ROOT_TOKEN_ID": testToken},
+		Args:  []string{"server", "-dev", "-dev-listen-address=0.0.0.0:8200"},
 	})
+	t.Cleanup(teardown)
 
 	address := "http://" + addr
-	step(t, "container up; waiting for OpenBao to unseal at %s", address)
+	step(t, "waiting for OpenBao to unseal at %s", address)
 	seed := newClient(t, address)
 	waitReady(t, seed)
 
@@ -62,8 +43,7 @@ func TestSecret(t *testing.T) {
 		t.Fatalf("seed secret: %v", err)
 	}
 
-	// Read it back through the adapter, built from a config section.
-	step(t, "building the openbao adapter from its config section")
+	step(t, "reading vault(ranke/signing#key) through the adapter")
 	v, err := New(ctx, scope.Literal(map[string]string{
 		"type":    "openbao",
 		"address": address,
@@ -73,7 +53,6 @@ func TestSecret(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	step(t, "reading vault(ranke/signing#key) through the adapter")
 	got, err := v.Secret(ctx, "ranke/signing#key")
 	if err != nil {
 		t.Fatalf("Secret: %v", err)
@@ -108,14 +87,4 @@ func waitReady(t *testing.T, c *openbao.Client) {
 		time.Sleep(300 * time.Millisecond)
 	}
 	t.Fatal("OpenBao did not become ready in time")
-}
-
-func freePort(t *testing.T) int {
-	t.Helper()
-	l, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("free port: %v", err)
-	}
-	defer func() { _ = l.Close() }()
-	return l.Addr().(*net.TCPAddr).Port
 }
