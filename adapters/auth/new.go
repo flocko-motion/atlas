@@ -12,7 +12,7 @@ import (
 	"fmt"
 
 	"github.com/flocko-motion/rankedb/adapters/auth/noauth"
-	"github.com/flocko-motion/rankedb/scope"
+	"github.com/flocko-motion/rankedb/config/scope"
 )
 
 // New builds the auth backend named by the scope's "type" value, handing the

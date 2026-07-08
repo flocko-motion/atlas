@@ -24,7 +24,7 @@ import (
 	"github.com/flocko-motion/ranke-go/adapter/storage/sqlite"
 	"github.com/flocko-motion/ranke-go/adapter/storage/stack"
 
-	"github.com/flocko-motion/rankedb/scope"
+	"github.com/flocko-motion/rankedb/config/scope"
 )
 
 // Spec is one resolved storage layer. Mode is "eager" or "lazy"; Type names the

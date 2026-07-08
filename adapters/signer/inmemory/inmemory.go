@@ -20,7 +20,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/flocko-motion/rankedb/scope"
+	"github.com/flocko-motion/rankedb/config/scope"
 )
 
 // New reads the resolved "key" value from the instance scope and parses it as

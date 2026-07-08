@@ -12,7 +12,7 @@ package noauth
 import (
 	"context"
 
-	"github.com/flocko-motion/rankedb/scope"
+	"github.com/flocko-motion/rankedb/config/scope"
 )
 
 // Auth is the no-auth backend: every Authenticate returns the same subject.

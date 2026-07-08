@@ -24,7 +24,7 @@ import (
 	"github.com/flocko-motion/rankedb/adapters/signer"
 	"github.com/flocko-motion/rankedb/adapters/storage"
 	"github.com/flocko-motion/rankedb/adapters/vault"
-	"github.com/flocko-motion/rankedb/scope"
+	"github.com/flocko-motion/rankedb/config/scope"
 )
 
 // Config is the parsed launch artifact. Each section is an open key/value map
@@ -33,9 +33,11 @@ import (
 // until Build resolves them.
 type Config struct {
 	Signer  section    `json:"signer"`
-	Auth    section    `json:"auth"`
+	Endpoints []section `json:"endpoints"`
+	Auth    []section    `json:"auth"`
 	Vault   section    `json:"vault"`
 	Storage []rawLayer `json:"storage"`
+	Sequencer section `json:"sequencer"`
 }
 
 // section is one adapter's raw config: keys to undecoded JSON values, resolved
@@ -45,8 +47,11 @@ type section map[string]json.RawMessage
 // App is the assembled adapter stack Build produces.
 type App struct {
 	Signer  signer.Signer
+	Endpoints []endpoints.Endpoints
+	// Vault is omitted on purpose as it's only needed for assembling the App
 	Auth    auth.Auth
 	Storage ranke.Universe
+	Sequencer ranke.Sequencer
 }
 
 // Load parses the JSON launch artifact from r without resolving delegations —
