@@ -12,7 +12,7 @@ RANKE_GRAPH_REPO ?= https://github.com/flocko-motion/ranke-graph
 RANKE_GRAPH_REF  ?= main
 PAPERS_DIR       := docs/papers
 
-.PHONY: all help check-tools generate gen-go gen-ts gen-html verify tidy build smoke \
+.PHONY: all help check-tools generate gen-go gen-ts gen-html verify tidy build smoke test \
         ranke-go-version release major minor patch breaking feature fix docs docs-clean
 
 BIN := bin/ranke-db
@@ -64,6 +64,17 @@ build: ## Compile the ranke-db binary to bin/
 
 smoke: build ## Launch ranke-db run against the minimal example, check health, shut down
 	@./scripts/smoke.sh $(BIN)
+
+test: ## Test all packages; scope with make test/<pkg> (e.g. test/config, test/adapters/vault/openbao)
+	@echo ">> go test ./..."
+	@go test ./...
+
+# make test/<pkg-path> runs one package subtree, verbose — e.g. make test/adapters
+# (all adapters), make test/adapters/vault/openbao (one impl), make test/config.
+# One pattern rule routes any repo-relative path ($* captures the rest).
+test/%:
+	@echo ">> go test -v ./$*/..."
+	@go test -v ./$*/...
 
 verify: ## Build, vet, test, and gofmt-check the module
 	@set -e; \
