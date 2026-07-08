@@ -6,8 +6,11 @@ import (
 	"crypto/rand"
 	"crypto/x509"
 	"encoding/pem"
+	"errors"
 	"strings"
 	"testing"
+
+	"github.com/flocko-motion/rankedb/internal/core"
 )
 
 // testKeyPEM generates a throwaway Ed25519 private key as PKCS#8 PEM. Tests
@@ -26,22 +29,20 @@ func testKeyPEM(t *testing.T) string {
 	return string(pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der}))
 }
 
-// TestBuildResolvesAndWires loads a config whose signer key is delegated to an
-// env var, and asserts Build resolves it, loads the key into a working signer,
-// and wires the noauth subject — proving the scope handoff end to end.
+// TestBuildResolvesAndWires loads a config whose signer key is delegated to an env
+// var and asserts Run resolves it into a working shared signer. With no endpoints,
+// the stack carries just the shared driven ports.
 func TestBuildResolvesAndWires(t *testing.T) {
 	t.Setenv("RANKE_TEST_SIGNER_KEY", testKeyPEM(t))
 
 	const cfgJSON = `{
-		"signer": {"type": "inmemory", "key": "env(RANKE_TEST_SIGNER_KEY)"},
-		"auth":   [{"type": "noauth", "subject": "ops"}]
+		"signer": {"type": "inmemory", "key": "env(RANKE_TEST_SIGNER_KEY)"}
 	}`
 
 	app, err := Run(context.Background(), strings.NewReader(cfgJSON), nil)
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-
 	if app.Signer == nil {
 		t.Fatal("nil signer")
 	}
@@ -56,21 +57,76 @@ func TestBuildResolvesAndWires(t *testing.T) {
 	if _, err := app.Signer.Sign(context.Background(), digest); err != nil {
 		t.Fatalf("Sign: %v", err)
 	}
-
-	if len(app.Auth) != 1 {
-		t.Fatalf("auth count = %d, want 1", len(app.Auth))
-	}
-	subject, err := app.Auth[0].Authenticate(context.Background(), "")
-	if err != nil {
-		t.Fatalf("Authenticate: %v", err)
-	}
-	if subject != "ops" {
-		t.Fatalf("subject = %q, want %q", subject, "ops")
+	if len(app.Endpoints) != 0 {
+		t.Fatalf("endpoints = %d, want 0", len(app.Endpoints))
 	}
 }
 
-// TestBuildMissingEnvFails asserts an unset env() delegation fails Build loud
-// rather than yielding an empty key.
+// TestBuildEndpointAdmits proves the per-endpoint pipeline: an admitted account is
+// authenticated by the endpoint's NoAuth backend, authorized by its grants, and
+// reaches the (stubbed) execute stage.
+func TestBuildEndpointAdmits(t *testing.T) {
+	const cfgJSON = `{
+		"accounts": {
+			"webapp": {"grants": ["R proj-*"]},
+			"admin":  {"grants": ["C mgmt-*"]}
+		},
+		"endpoints": [{
+			"transport": {"type": "rest"},
+			"auth":      [{"type": "noauth", "subject": "webapp"}],
+			"admit":     ["webapp"]
+		}]
+	}`
+	c, err := load(strings.NewReader(cfgJSON))
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	cr, err := c.buildEndpoint(context.Background(), c.Endpoints[0], nil, nil)
+	if err != nil {
+		t.Fatalf("buildEndpoint: %v", err)
+	}
+
+	req := &core.Request{Op: core.OpQuery, Branch: "proj-x"}
+	if err := cr.Handle(context.Background(), req); !errors.Is(err, core.ErrNotImplemented) {
+		t.Fatalf("Handle = %v, want ErrNotImplemented (authorized, reached execute)", err)
+	}
+	if req.Principal.Account != "webapp" {
+		t.Fatalf("account = %q, want webapp", req.Principal.Account)
+	}
+}
+
+// TestBuildEndpointRejectsUnadmitted proves the admission boundary: an account
+// that exists globally but is not admitted here is denied, because this endpoint's
+// checker was built from the admitted subset only.
+func TestBuildEndpointRejectsUnadmitted(t *testing.T) {
+	const cfgJSON = `{
+		"accounts": {
+			"webapp": {"grants": ["R proj-*"]},
+			"admin":  {"grants": ["C mgmt-*"]}
+		},
+		"endpoints": [{
+			"transport": {"type": "rest"},
+			"auth":      [{"type": "noauth", "subject": "admin"}],
+			"admit":     ["webapp"]
+		}]
+	}`
+	c, err := load(strings.NewReader(cfgJSON))
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	cr, err := c.buildEndpoint(context.Background(), c.Endpoints[0], nil, nil)
+	if err != nil {
+		t.Fatalf("buildEndpoint: %v", err)
+	}
+
+	req := &core.Request{Op: core.OpQuery, Branch: "proj-x"}
+	if err := cr.Handle(context.Background(), req); !errors.Is(err, core.ErrForbidden) {
+		t.Fatalf("Handle = %v, want ErrForbidden (admin authenticates but is not admitted here)", err)
+	}
+}
+
+// TestBuildMissingEnvFails asserts an unset env() delegation fails Run loud rather
+// than yielding an empty key.
 func TestBuildMissingEnvFails(t *testing.T) {
 	const cfgJSON = `{"signer": {"type": "inmemory", "key": "env(RANKE_TEST_ABSENT)"}}`
 	if _, err := Run(context.Background(), strings.NewReader(cfgJSON), nil); err == nil {
@@ -78,8 +134,9 @@ func TestBuildMissingEnvFails(t *testing.T) {
 	}
 }
 
-// TestVerify exercises the two verify depths: syntax is offline (needs no env),
-// resolve additionally requires every reference to resolve.
+// TestVerify exercises offline syntax checks: shape, malformed grants, and dangling
+// admit references all fail without touching env; resolve additionally requires
+// every reference to resolve.
 func TestVerify(t *testing.T) {
 	const good = `{"signer": {"type": "inmemory", "key": "env(RANKE_TEST_VERIFY_KEY)"}}`
 
@@ -88,6 +145,13 @@ func TestVerify(t *testing.T) {
 	}
 	if err := Verify(context.Background(), strings.NewReader(`{"nope": {}}`), nil, LevelSyntax); err == nil {
 		t.Fatal("Verify syntax accepted an unknown section")
+	}
+	if err := Verify(context.Background(), strings.NewReader(`{"accounts": {"a": {"grants": ["CX foo-*"]}}}`), nil, LevelSyntax); err == nil {
+		t.Fatal("Verify syntax accepted a malformed grant")
+	}
+	const danglingAdmit = `{"accounts": {"webapp": {"grants": ["R proj-*"]}}, "endpoints": [{"transport": {"type": "rest"}, "auth": [], "admit": ["ghost"]}]}`
+	if err := Verify(context.Background(), strings.NewReader(danglingAdmit), nil, LevelSyntax); err == nil {
+		t.Fatal("Verify syntax accepted an admit naming an undefined account")
 	}
 	if err := Verify(context.Background(), strings.NewReader(good), nil, LevelResolve); err == nil {
 		t.Fatal("Verify resolve accepted an unset env reference")
@@ -99,8 +163,8 @@ func TestVerify(t *testing.T) {
 }
 
 // TestVerifyConnect exercises the connect depth: a shape-valid config with an
-// unknown backend passes syntax but fails connect, while a valid mem+signer
-// config assembles cleanly.
+// unknown backend passes syntax but fails connect, while a valid mem+signer config
+// (no endpoints) assembles cleanly.
 func TestVerifyConnect(t *testing.T) {
 	t.Setenv("RANKE_TEST_CONNECT_KEY", testKeyPEM(t))
 	const good = `{"signer": {"type": "inmemory", "key": "env(RANKE_TEST_CONNECT_KEY)"}, "storage": {"type": "mem"}}`

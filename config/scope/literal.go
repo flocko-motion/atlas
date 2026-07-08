@@ -26,9 +26,12 @@ type litSection map[string]string
 
 func (s litSection) GetSection(string) Section { return litSection(nil) }
 
-func (s litSection) GetValue(key string) Value {
+func (s litSection) Get(_ context.Context, key string) (string, error) {
 	v, ok := s[key]
-	return litValue{key: key, val: v, present: ok}
+	if !ok {
+		return "", fmt.Errorf("scope: key %q is absent", key)
+	}
+	return v, nil
 }
 
 func (s litSection) GetArray(string) []Section { return nil }
@@ -48,17 +51,4 @@ func (s litSection) Keys() []string {
 	}
 	sort.Strings(keys)
 	return keys
-}
-
-type litValue struct {
-	key     string
-	val     string
-	present bool
-}
-
-func (v litValue) Get(context.Context) (string, error) {
-	if !v.present {
-		return "", fmt.Errorf("scope: key %q is absent", v.key)
-	}
-	return v.val, nil
 }

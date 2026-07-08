@@ -54,13 +54,13 @@ func build(ctx context.Context, sec scope.Section) (ranke.Universe, error) {
 	case "partition":
 		return buildPartition(ctx, sec.GetArray("shards"))
 	case "fs":
-		dir, err := sec.GetValue("dir").Get(ctx)
+		dir, err := sec.Get(ctx, "dir")
 		if err != nil {
 			return nil, err
 		}
 		return fs.New(dir)
 	case "sqlite":
-		dsn, err := sec.GetValue("dsn").Get(ctx)
+		dsn, err := sec.Get(ctx, "dsn")
 		if err != nil {
 			return nil, err
 		}
@@ -100,7 +100,7 @@ func buildStack(ctx context.Context, layers []scope.Section) (ranke.Universe, er
 		}
 		mode := "eager"
 		if l.HasValue("mode") {
-			if mode, err = l.GetValue("mode").Get(ctx); err != nil {
+			if mode, err = l.Get(ctx, "mode"); err != nil {
 				return nil, fmt.Errorf("storage: stack layer %d: mode: %w", i, err)
 			}
 		}
@@ -120,7 +120,7 @@ func buildStack(ctx context.Context, layers []scope.Section) (ranke.Universe, er
 func layerOpts(ctx context.Context, l scope.Section) ([]stack.Option, error) {
 	var opts []stack.Option
 	if l.HasValue("maxContentSize") {
-		raw, err := l.GetValue("maxContentSize").Get(ctx)
+		raw, err := l.Get(ctx, "maxContentSize")
 		if err != nil {
 			return nil, fmt.Errorf("maxContentSize: %w", err)
 		}
@@ -133,7 +133,7 @@ func layerOpts(ctx context.Context, l scope.Section) ([]stack.Option, error) {
 		}
 	}
 	if l.HasValue("noReadFill") {
-		v, err := l.GetValue("noReadFill").Get(ctx)
+		v, err := l.Get(ctx, "noReadFill")
 		if err != nil {
 			return nil, fmt.Errorf("noReadFill: %w", err)
 		}
@@ -166,7 +166,7 @@ func typeOf(ctx context.Context, sec scope.Section) (string, error) {
 	if !sec.HasValue("type") {
 		return "", nil
 	}
-	return sec.GetValue("type").Get(ctx)
+	return sec.Get(ctx, "type")
 }
 
 // parseSize parses a human-readable byte size: a bare number is bytes, or a

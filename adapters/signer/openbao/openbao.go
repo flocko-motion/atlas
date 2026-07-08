@@ -36,14 +36,14 @@ type Signer struct {
 // key name (optional — a test provisions it via PrepareKey). New is lenient: it
 // does not read the key, so PrepareKey can create it afterwards.
 func New(ctx context.Context, cfg scope.Section) (*Signer, error) {
-	address, err := cfg.GetValue("address").Get(ctx)
+	address, err := cfg.Get(ctx, "address")
 	if err != nil {
 		return nil, fmt.Errorf("signer/openbao: address: %w", err)
 	}
 	if address == "" {
 		return nil, fmt.Errorf("signer/openbao: address is required")
 	}
-	token, err := cfg.GetValue("token").Get(ctx)
+	token, err := cfg.Get(ctx, "token")
 	if err != nil {
 		return nil, fmt.Errorf("signer/openbao: token: %w", err)
 	}
@@ -52,13 +52,13 @@ func New(ctx context.Context, cfg scope.Section) (*Signer, error) {
 	}
 	mount := "transit"
 	if cfg.HasValue("mount") {
-		if mount, err = cfg.GetValue("mount").Get(ctx); err != nil {
+		if mount, err = cfg.Get(ctx, "mount"); err != nil {
 			return nil, fmt.Errorf("signer/openbao: mount: %w", err)
 		}
 	}
 	var key string
 	if cfg.HasValue("key") {
-		if key, err = cfg.GetValue("key").Get(ctx); err != nil {
+		if key, err = cfg.Get(ctx, "key"); err != nil {
 			return nil, fmt.Errorf("signer/openbao: key: %w", err)
 		}
 	}

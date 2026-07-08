@@ -33,7 +33,7 @@ func New(ctx context.Context, cfg scope.Section) (Vault, error) {
 	var t string
 	if cfg.HasValue("type") {
 		var err error
-		if t, err = cfg.GetValue("type").Get(ctx); err != nil {
+		if t, err = cfg.Get(ctx, "type"); err != nil {
 			return nil, fmt.Errorf("vault: type: %w", err)
 		}
 	}

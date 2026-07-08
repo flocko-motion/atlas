@@ -1,13 +1,19 @@
 // package: auth / authn
-// type:    interface + factory
-// job:     the Auth port — turn a request credential into an account subject — plus the factory that builds a backend from config
-// limits:  contract + dispatch; credential checking lives in the backends (-> adapters/auth/noauth, jwt, apikey)
+// type:    interface + factory + dispatcher
+// job:     the Auth port — turn a request credential into an authenticated Principal — the factory, and the scheme dispatcher
+// limits:  identity only; WHAT a principal may do is access's (-> internal/core/access); credential checking lives in the backends
 //
-// Package auth defines the authentication port (credential in, subject out) and
-// builds the configured backend. It settles only WHO the caller is; WHAT they may
-// do is the access checker's, keyed on the returned subject. An endpoint adapter
+// Package auth defines the authentication port (credential in, Principal out) and
+// builds the configured backends. It settles only WHO the caller is — a system
+// account, plus any caveats a token carried; WHAT they may do is the access
+// checker's, keyed on the returned Principal one step later in core. An endpoint
 // extracts the raw credential per its transport (a Bearer token, an X-API-Key
 // header, …) and hands it here, so the port stays transport-neutral.
+//
+// Each backend answers one credential scheme. A Set groups the configured backends
+// and dispatches by the scheme an endpoint presents: exactly one credential routes
+// to its backend, none falls back to NoAuth, and more than one is ambiguous and
+// rejected — the endpoint never guesses a token's kind by inspecting its bytes.
 package auth
 
 import (
@@ -17,30 +23,57 @@ import (
 
 	"github.com/flocko-motion/rankedb/adapters/auth/noauth"
 	"github.com/flocko-motion/rankedb/config/scope"
+	"github.com/flocko-motion/rankedb/internal/core/access"
 )
 
 // ErrUnauthenticated reports that a credential was required but missing or
 // invalid — an endpoint maps it to 401.
 var ErrUnauthenticated = errors.New("auth: unauthenticated")
 
-// Auth authenticates a request credential. Backends: NoAuth (one implicit
-// account), JWT, API key (-> sub-packages).
+// ErrAmbiguousCredentials reports that a request presented more than one auth
+// scheme at once. An endpoint raises it while extracting credentials — before
+// core runs — and maps it to 400; the Set only ever resolves a single credential.
+var ErrAmbiguousCredentials = errors.New("auth: ambiguous credentials")
+
+// Well-known credential schemes. A backend reports which one it consumes via
+// Scheme(); an endpoint tags each credential it extracts with the same string.
+// The empty scheme is NoAuth — the absence of a credential.
+const (
+	SchemeNone     = ""         // NoAuth: no credential presented
+	SchemeAPIKey   = "apikey"   // an API key (e.g. X-API-Key)
+	SchemeBearer   = "bearer"   // a JWT bearer token
+	SchemeMacaroon = "macaroon" // a macaroon
+)
+
+// Credential is one authentication token an endpoint extracted from a request,
+// tagged with the scheme it was presented under.
+type Credential struct {
+	Scheme string
+	Token  string
+}
+
+// Auth authenticates one credential scheme. Backends: NoAuth, JWT, API key,
+// Macaroon (-> sub-packages).
 type Auth interface {
-	// Authenticate returns the subject (account id) for credential, or
-	// ErrUnauthenticated if it is missing or invalid. NoAuth ignores the
-	// credential and returns its configured default subject.
-	Authenticate(ctx context.Context, credential string) (subject string, err error)
+	// Authenticate resolves token to a Principal, or returns ErrUnauthenticated if
+	// it is missing or invalid. NoAuth ignores the token and returns its configured
+	// account.
+	Authenticate(ctx context.Context, token string) (access.Principal, error)
+
+	// Scheme reports the credential scheme this backend consumes (one of the
+	// Scheme* constants). NoAuth reports SchemeNone.
+	Scheme() string
 }
 
 // New builds the auth backend named by the section's "type" value, handing the
 // backend the same section to read its secrets from. An empty type defaults to
-// noauth. The credential-checking backends (jwt, apikey) land here as they are
-// added.
+// noauth. The credential-checking backends (jwt, apikey, macaroon) land here as
+// they are added.
 func New(ctx context.Context, cfg scope.Section) (Auth, error) {
 	var t string
 	if cfg.HasValue("type") {
 		var err error
-		if t, err = cfg.GetValue("type").Get(ctx); err != nil {
+		if t, err = cfg.Get(ctx, "type"); err != nil {
 			return nil, fmt.Errorf("auth: type: %w", err)
 		}
 	}
@@ -50,4 +83,52 @@ func New(ctx context.Context, cfg scope.Section) (Auth, error) {
 	default:
 		return nil, fmt.Errorf("auth: unknown backend type %q", t)
 	}
+}
+
+// Set is the configured authenticators indexed by scheme, plus the optional NoAuth
+// fallback. It is what an endpoint hands a request's credentials to.
+type Set struct {
+	byScheme map[string]Auth
+	noAuth   Auth
+}
+
+// NewSet indexes the backends by scheme, rejecting two backends that claim the
+// same scheme (an endpoint could not route between them).
+func NewSet(auths []Auth) (*Set, error) {
+	s := &Set{byScheme: make(map[string]Auth, len(auths))}
+	for _, a := range auths {
+		sc := a.Scheme()
+		if sc == SchemeNone {
+			if s.noAuth != nil {
+				return nil, fmt.Errorf("auth: multiple NoAuth backends configured")
+			}
+			s.noAuth = a
+			continue
+		}
+		if _, dup := s.byScheme[sc]; dup {
+			return nil, fmt.Errorf("auth: multiple backends for scheme %q", sc)
+		}
+		s.byScheme[sc] = a
+	}
+	return s, nil
+}
+
+// Authenticate resolves the one credential an endpoint extracted from a request.
+// A zero-value credential (empty scheme) means none was presented and falls back
+// to NoAuth — ErrUnauthenticated if no NoAuth backend is configured. Otherwise it
+// routes to the backend for the credential's scheme, or ErrUnauthenticated if none
+// handles it. Rejecting a request that presents more than one scheme is the
+// endpoint's job, done during extraction (see ErrAmbiguousCredentials).
+func (s *Set) Authenticate(ctx context.Context, cred Credential) (access.Principal, error) {
+	if cred.Scheme == SchemeNone {
+		if s.noAuth == nil {
+			return access.Principal{}, ErrUnauthenticated
+		}
+		return s.noAuth.Authenticate(ctx, "")
+	}
+	a, ok := s.byScheme[cred.Scheme]
+	if !ok {
+		return access.Principal{}, ErrUnauthenticated
+	}
+	return a.Authenticate(ctx, cred.Token)
 }

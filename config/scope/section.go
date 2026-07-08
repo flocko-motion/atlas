@@ -16,30 +16,22 @@ package scope
 
 import "context"
 
-// Value is one config leaf handed to the adapter that needs it. Get returns the
-// plaintext, resolving an env()/vault() reference on demand — so a rotating
-// vault secret is fetched when the adapter uses it rather than frozen at launch.
-// The source (literal, env(), or vault()) is chosen by config when it builds the
-// Value and is opaque here: the adapter triggers resolution, it does not pick the
-// source or reach the environment or vault itself.
-type Value interface {
-	// Get resolves and returns the value. It errors when the key was absent, or
-	// when resolving its source (an unset env var, an unreachable vault) fails.
-	Get(ctx context.Context) (string, error)
-}
-
 // Section is one instance's slice of the launch config: a navigable node that
-// yields nested Sections and leaf Values. It holds no reference to its parent or
-// siblings, so an adapter handed a Section can reach only what is inside it.
+// yields nested Sections and reads leaf values. It holds no reference to its
+// parent or siblings, so an adapter handed a Section can reach only what is inside
+// it.
 type Section interface {
 	// GetSection descends into a nested object. A missing or non-object key
 	// yields an empty Section (never nil), so navigation cannot panic.
 	GetSection(key string) Section
 
-	// GetValue returns the leaf at key. A missing key yields a Value whose Get
-	// reports the absence, so callers may resolve first and judge required-ness
-	// from the error.
-	GetValue(key string) Value
+	// Get resolves the leaf at key to its plaintext, expanding an env()/vault()
+	// reference on demand — so a rotating vault secret is fetched when the adapter
+	// reads it rather than frozen at launch. The source (literal, env(), vault())
+	// is chosen by config and opaque here. It errors when the key is absent, or
+	// when resolving its source (an unset env var, an unreachable vault) fails; an
+	// adapter judges required-ness from that error, or checks HasValue first.
+	Get(ctx context.Context, key string) (string, error)
 
 	// GetArray returns the elements of an array-valued key, each wrapped as a
 	// Section. A missing key or a non-array value yields an empty slice. Config

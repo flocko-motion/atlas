@@ -27,7 +27,7 @@ func New(ctx context.Context, cfg scope.Section) (*Vault, error) {
 	var url string
 	if cfg.HasValue("url") {
 		var err error
-		if url, err = cfg.GetValue("url").Get(ctx); err != nil {
+		if url, err = cfg.Get(ctx, "url"); err != nil {
 			return nil, fmt.Errorf("vault/azure: url: %w", err)
 		}
 	}

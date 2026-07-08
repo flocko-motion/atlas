@@ -35,7 +35,7 @@ func encryptForTest(t *testing.T, plaintext, passphrase string) []byte {
 // TestDecryptRoundTrip encrypts a config and decrypts it through a passphrase
 // source, asserting the plaintext returns intact.
 func TestDecryptRoundTrip(t *testing.T) {
-	const plaintext = `{"auth":[{"type":"noauth","subject":"ops"}]}`
+	const plaintext = `{"accounts":{"ops":{"grants":["R foo-*"]}}}`
 	const pass = "correct horse battery staple"
 	enc := encryptForTest(t, plaintext, pass)
 
@@ -52,7 +52,7 @@ func TestDecryptRoundTrip(t *testing.T) {
 // TestDecryptPlaintextPassthrough asserts a plaintext config is returned
 // unchanged and needs no key source.
 func TestDecryptPlaintextPassthrough(t *testing.T) {
-	plain := []byte(`{"auth":[{"type":"noauth"}]}`)
+	plain := []byte(`{"accounts":{"ops":{"grants":["R foo-*"]}}}`)
 	got, err := decrypt(plain, nil)
 	if err != nil {
 		t.Fatalf("decrypt: %v", err)

@@ -13,6 +13,7 @@ import (
 	"context"
 
 	"github.com/flocko-motion/rankedb/config/scope"
+	"github.com/flocko-motion/rankedb/internal/core/access"
 )
 
 // Auth is the no-auth backend: every Authenticate returns the same subject.
@@ -24,7 +25,7 @@ type Auth struct{ subject string }
 func New(ctx context.Context, cfg scope.Section) (*Auth, error) {
 	subject := "anonymous"
 	if cfg.HasValue("subject") {
-		s, err := cfg.GetValue("subject").Get(ctx)
+		s, err := cfg.Get(ctx, "subject")
 		if err != nil {
 			return nil, err
 		}
@@ -35,7 +36,13 @@ func New(ctx context.Context, cfg scope.Section) (*Auth, error) {
 	return &Auth{subject: subject}, nil
 }
 
-// Authenticate ignores credential and returns the configured subject.
-func (a *Auth) Authenticate(_ context.Context, _ string) (string, error) {
-	return a.subject, nil
+// Authenticate ignores the token and returns the configured account with no
+// caveats — the open backend never attenuates.
+func (a *Auth) Authenticate(_ context.Context, _ string) (access.Principal, error) {
+	return access.Principal{Account: a.subject}, nil
 }
+
+// Scheme reports the empty (NoAuth) scheme: this backend consumes no credential.
+// Returned as a literal so noauth need not import the auth package that dispatches
+// to it (which would cycle); the value equals auth.SchemeNone.
+func (a *Auth) Scheme() string { return "" }

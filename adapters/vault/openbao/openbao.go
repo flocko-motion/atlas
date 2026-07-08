@@ -29,14 +29,14 @@ type Vault struct {
 // required), "token" (auth token, required), and "mount" (the KV v2 mount path,
 // default "secret").
 func New(ctx context.Context, cfg scope.Section) (*Vault, error) {
-	address, err := cfg.GetValue("address").Get(ctx)
+	address, err := cfg.Get(ctx, "address")
 	if err != nil {
 		return nil, fmt.Errorf("vault/openbao: address: %w", err)
 	}
 	if address == "" {
 		return nil, fmt.Errorf("vault/openbao: address is required")
 	}
-	token, err := cfg.GetValue("token").Get(ctx)
+	token, err := cfg.Get(ctx, "token")
 	if err != nil {
 		return nil, fmt.Errorf("vault/openbao: token: %w", err)
 	}
@@ -45,7 +45,7 @@ func New(ctx context.Context, cfg scope.Section) (*Vault, error) {
 	}
 	mount := "secret"
 	if cfg.HasValue("mount") {
-		if mount, err = cfg.GetValue("mount").Get(ctx); err != nil {
+		if mount, err = cfg.Get(ctx, "mount"); err != nil {
 			return nil, fmt.Errorf("vault/openbao: mount: %w", err)
 		}
 	}

@@ -208,10 +208,11 @@ func promptPassphrase() (string, error) {
 	return string(b), nil
 }
 
-// requireServing enforces the ports a serving instance cannot run without: a
-// signing identity to attest merges, storage to hold the graph, and at least one
-// authenticator (noauth is a choice — there is no silent open-by-default). Run
-// assembles only what is configured; this is where the serving policy lives.
+// requireServing enforces what a serving instance cannot run without: a signing
+// identity to attest merges, storage to hold the graph, and at least one endpoint
+// to reach it (each endpoint carries its own authenticators — noauth is a choice,
+// there is no silent open-by-default). Run assembles only what is configured; this
+// is where the serving policy lives.
 func requireServing(app *config.App) error {
 	var missing []string
 	if app.Signer == nil {
@@ -220,8 +221,8 @@ func requireServing(app *config.App) error {
 	if app.Storage == nil {
 		missing = append(missing, "storage")
 	}
-	if len(app.Auth) == 0 {
-		missing = append(missing, "auth")
+	if len(app.Endpoints) == 0 {
+		missing = append(missing, "endpoints")
 	}
 	if len(missing) > 0 {
 		return fmt.Errorf("config is missing required section(s) for serving: %v", missing)

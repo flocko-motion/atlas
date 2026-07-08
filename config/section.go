@@ -1,45 +1,83 @@
 // package: config / composition
 // type:    struct
-// job:     the concrete scope.Section / scope.Value handed to each adapter — a lazily-resolved slice of the parsed config
+// job:     the concrete scope.Section handed to each adapter — a lazily-resolved slice of the parsed config
 // limits:  navigates one parsed JSON object and resolves its leaves on demand; holds no path to the rest of the config (-> config, config/scope)
 //
-// This file is the handout itself: the concrete types that fulfil the scope
-// contract. cfgSection wraps one parsed JSON object plus the vault its leaves may
-// reference; it navigates into nested sections and yields leaf Values, and holds
-// no back-reference to the enclosing config — the containment that keeps one
-// adapter from reading another's slice. cfgValue resolves a single leaf lazily on
-// Get: a literal passes through, an env()/vault() delegation is expanded only
-// then, so a rotating secret is fetched at use and the source stays opaque to the
-// adapter.
+// This file is the handout itself: the concrete type that fulfils the scope
+// contract. cfgSection wraps one parsed JSON object plus the vault box its leaves
+// may reference; it navigates into nested sections and resolves leaves via Get,
+// and holds no back-reference to the enclosing config — the containment that keeps
+// one adapter from reading another's slice. A leaf is resolved lazily on Get: a
+// literal passes through, an env()/vault() delegation is expanded only then, so a
+// rotating secret is fetched at use and the source stays opaque to the adapter.
 package config
 
 import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
+	"sync"
 
 	"github.com/flocko-motion/rankedb/adapters/vault"
 	"github.com/flocko-motion/rankedb/config/scope"
 )
 
+// vaultBox owns the secret store's lifecycle for one config. It builds the store
+// on the first vault() reference resolved and caches it, so a config that never
+// references vault() never dials one — and a LevelConnect check reaches only the
+// backends actually used. It is shared by every section derived from the config
+// (propagated on navigation), so the store is built at most once. The vault
+// section itself gets a nil box, since a vault cannot resolve its own secrets.
+type vaultBox struct {
+	cfg  map[string]json.RawMessage
+	once sync.Once
+	v    vault.Vault
+	err  error
+}
+
+// get returns the secret store, building it once from the vault section (resolved
+// env-only, via a boxless section). A nil box — the vault section's own leaves —
+// rejects vault() outright.
+func (b *vaultBox) get(ctx context.Context) (vault.Vault, error) {
+	if b == nil {
+		return nil, errors.New("vault() is not resolvable here")
+	}
+	b.once.Do(func() {
+		if len(b.cfg) == 0 {
+			b.err = errors.New("referenced but no vault section is configured")
+			return
+		}
+		b.v, b.err = vault.New(ctx, cfgSection{raw: b.cfg})
+	})
+	return b.v, b.err
+}
+
+// section wraps one of the config's raw objects as a scope.Section bound to the
+// config's shared vault box — the single place a section acquires its box, so no
+// builder threads the vault around.
+func (c *Config) section(raw section) scope.Section {
+	return newSection(raw, c.box)
+}
+
 // cfgSection is the concrete scope.Section over one parsed JSON object.
 type cfgSection struct {
-	raw   map[string]json.RawMessage
-	vault vault.Vault
+	raw map[string]json.RawMessage
+	box *vaultBox
 }
 
 // newSection wraps a parsed JSON object as a scope.Section whose leaves resolve
-// their env()/vault() delegations against v.
-func newSection(raw map[string]json.RawMessage, v vault.Vault) scope.Section {
-	return cfgSection{raw: raw, vault: v}
+// their vault() delegations through box (nil box → vault() is unresolvable).
+func newSection(raw map[string]json.RawMessage, box *vaultBox) scope.Section {
+	return cfgSection{raw: raw, box: box}
 }
 
 // GetSection descends into a nested object. A missing or non-object key yields an
 // empty section, so navigation never returns nil.
 func (s cfgSection) GetSection(key string) scope.Section {
-	empty := cfgSection{raw: map[string]json.RawMessage{}, vault: s.vault}
+	empty := cfgSection{raw: map[string]json.RawMessage{}, box: s.box}
 	raw, ok := s.raw[key]
 	if !ok || !isObject(raw) {
 		return empty
@@ -48,14 +86,22 @@ func (s cfgSection) GetSection(key string) scope.Section {
 	if err := json.Unmarshal(raw, &m); err != nil {
 		return empty
 	}
-	return cfgSection{raw: m, vault: s.vault}
+	return cfgSection{raw: m, box: s.box}
 }
 
-// GetValue returns the leaf at key. An absent key yields a Value that reports the
-// absence when resolved.
-func (s cfgSection) GetValue(key string) scope.Value {
+// Get resolves the leaf at key. An absent key errors; a non-string leaf (number,
+// bool) yields its literal JSON text; a string leaf is run through env()/vault()
+// expansion, which reaches the environment or vault only now, at use.
+func (s cfgSection) Get(ctx context.Context, key string) (string, error) {
 	raw, ok := s.raw[key]
-	return cfgValue{key: key, raw: raw, present: ok, vault: s.vault}
+	if !ok {
+		return "", fmt.Errorf("config: key %q is absent", key)
+	}
+	var str string
+	if err := json.Unmarshal(raw, &str); err != nil {
+		return string(raw), nil
+	}
+	return resolveValue(ctx, str, s.box)
 }
 
 // GetArray returns the elements of an array-valued key, each wrapped as a
@@ -76,7 +122,7 @@ func (s cfgSection) GetArray(key string) []scope.Section {
 		if err := json.Unmarshal(e, &m); err != nil {
 			m = map[string]json.RawMessage{}
 		}
-		out = append(out, cfgSection{raw: m, vault: s.vault})
+		out = append(out, cfgSection{raw: m, box: s.box})
 	}
 	return out
 }
@@ -116,28 +162,6 @@ func (s cfgSection) Keys() []string {
 	return keys
 }
 
-// cfgValue is the concrete scope.Value: one leaf resolved lazily on Get.
-type cfgValue struct {
-	key     string
-	raw     json.RawMessage
-	present bool
-	vault   vault.Vault
-}
-
-// Get resolves the leaf. An absent key errors; a non-string leaf (number, bool)
-// carries its literal JSON text; a string leaf is run through env()/vault()
-// expansion, which reaches the environment or vault only now, at use.
-func (v cfgValue) Get(ctx context.Context) (string, error) {
-	if !v.present {
-		return "", fmt.Errorf("config: key %q is absent", v.key)
-	}
-	var s string
-	if err := json.Unmarshal(v.raw, &s); err != nil {
-		return string(v.raw), nil
-	}
-	return resolveValue(ctx, s, v.vault)
-}
-
 // resolveSection resolves every leaf under sec (recursing through nested
 // sections and arrays), discarding the values — a pass that surfaces any
 // unresolvable env()/vault() reference. Verify uses it at LevelResolve.
@@ -145,7 +169,7 @@ func resolveSection(ctx context.Context, sec scope.Section) error {
 	for _, k := range sec.Keys() {
 		switch {
 		case sec.HasValue(k):
-			if _, err := sec.GetValue(k).Get(ctx); err != nil {
+			if _, err := sec.Get(ctx, k); err != nil {
 				return err
 			}
 		case sec.HasSection(k):

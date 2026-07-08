@@ -54,7 +54,7 @@ func (s *Signer) PrepareKey(_ context.Context, _ string) (crypto.PublicKey, erro
 // any env()/vault() delegation lazily, so reading the key here is where a missing
 // secret fails.
 func New(ctx context.Context, cfg scope.Section) (*Signer, error) {
-	keyPEM, err := cfg.GetValue("key").Get(ctx)
+	keyPEM, err := cfg.Get(ctx, "key")
 	if err != nil {
 		return nil, fmt.Errorf("signer/inmemory: %w (supply an ed25519 private key inline, via env(), or via vault())", err)
 	}
