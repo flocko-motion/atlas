@@ -2,7 +2,6 @@ package config
 
 import (
 	"context"
-	"crypto"
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/x509"
@@ -46,11 +45,15 @@ func TestBuildResolvesAndWires(t *testing.T) {
 	if app.Signer == nil {
 		t.Fatal("nil signer")
 	}
-	if _, ok := app.Signer.Public().(ed25519.PublicKey); !ok {
-		t.Fatalf("signer public key = %T, want ed25519.PublicKey", app.Signer.Public())
+	pub, err := app.Signer.Public(context.Background())
+	if err != nil {
+		t.Fatalf("Public: %v", err)
+	}
+	if _, ok := pub.(ed25519.PublicKey); !ok {
+		t.Fatalf("signer public key = %T, want ed25519.PublicKey", pub)
 	}
 	digest := make([]byte, 32)
-	if _, err := app.Signer.Sign(rand.Reader, digest, crypto.Hash(0)); err != nil {
+	if _, err := app.Signer.Sign(context.Background(), digest); err != nil {
 		t.Fatalf("Sign: %v", err)
 	}
 

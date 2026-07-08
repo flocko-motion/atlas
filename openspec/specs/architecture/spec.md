@@ -66,6 +66,24 @@ since the core is not an adapter.
 - **WHEN** the core's secret resolution is tested
 - **THEN** it runs against an in-memory implementation of the vault port, independent of any real backend
 
+### Requirement: A port's adapters share a config-driven conformance suite
+The system SHALL define, per adapter port, one conformance test that runs every
+backend of that port through the port interface — each backend built from a
+config via the port's factory, not constructed directly — so all backends are
+held to a single behavioural contract. Each backend SHALL contribute a setup
+(returning its config and a teardown) and MAY contribute backend-specific tests;
+a backend's run SHALL be setup → optional specific tests → the shared conformance
+suite → teardown. Adding a backend SHALL be one registry entry, not a new test
+file.
+
+#### Scenario: Every backend runs the same suite through the port
+- **WHEN** the signer conformance test runs
+- **THEN** each backend (inmemory, OpenBao Transit) is built via `signer.New` from its config and asserted against the same shared suite
+
+#### Scenario: A backend run follows setup, specific, standard, teardown
+- **WHEN** a backend's conformance case runs
+- **THEN** it sets up against its counterpart, runs any backend-specific tests, runs the shared suite, and tears the counterpart down
+
 ### Requirement: One process serves one configuration
 The system SHALL serve exactly one Ranke-Archive, assembled from exactly one
 configuration supplied at launch, and SHALL NOT support runtime reconfiguration.

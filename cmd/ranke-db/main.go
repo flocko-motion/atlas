@@ -268,7 +268,11 @@ func serve(addr string, app *config.App) error {
 // logIdentity reports the signing identity the stack assembled with, so the
 // operator can confirm which key the server attests merges under.
 func logIdentity(app *config.App) {
-	pub := app.Signer.Public()
+	pub, err := app.Signer.Public(context.Background())
+	if err != nil {
+		slog.Warn("ranke-db: could not read signer identity", "err", err)
+		return
+	}
 	id := fmt.Sprintf("%T", pub)
 	if ed, ok := pub.(ed25519.PublicKey); ok {
 		id = "ed25519:" + base64.RawStdEncoding.EncodeToString(ed)
