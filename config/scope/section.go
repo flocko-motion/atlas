@@ -41,14 +41,23 @@ type Section interface {
 	// from the error.
 	GetValue(key string) Value
 
-	// HasValue reports whether key representing a value is present, resolving nothing.
-	// Use it to make an optional setting default cleanly.
+	// GetArray returns the elements of an array-valued key, each wrapped as a
+	// Section. A missing key or a non-array value yields an empty slice. Config
+	// arrays are always arrays of objects (a stack's layers, a partition's shards,
+	// the endpoints, the accounts), so callers range over the result.
+	GetArray(key string) []Section
+
+	// HasValue reports whether key is present as a leaf value — not a nested
+	// section and not an array. Use it to make an optional setting default cleanly.
 	HasValue(key string) bool
 
-	// HasSection reports wether key representing a section is present
+	// HasSection reports whether key is present as a nested section.
 	HasSection(key string) bool
 
-	// HasKey reports whether a key is present
+	// HasArray reports whether key is present as an array.
+	HasArray(key string) bool
+
+	// HasKey reports whether a key is present at all.
 	HasKey(key string) bool
 
 	// Keys lists the present keys in this section, resolving nothing. It is for

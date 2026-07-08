@@ -9,10 +9,11 @@
 // and would change on every restart, fragmenting the archive's merge chain
 // across identities — so New loads supplied key material and never mints its
 // own. config resolves where the material comes from (inline in an encrypted
-// config, env(), or vault()) and hands New the resolved PEM.
+// config, env(), or vault()) and hands New the section to read it from.
 package inmemory
 
 import (
+	"context"
 	"crypto"
 	"crypto/ed25519"
 	"crypto/x509"
@@ -23,15 +24,18 @@ import (
 	"github.com/flocko-motion/rankedb/config/scope"
 )
 
-// New reads the resolved "key" value from the instance scope and parses it as
-// an Ed25519 PKCS#8 PEM private key, returning it as a crypto.Signer. The key
-// is required: this backend cannot sign without a provided identity (it does
-// not generate one). config has already resolved any env()/vault() delegation,
-// so the scope carries the literal PEM.
-func New(cfg scope.Config) (crypto.Signer, error) {
-	keyPEM, err := cfg.Require("key")
+// New reads the "key" value from the instance section and parses it as an
+// Ed25519 PKCS#8 PEM private key, returning it as a crypto.Signer. The key is
+// required: this backend cannot sign without a provided identity (it does not
+// generate one). The section resolves any env()/vault() delegation lazily, so
+// reading the key here is where a missing secret fails.
+func New(ctx context.Context, cfg scope.Section) (crypto.Signer, error) {
+	keyPEM, err := cfg.GetValue("key").Get(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("signer/inmemory: %w (supply an ed25519 private key inline, via env(), or via vault())", err)
+	}
+	if keyPEM == "" {
+		return nil, errors.New("signer/inmemory: key is required (supply an ed25519 private key inline, via env(), or via vault())")
 	}
 	block, _ := pem.Decode([]byte(keyPEM))
 	if block == nil {

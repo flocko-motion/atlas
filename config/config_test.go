@@ -35,7 +35,7 @@ func TestBuildResolvesAndWires(t *testing.T) {
 
 	const cfgJSON = `{
 		"signer": {"type": "inmemory", "key": "env(RANKE_TEST_SIGNER_KEY)"},
-		"auth":   {"type": "noauth", "subject": "ops"}
+		"auth":   [{"type": "noauth", "subject": "ops"}]
 	}`
 
 	c, err := Load(strings.NewReader(cfgJSON))
@@ -58,7 +58,10 @@ func TestBuildResolvesAndWires(t *testing.T) {
 		t.Fatalf("Sign: %v", err)
 	}
 
-	subject, err := app.Auth.Authenticate(context.Background(), "")
+	if len(app.Auth) != 1 {
+		t.Fatalf("auth count = %d, want 1", len(app.Auth))
+	}
+	subject, err := app.Auth[0].Authenticate(context.Background(), "")
 	if err != nil {
 		t.Fatalf("Authenticate: %v", err)
 	}

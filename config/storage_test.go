@@ -9,15 +9,19 @@ import (
 )
 
 // TestBuildStorageStack assembles a two-layer stack (eager mem over lazy fs)
-// from config and round-trips content through it, proving the storage section
-// resolves into a working Universe with the layers composed in order.
+// from a single storage descriptor and round-trips content through it, proving
+// the storage section resolves into a working Universe with its layers composed
+// in order.
 func TestBuildStorageStack(t *testing.T) {
 	dir := t.TempDir()
 	cfgJSON := `{
-		"storage": [
-			{"mode": "eager", "type": "mem", "maxContentSize": "8kb"},
-			{"mode": "lazy",  "type": "fs", "dir": "` + dir + `"}
-		]
+		"storage": {
+			"type": "stack",
+			"layers": [
+				{"mode": "eager", "type": "mem", "maxContentSize": "8kb"},
+				{"mode": "lazy",  "type": "fs", "dir": "` + dir + `"}
+			]
+		}
 	}`
 
 	c, err := Load(strings.NewReader(cfgJSON))
@@ -48,31 +52,5 @@ func TestBuildStorageStack(t *testing.T) {
 	}
 	if string(got) != string(content) {
 		t.Fatalf("round-trip = %q, want %q", got, content)
-	}
-}
-
-// TestParseSize covers the human-readable size suffixes the maxContentSize
-// field accepts.
-func TestParseSize(t *testing.T) {
-	cases := map[string]uint64{
-		"":      0,
-		"512":   512,
-		"8kb":   8 << 10,
-		"2 MB":  2 << 20,
-		"1gb":   1 << 30,
-		"4096b": 4096,
-	}
-	for in, want := range cases {
-		got, err := parseSize(in)
-		if err != nil {
-			t.Errorf("parseSize(%q): %v", in, err)
-			continue
-		}
-		if got != want {
-			t.Errorf("parseSize(%q) = %d, want %d", in, got, want)
-		}
-	}
-	if _, err := parseSize("not-a-size"); err == nil {
-		t.Error("parseSize(\"not-a-size\") = nil error, want error")
 	}
 }

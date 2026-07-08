@@ -18,15 +18,21 @@ import (
 // Auth is the no-auth backend: every Authenticate returns the same subject.
 type Auth struct{ subject string }
 
-// New returns a no-auth backend that authenticates every request as the scope's
-// "subject" value. An empty subject defaults to "anonymous" so downstream
-// authorization always has a non-empty account to key on.
-func New(cfg scope.Config) *Auth {
-	subject := cfg.String("subject")
-	if subject == "" {
-		subject = "anonymous"
+// New returns a no-auth backend that authenticates every request as the section's
+// "subject" value. An empty or absent subject defaults to "anonymous" so
+// downstream authorization always has a non-empty account to key on.
+func New(ctx context.Context, cfg scope.Section) (*Auth, error) {
+	subject := "anonymous"
+	if cfg.HasValue("subject") {
+		s, err := cfg.GetValue("subject").Get(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if s != "" {
+			subject = s
+		}
 	}
-	return &Auth{subject: subject}
+	return &Auth{subject: subject}, nil
 }
 
 // Authenticate ignores credential and returns the configured subject.
