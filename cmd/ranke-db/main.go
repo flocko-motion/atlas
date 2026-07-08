@@ -1,6 +1,6 @@
 // package: main / cmd
 // type:    entrypoint
-// job:     the ranke-db binary — "run"/"verify" a config: open it, build the age key source, hand off to config
+// job:     the ranke-db binary — a cobra CLI whose "run"/"verify" verbs open a config, build the age key source, and hand off to config
 // limits:  CLI wiring only; decrypt/parse/resolve/assemble live in config (-> config)
 //
 // Command ranke-db is the single binary. It opens the launch artifact (a file or
@@ -16,7 +16,6 @@ import (
 	"crypto/ed25519"
 	"encoding/base64"
 	"errors"
-	"flag"
 	"fmt"
 	"io"
 	"log/slog"
@@ -27,116 +26,95 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/spf13/cobra"
 	"golang.org/x/term"
 
 	"github.com/flocko-motion/rankedb/config"
 )
 
 func main() {
-	if err := run(os.Args[1:]); err != nil {
+	if err := rootCmd().Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, "ranke-db:", err)
 		os.Exit(1)
 	}
 }
 
-// run dispatches the subcommand.
-func run(args []string) error {
-	if len(args) == 0 {
-		return usage()
+// rootCmd builds the ranke-db command tree. Silence* keeps cobra from dumping
+// usage and a second error line on a runtime failure — main prints the error.
+func rootCmd() *cobra.Command {
+	root := &cobra.Command{
+		Use:           "ranke-db",
+		Short:         "Serve a Ranke-Graph from a launch artifact",
+		SilenceUsage:  true,
+		SilenceErrors: true,
 	}
-	switch args[0] {
-	case "run":
-		return cmdRun(args[1:])
-	case "verify":
-		return cmdVerify(args[1:])
-	case "-h", "--help", "help":
-		return usage()
-	default:
-		return fmt.Errorf("unknown command %q (try: ranke-db run <configfile>)", args[0])
-	}
+	root.AddCommand(runCmd(), verifyCmd())
+	return root
 }
 
-func usage() error {
-	fmt.Fprint(os.Stderr, `ranke-db — serve a Ranke-Graph from a launch artifact
-
-usage:
-  ranke-db run    [--addr ADDR] [--age-key SRC] <configfile>|-
-  ranke-db verify [--level L]   [--age-key SRC] <configfile>|-
-
-  <configfile>|-   path to the JSON launch artifact, or - to read from stdin
-  --addr ADDR      address to serve on (default :8080)
-  --level L        verify depth: syntax (default) | resolve
-  --age-key SRC    passphrase source for an age-encrypted config:
-                   prompt | stdin | env:VAR | file:path
-`)
-	return nil
+// runCmd assembles the stack from a config and serves it.
+func runCmd() *cobra.Command {
+	var addr, ageKey string
+	c := &cobra.Command{
+		Use:   "run [flags] <configfile>|-",
+		Short: "Assemble the adapter stack from a config and serve it",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cfg, cleanup, err := openConfig(args[0], ageKey)
+			if err != nil {
+				return err
+			}
+			defer cleanup()
+			src, err := passphraseFrom(ageKey, os.Stdin)
+			if err != nil {
+				return err
+			}
+			app, err := config.Run(cmd.Context(), cfg, src)
+			if err != nil {
+				return err
+			}
+			if err := requireServing(app); err != nil {
+				return err
+			}
+			return serve(addr, app)
+		},
+	}
+	c.Flags().StringVar(&addr, "addr", ":8080", "address to serve on")
+	c.Flags().StringVar(&ageKey, "age-key", "", "age key source: prompt|stdin|env:VAR|file:path")
+	return c
 }
 
-// cmdRun implements "ranke-db run": open the config, build the key source, hand
-// to config.Run, then serve the assembled stack.
-func cmdRun(args []string) error {
-	fs := flag.NewFlagSet("run", flag.ContinueOnError)
-	addr := fs.String("addr", ":8080", "address to serve on")
-	ageKey := fs.String("age-key", "", "age key source: prompt|stdin|env:VAR|file:path")
-	if err := fs.Parse(args); err != nil {
-		return err
+// verifyCmd checks a config to the chosen depth and reports, without serving.
+func verifyCmd() *cobra.Command {
+	var ageKey, levelName string
+	c := &cobra.Command{
+		Use:   "verify [flags] <configfile>|-",
+		Short: "Check a config to a chosen depth (syntax|resolve)",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			level, err := parseLevel(levelName)
+			if err != nil {
+				return err
+			}
+			cfg, cleanup, err := openConfig(args[0], ageKey)
+			if err != nil {
+				return err
+			}
+			defer cleanup()
+			src, err := passphraseFrom(ageKey, os.Stdin)
+			if err != nil {
+				return err
+			}
+			if err := config.Verify(cmd.Context(), cfg, src, level); err != nil {
+				return err
+			}
+			fmt.Fprintln(cmd.OutOrStdout(), "config ok")
+			return nil
+		},
 	}
-	if fs.NArg() != 1 {
-		return errors.New("usage: ranke-db run [--addr ADDR] [--age-key SRC] <configfile>|-")
-	}
-
-	cfg, cleanup, err := openConfig(fs.Arg(0), *ageKey)
-	if err != nil {
-		return err
-	}
-	defer cleanup()
-	src, err := passphraseFrom(*ageKey, os.Stdin)
-	if err != nil {
-		return err
-	}
-
-	app, err := config.Run(context.Background(), cfg, src)
-	if err != nil {
-		return err
-	}
-	if err := requireServing(app); err != nil {
-		return err
-	}
-	return serve(*addr, app)
-}
-
-// cmdVerify implements "ranke-db verify": check the config to the chosen depth
-// and report, without serving.
-func cmdVerify(args []string) error {
-	fs := flag.NewFlagSet("verify", flag.ContinueOnError)
-	ageKey := fs.String("age-key", "", "age key source: prompt|stdin|env:VAR|file:path")
-	levelName := fs.String("level", "syntax", "verify depth: syntax|resolve")
-	if err := fs.Parse(args); err != nil {
-		return err
-	}
-	if fs.NArg() != 1 {
-		return errors.New("usage: ranke-db verify [--level L] [--age-key SRC] <configfile>|-")
-	}
-	level, err := parseLevel(*levelName)
-	if err != nil {
-		return err
-	}
-
-	cfg, cleanup, err := openConfig(fs.Arg(0), *ageKey)
-	if err != nil {
-		return err
-	}
-	defer cleanup()
-	src, err := passphraseFrom(*ageKey, os.Stdin)
-	if err != nil {
-		return err
-	}
-
-	if err := config.Verify(context.Background(), cfg, src, level); err != nil {
-		return err
-	}
-	fmt.Fprintln(os.Stdout, "config ok")
-	return nil
+	c.Flags().StringVar(&ageKey, "age-key", "", "age key source: prompt|stdin|env:VAR|file:path")
+	c.Flags().StringVar(&levelName, "level", "syntax", "verify depth: syntax|resolve|connect")
+	return c
 }
 
 // openConfig opens the launch artifact as a reader: a file (closed by cleanup)
@@ -162,8 +140,10 @@ func parseLevel(s string) (config.Level, error) {
 		return config.LevelSyntax, nil
 	case "resolve":
 		return config.LevelResolve, nil
+	case "connect":
+		return config.LevelConnect, nil
 	default:
-		return 0, fmt.Errorf("unknown --level %q (want syntax|resolve)", s)
+		return 0, fmt.Errorf("unknown --level %q (want syntax|resolve|connect)", s)
 	}
 }
 

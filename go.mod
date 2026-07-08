@@ -7,6 +7,7 @@ require (
 	github.com/flocko-motion/ranke-go v0.2.0
 	github.com/getkin/kin-openapi v0.135.0
 	github.com/oapi-codegen/runtime v1.4.0
+	github.com/spf13/cobra v1.10.2
 	golang.org/x/term v0.44.0
 )
 
@@ -19,6 +20,7 @@ require (
 	github.com/go-openapi/jsonpointer v0.22.4 // indirect
 	github.com/go-openapi/swag/jsonname v0.25.4 // indirect
 	github.com/google/uuid v1.6.0 // indirect
+	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/josharian/intern v1.0.0 // indirect
 	github.com/klauspost/cpuid/v2 v2.2.7 // indirect
 	github.com/mailru/easyjson v0.9.1 // indirect
@@ -41,6 +43,7 @@ require (
 	github.com/spaolacci/murmur3 v1.1.0 // indirect
 	github.com/speakeasy-api/jsonpath v0.6.3 // indirect
 	github.com/speakeasy-api/openapi v1.19.2 // indirect
+	github.com/spf13/pflag v1.0.9 // indirect
 	github.com/vmware-labs/yaml-jsonpath v0.3.2 // indirect
 	github.com/woodsbury/decimal128 v1.4.0 // indirect
 	github.com/x448/float16 v0.8.4 // indirect

@@ -94,3 +94,22 @@ func TestVerify(t *testing.T) {
 		t.Fatalf("Verify resolve: %v", err)
 	}
 }
+
+// TestVerifyConnect exercises the connect depth: a shape-valid config with an
+// unknown backend passes syntax but fails connect, while a valid mem+signer
+// config assembles cleanly.
+func TestVerifyConnect(t *testing.T) {
+	t.Setenv("RANKE_TEST_CONNECT_KEY", testKeyPEM(t))
+	const good = `{"signer": {"type": "inmemory", "key": "env(RANKE_TEST_CONNECT_KEY)"}, "storage": {"type": "mem"}}`
+	if err := Verify(context.Background(), strings.NewReader(good), nil, LevelConnect); err != nil {
+		t.Fatalf("Verify connect: %v", err)
+	}
+
+	const badBackend = `{"storage": {"type": "bogus"}}`
+	if err := Verify(context.Background(), strings.NewReader(badBackend), nil, LevelSyntax); err != nil {
+		t.Fatalf("Verify syntax rejected a shape-valid config: %v", err)
+	}
+	if err := Verify(context.Background(), strings.NewReader(badBackend), nil, LevelConnect); err == nil {
+		t.Fatal("Verify connect accepted an unknown storage backend")
+	}
+}

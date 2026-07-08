@@ -68,12 +68,17 @@ const (
 	// LevelResolve additionally resolves every env()/vault() reference, catching
 	// an unset variable or a missing vault key without assembling any adapter.
 	LevelResolve
+	// LevelConnect additionally assembles the adapters — dialing storage, vault,
+	// and the sequencer — then discards them without serving, so a bad backend
+	// surfaces before Run does.
+	LevelConnect
 )
 
 // Verify checks an (optionally age-encrypted) config to the given level. It
-// decrypts with pass when the bytes are encrypted, parses, and shape-checks
-// (LevelSyntax); at LevelResolve it also builds the vault and resolves every
-// reference. It assembles no adapter and reaches no backend.
+// decrypts with pass when the bytes are encrypted, then: LevelSyntax parses and
+// shape-checks; LevelResolve also builds the vault and resolves every reference;
+// LevelConnect also assembles the adapters — reaching every backend — and
+// discards them without serving.
 func Verify(ctx context.Context, cfg io.Reader, pass PassphraseSource, level Level) error {
 	c, err := decode(cfg, pass)
 	if err != nil {
@@ -86,7 +91,15 @@ func Verify(ctx context.Context, cfg io.Reader, pass PassphraseSource, level Lev
 	if err != nil {
 		return err
 	}
-	return c.resolveAll(ctx, v)
+	if err := c.resolveAll(ctx, v); err != nil {
+		return err
+	}
+	if level < LevelConnect {
+		return nil
+	}
+	// Assembling the stack reaches every backend; discard it without serving.
+	_, err = c.build(ctx, v)
+	return err
 }
 
 // Run decrypts with pass when needed, parses, builds the vault, and assembles the
