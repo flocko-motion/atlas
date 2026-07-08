@@ -204,15 +204,7 @@ func (c *Config) buildVault(ctx context.Context) (vault.Vault, error) {
 	if len(c.Vault) == 0 {
 		return nil, nil
 	}
-	sec := newSection(c.Vault, nil)
-	if !sec.HasValue("type") {
-		return nil, fmt.Errorf("config: vault section present but no type set")
-	}
-	t, err := sec.GetValue("type").Get(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("config: vault: %w", err)
-	}
-	return nil, fmt.Errorf("config: vault backend %q not yet implemented", t)
+	return vault.New(ctx, newSection(c.Vault, nil))
 }
 
 // resolveAll resolves every env()/vault() reference in the config against v,

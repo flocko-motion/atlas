@@ -48,6 +48,24 @@ technology behind it stays replaceable.
 - **WHEN** the core reads storage, advances the sequencer, signs, fetches a secret, authenticates a request, or accepts a request
 - **THEN** it does so only through the corresponding adapter port
 
+### Requirement: An adapter is verified against its real counterpart
+The system SHALL verify each adapter against the real counterpart it exists to
+talk to, not a mock — an adapter is only a translation of the port to its
+counterpart's protocol, so a mock would test nothing. An adapter whose counterpart
+is an external service SHALL, in its own test, spin up that real service (via
+podman) and SHALL skip cleanly when it is unavailable, so the offline gate stays
+green. An adapter whose counterpart is local (memory, filesystem) SHALL be tested
+directly. The core SHALL be tested against the port with an in-memory double,
+since the core is not an adapter.
+
+#### Scenario: An external-counterpart adapter drives the real service
+- **WHEN** the OpenBao vault adapter is tested
+- **THEN** the test spins up a real OpenBao via podman and skips when podman is unavailable, never substituting a mock
+
+#### Scenario: The core is tested against the port, not a backend
+- **WHEN** the core's secret resolution is tested
+- **THEN** it runs against an in-memory implementation of the vault port, independent of any real backend
+
 ### Requirement: One process serves one configuration
 The system SHALL serve exactly one Ranke-Archive, assembled from exactly one
 configuration supplied at launch, and SHALL NOT support runtime reconfiguration.
