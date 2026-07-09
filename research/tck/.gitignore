@@ -1,7 +1,0 @@
-# Run artifacts
-tck-results.csv
-
-# openCypher TCK feature files — fetched on demand by `make features`,
-# not vendored (Apache-2.0, ~2MB). See ../Makefile.
-features/
-LICENSE-openCypher
