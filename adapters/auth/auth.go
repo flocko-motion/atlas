@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/flocko-motion/rankedb/adapters/auth/apikey"
 	"github.com/flocko-motion/rankedb/adapters/auth/noauth"
 	"github.com/flocko-motion/rankedb/config/scope"
 	"github.com/flocko-motion/rankedb/internal/core/access"
@@ -80,6 +81,8 @@ func New(ctx context.Context, cfg scope.Section) (Auth, error) {
 	switch t {
 	case "noauth", "":
 		return noauth.New(ctx, cfg)
+	case "apikey":
+		return apikey.New(ctx, cfg)
 	default:
 		return nil, fmt.Errorf("auth: unknown backend type %q", t)
 	}

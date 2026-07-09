@@ -4,12 +4,15 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/x509"
+	"encoding/hex"
 	"encoding/pem"
 	"errors"
 	"strings"
 	"testing"
 
+	"github.com/flocko-motion/rankedb/adapters/auth"
 	"github.com/flocko-motion/rankedb/internal/core"
 )
 
@@ -122,6 +125,64 @@ func TestBuildEndpointRejectsUnadmitted(t *testing.T) {
 	req := &core.Request{Op: core.OpQuery, Branch: "proj-x"}
 	if err := cr.Handle(context.Background(), req); !errors.Is(err, core.ErrForbidden) {
 		t.Fatalf("Handle = %v, want ErrForbidden (admin authenticates but is not admitted here)", err)
+	}
+}
+
+// TestBuildEndpointAPIKey drives the full per-endpoint path with a real credential
+// scheme: an apikey backend, admitted account, and a key routed by scheme through
+// core.Handle — authenticated, authorized, reaching the execute stub. A wrong key
+// is rejected before authorization.
+func TestBuildEndpointAPIKey(t *testing.T) {
+	const key = "webapp-key-0123456789"
+	sum := sha256.Sum256([]byte(key))
+	cfgJSON := `{
+		"accounts": {"webapp": {"grants": ["R proj-*"]}},
+		"endpoints": [{
+			"transport": {"type": "rest"},
+			"auth":      [{"type": "apikey", "keys": [{"account": "webapp", "sha256": "` + hex.EncodeToString(sum[:]) + `"}]}],
+			"admit":     ["webapp"]
+		}]
+	}`
+	c, err := load(strings.NewReader(cfgJSON))
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	cr, err := c.buildEndpoint(context.Background(), c.Endpoints[0], nil, nil)
+	if err != nil {
+		t.Fatalf("buildEndpoint: %v", err)
+	}
+
+	ok := &core.Request{Op: core.OpQuery, Branch: "proj-x", Credential: auth.Credential{Scheme: "apikey", Token: key}}
+	if err := cr.Handle(context.Background(), ok); !errors.Is(err, core.ErrNotImplemented) {
+		t.Fatalf("valid key: Handle = %v, want ErrNotImplemented (authenticated + authorized)", err)
+	}
+	if ok.Principal.Account != "webapp" {
+		t.Fatalf("account = %q, want webapp", ok.Principal.Account)
+	}
+
+	bad := &core.Request{Op: core.OpQuery, Branch: "proj-x", Credential: auth.Credential{Scheme: "apikey", Token: "wrong-key-0123456789"}}
+	if err := cr.Handle(context.Background(), bad); err == nil || errors.Is(err, core.ErrNotImplemented) {
+		t.Fatalf("wrong key: Handle = %v, want an auth error before authorization", err)
+	}
+}
+
+// TestBuildEndpointAPIKeyRejectsBadDigest asserts apikey.New's validation surfaces
+// through assembly: a malformed sha256 fails the endpoint build.
+func TestBuildEndpointAPIKeyRejectsBadDigest(t *testing.T) {
+	const cfgJSON = `{
+		"accounts": {"webapp": {"grants": ["R proj-*"]}},
+		"endpoints": [{
+			"transport": {"type": "rest"},
+			"auth":      [{"type": "apikey", "keys": [{"account": "webapp", "sha256": "not-hex"}]}],
+			"admit":     ["webapp"]
+		}]
+	}`
+	c, err := load(strings.NewReader(cfgJSON))
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if _, err := c.buildEndpoint(context.Background(), c.Endpoints[0], nil, nil); err == nil {
+		t.Fatal("malformed sha256: want buildEndpoint error")
 	}
 }
 
