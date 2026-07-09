@@ -1,7 +1,7 @@
 // package: rest_http / transport
 // type:    logic
 // job:     the read endpoints — POST /query and the cacheable by-id GET reads — with query mapping and json-seq projection
-// limits:  translation only; the reads run behind coreapi.API (-> coreapi)
+// limits:  translation only; the reads run behind core.Handle (-> internal/core)
 package rest_http
 
 import (
@@ -12,8 +12,8 @@ import (
 
 	ranke "github.com/flocko-motion/ranke-go"
 
-	"github.com/flocko-motion/rankedb/adapters/endpoints/coreapi"
 	"github.com/flocko-motion/rankedb/api"
+	"github.com/flocko-motion/rankedb/internal/core"
 )
 
 // Query serves POST /query: it runs the declarative query and streams the
@@ -69,9 +69,14 @@ func (s *Server) Query(w http.ResponseWriter, r *http.Request) {
 
 // GetBranchHead serves GET /{branch}/head.
 func (s *Server) GetBranchHead(w http.ResponseWriter, r *http.Request, branch string) {
-	head, err := s.core.Head(r.Context(), subjectOf(r.Context()), branch)
-	if err != nil {
+	req := &core.Request{Credential: credentialOf(r.Context()), Op: core.OpHead, Branch: branch}
+	if err := s.core.Handle(r.Context(), req); err != nil {
 		s.fail(w, err)
+		return
+	}
+	head, ok := req.Response.(ranke.Id)
+	if !ok {
+		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 	writeJSON(w, http.StatusOK, api.BranchHead{Head: idString(head)})
@@ -84,9 +89,14 @@ func (s *Server) GetBranchClaim(w http.ResponseWriter, r *http.Request, branch s
 		writeError(w, http.StatusNotFound, "not found")
 		return
 	}
-	claim, err := s.core.Claim(r.Context(), subjectOf(r.Context()), branch, id)
-	if err != nil {
+	req := &core.Request{Credential: credentialOf(r.Context()), Op: core.OpClaim, Branch: branch, ClaimID: id}
+	if err := s.core.Handle(r.Context(), req); err != nil {
 		s.fail(w, err)
+		return
+	}
+	claim, ok := req.Response.(ranke.Claim)
+	if !ok {
+		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 	writeClaim(w, claim)
@@ -99,9 +109,14 @@ func (s *Server) GetBranchContent(w http.ResponseWriter, r *http.Request, branch
 		writeError(w, http.StatusNotFound, "not found")
 		return
 	}
-	rc, err := s.core.Content(r.Context(), subjectOf(r.Context()), branch, hash)
-	if err != nil {
+	req := &core.Request{Credential: credentialOf(r.Context()), Op: core.OpContent, Branch: branch, Hash: hash}
+	if err := s.core.Handle(r.Context(), req); err != nil {
 		s.fail(w, err)
+		return
+	}
+	rc, ok := req.Response.(core.Content)
+	if !ok {
+		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 	streamContent(w, hashParam, rc)
@@ -114,9 +129,14 @@ func (s *Server) GetUniverseClaim(w http.ResponseWriter, r *http.Request, idPara
 		writeError(w, http.StatusNotFound, "not found")
 		return
 	}
-	claim, err := s.core.UniverseClaim(r.Context(), subjectOf(r.Context()), id)
-	if err != nil {
+	req := &core.Request{Credential: credentialOf(r.Context()), Op: core.OpUniverseClaim, Branch: core.Universe, ClaimID: id}
+	if err := s.core.Handle(r.Context(), req); err != nil {
 		s.fail(w, err)
+		return
+	}
+	claim, ok := req.Response.(ranke.Claim)
+	if !ok {
+		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 	writeClaim(w, claim)
@@ -129,9 +149,14 @@ func (s *Server) GetUniverseContent(w http.ResponseWriter, r *http.Request, hash
 		writeError(w, http.StatusNotFound, "not found")
 		return
 	}
-	rc, err := s.core.UniverseContent(r.Context(), subjectOf(r.Context()), hash)
-	if err != nil {
+	req := &core.Request{Credential: credentialOf(r.Context()), Op: core.OpUniverseContent, Branch: core.Universe, Hash: hash}
+	if err := s.core.Handle(r.Context(), req); err != nil {
 		s.fail(w, err)
+		return
+	}
+	rc, ok := req.Response.(core.Content)
+	if !ok {
+		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 	streamContent(w, hashParam, rc)
@@ -139,8 +164,8 @@ func (s *Server) GetUniverseContent(w http.ResponseWriter, r *http.Request, hash
 
 // coreQuery maps the wire query to the core query. The wire encoding is not part
 // of the core query — the adapter applies it to the streamed results.
-func coreQuery(q api.Query) (coreapi.Query, error) {
-	var cq coreapi.Query
+func coreQuery(q api.Query) (core.Query, error) {
+	var cq core.Query
 
 	if q.Select.Branch != nil {
 		cq.Select.Branch = *q.Select.Branch
@@ -154,9 +179,9 @@ func coreQuery(q api.Query) (coreapi.Query, error) {
 	}
 	if q.Select.Path != nil {
 		for _, p := range *q.Select.Path {
-			step := coreapi.PathStep{Edges: p.Edges}
+			step := core.PathStep{Edges: p.Edges}
 			if p.Dir != nil {
-				step.Dir = coreapi.Direction(string(*p.Dir))
+				step.Dir = core.Direction(string(*p.Dir))
 			}
 			if p.Depth != nil {
 				step.Depth = *p.Depth
@@ -170,17 +195,17 @@ func coreQuery(q api.Query) (coreapi.Query, error) {
 
 	if q.Output != nil {
 		if q.Output.Detail != nil {
-			cq.Output.Detail = coreapi.Detail(string(*q.Output.Detail))
+			cq.Output.Detail = core.Detail(string(*q.Output.Detail))
 		}
 		if q.Output.Overflow != nil {
-			cq.Output.Overflow = coreapi.Overflow(string(*q.Output.Overflow))
+			cq.Output.Overflow = core.Overflow(string(*q.Output.Overflow))
 		}
 		// TODO: q.Output.Content is a bool|int|string union; resolve it (and a
-		// human size like "4kb") to the coreapi.Output.Content byte cap.
+		// human size like "4kb") to the core.Output.Content byte cap.
 	}
 
 	if q.Order != nil {
-		cq.Order = &coreapi.Order{
+		cq.Order = &core.Order{
 			Field: q.Order.Field,
 			Desc:  q.Order.Dir != nil && string(*q.Order.Dir) == "desc",
 		}
@@ -226,7 +251,7 @@ func writeJSONSeq(w http.ResponseWriter, v any) {
 //
 // TODO: project the full claim (node fields, edges) per output.detail, not only
 // the id and inlined content.
-func projectResult(res coreapi.QueryResult) map[string]any {
+func projectResult(res core.QueryResult) map[string]any {
 	m := map[string]any{"id": idString(res.Claim.ID())}
 	if res.Content != nil {
 		m["content"] = res.Content // marshals to base64
@@ -234,7 +259,7 @@ func projectResult(res coreapi.QueryResult) map[string]any {
 	return m
 }
 
-func projectReport(r *coreapi.QueryReport) map[string]any {
+func projectReport(r *core.QueryReport) map[string]any {
 	return map[string]any{
 		"engine":    r.Engine,
 		"layer":     r.Layer,

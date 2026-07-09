@@ -74,13 +74,16 @@ test/%:
 	@echo ">> go test -v ./$*/..."
 	@go test -v ./$*/...
 
-verify: generate ## Regenerate from the spec, then build, vet, test, and gofmt-check the module
+verify: generate ## Regenerate from the spec, then build, vet, test, gofmt-check, and lint the module
 	@set -e; \
 		go build ./...; \
 		go vet ./...; \
 		fmt=$$(gofmt -l $$(git ls-files '*.go' | grep -v '\.gen\.go$$')); \
 		[ -z "$$fmt" ] || { echo "gofmt needed:"; echo "$$fmt"; exit 1; }; \
-		go test ./...
+		go test ./...; \
+		if command -v brokkr >/dev/null 2>&1; then brokkr lint; \
+		elif command -v sindri >/dev/null 2>&1; then sindri lint; \
+		else echo ">> lint: neither brokkr nor sindri on PATH; skipping" >&2; fi
 	@$(MAKE) -s ranke-go-version
 
 ranke-go-version: ## Recommend a ranke-go bump if a newer release exists

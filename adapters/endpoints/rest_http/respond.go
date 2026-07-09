@@ -1,7 +1,7 @@
 // package: rest_http / transport
 // type:    adapter
-// job:     write responses, map coreapi sentinel errors to HTTP status, carry claim/content bodies
-// limits:  serialization only; the domain values come from coreapi (-> coreapi)
+// job:     write responses, map core sentinel errors to HTTP status, carry claim/content bodies
+// limits:  serialization only; the domain values come from core (-> internal/core)
 package rest_http
 
 import (
@@ -13,8 +13,8 @@ import (
 	ranke "github.com/flocko-motion/ranke-go"
 
 	"github.com/flocko-motion/rankedb/adapters/auth"
-	"github.com/flocko-motion/rankedb/adapters/endpoints/coreapi"
 	"github.com/flocko-motion/rankedb/api"
+	"github.com/flocko-motion/rankedb/internal/core"
 )
 
 func writeJSON(w http.ResponseWriter, code int, v any) {
@@ -27,21 +27,21 @@ func writeError(w http.ResponseWriter, code int, msg string) {
 	writeJSON(w, code, api.Error{Error: msg})
 }
 
-// fail maps a coreapi sentinel error to its HTTP status.
+// fail maps a core (or auth) sentinel error to its HTTP status.
 func (s *Server) fail(w http.ResponseWriter, err error) {
 	switch {
-	case errors.Is(err, coreapi.ErrNotFound):
+	case errors.Is(err, core.ErrNotFound):
 		writeError(w, http.StatusNotFound, "not found")
-	case errors.Is(err, coreapi.ErrForbidden):
+	case errors.Is(err, core.ErrForbidden):
 		writeError(w, http.StatusForbidden, "access denied")
-	case errors.Is(err, coreapi.ErrConflict):
+	case errors.Is(err, core.ErrConflict):
 		writeError(w, http.StatusConflict, "conflict with the current head")
-	case errors.Is(err, coreapi.ErrBusy):
+	case errors.Is(err, core.ErrBusy):
 		w.Header().Set("Retry-After", "30")
 		writeError(w, http.StatusTooManyRequests, "verification run limit reached")
-	case errors.Is(err, coreapi.ErrNotImplemented):
+	case errors.Is(err, core.ErrNotImplemented):
 		writeError(w, http.StatusNotImplemented, "capability not configured")
-	case errors.Is(err, auth.ErrUnauthenticated):
+	case errors.Is(err, auth.ErrUnauthenticated), errors.Is(err, auth.ErrAmbiguousCredentials):
 		writeError(w, http.StatusUnauthorized, "unauthenticated")
 	default:
 		writeError(w, http.StatusInternalServerError, "internal error")

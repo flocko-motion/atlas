@@ -22,13 +22,24 @@ import (
 	"github.com/flocko-motion/rankedb/internal/core/access"
 )
 
-// ErrForbidden reports that an authenticated principal lacks a grant for the
-// requested action — an endpoint maps it to 403. Distinct from
-// auth.ErrUnauthenticated (401): identity was established, authority was not.
-var ErrForbidden = errors.New("core: forbidden")
-
-// ErrNotImplemented marks a pipeline stage that is still a scaffold.
-var ErrNotImplemented = errors.New("core: not implemented")
+// Sentinel errors the pipeline returns, with the status an endpoint maps each to.
+// A missing or invalid credential (401) is auth.ErrUnauthenticated, returned by
+// the authenticate stage before these apply.
+var (
+	// ErrForbidden — an authenticated principal lacks a grant for the action (403).
+	// Distinct from auth.ErrUnauthenticated: identity was established, authority not.
+	ErrForbidden = errors.New("core: forbidden")
+	// ErrNotFound — an unknown branch, claim, or content, or one outside the named
+	// branch's closure; the two are indistinguishable (404).
+	ErrNotFound = errors.New("core: not found")
+	// ErrConflict — a contribution clashes with the branch's current head (409).
+	ErrConflict = errors.New("core: head conflict")
+	// ErrBusy — too many verification runs are active to start another (429).
+	ErrBusy = errors.New("core: verification run limit reached")
+	// ErrNotImplemented — a capability the stack does not (yet) offer (501). Every
+	// execute path returns it until the engine behind it is built.
+	ErrNotImplemented = errors.New("core: not implemented")
+)
 
 // Core composes the ports into the request pipeline. It is assembled once by
 // config and shared by every endpoint.
@@ -68,9 +79,15 @@ func (c *Core) authenticate(ctx context.Context, req *Request) error {
 	return nil
 }
 
-// authorize confirms the principal holds the operation's right on the branch.
+// authorize confirms the principal holds the operation's right on the branch. An
+// operation whose Right is 0 needs no grant (health, verification) and passes on
+// identity alone.
 func (c *Core) authorize(req *Request) error {
 	right := req.Op.Right()
+	if right == 0 {
+		req.Report.step("no grant required")
+		return nil
+	}
 	if !c.access.Allow(req.Principal, right, req.Branch) {
 		return fmt.Errorf("%w: %q may not %c %s", ErrForbidden, req.Principal.Account, right, req.Branch)
 	}

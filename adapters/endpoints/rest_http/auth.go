@@ -1,7 +1,7 @@
 // package: rest_http / transport
-// type:    adapter
-// job:     resolve a request credential to a Subject and carry it in the request context
-// limits:  authentication only; the access decision on the subject is the core's (-> coreapi)
+// type:    logic
+// job:     extract the request's auth credential from the wire and carry it to the handlers
+// limits:  extraction only; core resolves the credential to a Principal and applies grants (-> internal/core, adapters/auth)
 package rest_http
 
 import (
@@ -10,63 +10,61 @@ import (
 	"strings"
 
 	"github.com/flocko-motion/rankedb/adapters/auth"
-	"github.com/flocko-motion/rankedb/adapters/endpoints/coreapi"
 )
 
 type ctxKey int
 
-const subjectKey ctxKey = iota
+const credentialKey ctxKey = iota
 
-// withAuth resolves the request's Subject once, before routing, and stashes it in
-// the context for the handlers. A credential that no authenticator accepts is 401.
-func (s *Server) withAuth(next http.Handler) http.Handler {
+// withCredential extracts the request's auth credential once, before routing, and
+// stashes it for the handlers to hand core. Presenting more than one scheme is a
+// 400 (ambiguous); presenting none yields the zero credential, which core resolves
+// as NoAuth.
+func (s *Server) withCredential(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		subj, err := s.authenticate(r.Context(), extractCredential(r))
+		cred, err := extractCredential(r)
 		if err != nil {
-			writeError(w, http.StatusUnauthorized, "unauthenticated")
+			writeError(w, http.StatusBadRequest, "ambiguous credentials")
 			return
 		}
-		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), subjectKey, subj)))
+		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), credentialKey, cred)))
 	})
 }
 
-// authenticate resolves a credential to a Subject.
-//
-// TODO(auth-boundary): BROKEN — this whole endpoint-side auth layer (withAuth,
-// authenticate, the Server.auths field, subjectOf, and coreapi.Subject as a bare
-// string) is the contributor's misread of the auth flow. On this branch auth AND
-// access live inside core: the endpoint is pure transport and must hand core the
-// raw credential(s), letting the core request pipeline resolve the access.Principal
-// (account + caveats) and apply grants (see internal/core + internal/core/access).
-// This layer must be deleted and the handlers rewired to pass the credential
-// through, not a pre-resolved subject. Meanwhile it only compiles by flattening
-// the access.Principal to its account name and silently dropping any caveats.
-//
-// TODO: route by the presented scheme to the matching authenticator (Bearer→JWT,
-// X-API-Key→apikey, Macaroon→macaroon, none→noauth) once the auth port exposes
-// its scheme. For now it tries each configured authenticator in turn.
-func (s *Server) authenticate(ctx context.Context, cred string) (coreapi.Subject, error) {
-	for _, a := range s.auths {
-		if p, err := a.Authenticate(ctx, cred); err == nil {
-			return coreapi.Subject(p.Account), nil
-		}
-	}
-	return "", auth.ErrUnauthenticated
-}
-
-// extractCredential pulls the raw credential the authenticators expect: the token
-// after the scheme in an Authorization header, else the X-API-Key value, else "".
-func extractCredential(r *http.Request) string {
+// extractCredential reads the one credential the request presents, tagged with its
+// scheme: an Authorization Bearer/Macaroon token, or an X-API-Key value. More than
+// one is auth.ErrAmbiguousCredentials; none is the zero value. Routing by scheme
+// (not sniffing the token) is what lets the auth Set dispatch to the right backend.
+func extractCredential(r *http.Request) (auth.Credential, error) {
+	var creds []auth.Credential
 	if h := r.Header.Get("Authorization"); h != "" {
+		scheme, token := auth.SchemeBearer, h
 		if i := strings.IndexByte(h, ' '); i > 0 {
-			return h[i+1:]
+			switch strings.ToLower(h[:i]) {
+			case "macaroon":
+				scheme = auth.SchemeMacaroon
+			default:
+				scheme = auth.SchemeBearer
+			}
+			token = h[i+1:]
 		}
-		return h
+		creds = append(creds, auth.Credential{Scheme: scheme, Token: token})
 	}
-	return r.Header.Get("X-API-Key")
+	if k := r.Header.Get("X-API-Key"); k != "" {
+		creds = append(creds, auth.Credential{Scheme: auth.SchemeAPIKey, Token: k})
+	}
+	switch len(creds) {
+	case 0:
+		return auth.Credential{}, nil
+	case 1:
+		return creds[0], nil
+	default:
+		return auth.Credential{}, auth.ErrAmbiguousCredentials
+	}
 }
 
-func subjectOf(ctx context.Context) coreapi.Subject {
-	s, _ := ctx.Value(subjectKey).(coreapi.Subject)
-	return s
+// credentialOf returns the credential withCredential stashed on the request context.
+func credentialOf(ctx context.Context) auth.Credential {
+	c, _ := ctx.Value(credentialKey).(auth.Credential)
+	return c
 }

@@ -1,6 +1,6 @@
 // package: endpoints / transport
 // type:    interface + factory
-// job:     the Endpoint port — bind a transport to an authenticator and carry the read/contribute surface into core — plus the factory
+// job:     the Endpoint port — bind a transport to core (build a core.Request, hand it to Handle) — plus the factory
 // limits:  contract + dispatch; transports live in sub-packages (-> adapters/endpoints/rest_http, mcp_http)
 //
 // Package endpoints defines the driving Endpoint port and builds it from config.
@@ -17,6 +17,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/flocko-motion/rankedb/adapters/endpoints/rest_http"
 	"github.com/flocko-motion/rankedb/config/scope"
 	"github.com/flocko-motion/rankedb/internal/core"
 )
@@ -33,8 +34,24 @@ type Endpoints interface {
 	Close() error
 }
 
-// New builds an endpoint of the transport named in cfg, wired to the core it
-// drives. Stub: not yet implemented.
+// New builds an endpoint of the transport named by the section's "type", wired to
+// the core it drives. REST/HTTP is implemented; MCP/HTTP is pending.
 func New(ctx context.Context, cfg scope.Section, c *core.Core) (Endpoints, error) {
-	return nil, fmt.Errorf("endpoints: transport not yet implemented")
+	var t string
+	if cfg.HasValue("type") {
+		var err error
+		if t, err = cfg.Get(ctx, "type"); err != nil {
+			return nil, fmt.Errorf("endpoints: type: %w", err)
+		}
+	}
+	switch t {
+	case "rest", "rest_http":
+		return rest_http.New(ctx, cfg, c)
+	case "mcp", "mcp_http":
+		return nil, fmt.Errorf("endpoints: mcp transport not yet implemented")
+	case "":
+		return nil, fmt.Errorf("endpoints: no transport type configured")
+	default:
+		return nil, fmt.Errorf("endpoints: unknown transport %q", t)
+	}
 }

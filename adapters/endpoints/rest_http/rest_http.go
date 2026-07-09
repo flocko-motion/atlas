@@ -1,19 +1,20 @@
 // package: rest_http / transport
 // type:    adapter
 // job:     REST/HTTP endpoint backend (OpenAPI) — implement endpoints.Endpoints, own the HTTP server lifecycle
-// limits:  transport + translation only; all capability lives behind coreapi.API (-> adapters/endpoints/coreapi)
+// limits:  transport + translation only; all capability lives behind core.Core (-> internal/core)
 //
 // Package rest_http serves the ranke-db REST API over HTTP. It implements the
 // generated api.ServerInterface (from openapi/openapi.yaml) by, for each request,
-// resolving the caller's Subject through the auth port, translating the wire
-// request into a coreapi.API call, and rendering the domain result — or the
-// mapped status for a sentinel error — back onto the response. It holds a
-// coreapi.API and drives it; it never reaches past that interface.
+// extracting the caller's raw credential from the wire, translating the request
+// into a core.Request, handing it to core.Handle — which authenticates, authorizes
+// and executes — and rendering the response, or the mapped status for a sentinel
+// error, back onto the wire. Auth and access live in core; this package is pure
+// transport and never resolves a subject itself.
 //
 // The package is split by topic:
 //
 //	rest_http.go              the Server and its http.Server lifecycle (this file)
-//	auth.go                   credential → Subject, stashed in the request context
+//	auth.go                   extract the wire credential, carried to the handlers
 //	respond.go                response writers and the sentinel-error → status map
 //	endpoints_read.go         query and the cacheable by-id reads
 //	endpoints_contribute.go   contribute
@@ -28,33 +29,21 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/flocko-motion/rankedb/adapters/auth"
-	"github.com/flocko-motion/rankedb/adapters/endpoints/coreapi"
 	"github.com/flocko-motion/rankedb/api"
 	"github.com/flocko-motion/rankedb/config/scope"
+	"github.com/flocko-motion/rankedb/internal/core"
 )
 
-// Server is a running REST/HTTP endpoint: an http.Server whose handlers call into
-// the core through coreapi.API.
+// Server is a running REST/HTTP endpoint: an http.Server whose handlers translate
+// each request into a core.Request and drive it through core.Handle.
 type Server struct {
-	core  coreapi.API
-	auths []auth.Auth
-	srv   *http.Server
+	core *core.Core
+	srv  *http.Server
 }
 
 // New builds the REST/HTTP endpoint from its config section, wired to the core it
-// drives (coreapi.API) and the authenticators it may accept. The section's "addr"
-// sets the listen address (default ":8080").
-//
-// TODO(endpoint-boundary): BROKEN signature — this takes (coreapi.API, []auth.Auth)
-// from the contributor's auth-in-endpoint model. On this branch the endpoint is
-// pure transport and auth/access live inside core, so the factory hands one
-// *core.Core (see adapters/endpoints/endpoints.go: New(ctx, cfg, *core.Core) and
-// config.buildEndpoint). This constructor is not dispatched to yet — endpoints.New
-// still returns the not-implemented stub — and must be rewired to core.Core, with
-// the []auth.Auth parameter and the auths field dropped once auth moves fully into
-// core.
-func New(ctx context.Context, cfg scope.Section, core coreapi.API, auths []auth.Auth) (*Server, error) {
+// drives. The section's "addr" sets the listen address (default ":8080").
+func New(ctx context.Context, cfg scope.Section, c *core.Core) (*Server, error) {
 	addr := ":8080"
 	if cfg.HasValue("addr") {
 		a, err := cfg.Get(ctx, "addr")
@@ -65,9 +54,8 @@ func New(ctx context.Context, cfg scope.Section, core coreapi.API, auths []auth.
 			addr = a
 		}
 	}
-	s := &Server{core: core, auths: auths}
-	handler := s.withAuth(api.Handler(s))
-	s.srv = &http.Server{Addr: addr, Handler: handler, ReadHeaderTimeout: 5 * time.Second}
+	s := &Server{core: c}
+	s.srv = &http.Server{Addr: addr, Handler: s.withCredential(api.Handler(s)), ReadHeaderTimeout: 5 * time.Second}
 	return s, nil
 }
 

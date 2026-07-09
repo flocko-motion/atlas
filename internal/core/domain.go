@@ -1,113 +1,20 @@
-// package: coreapi / port
-// type:    interface
-// job:     the ranke-db API as a Go interface — the capability surface core exposes and endpoints call
-// limits:  contract + its domain types only; core implements it, endpoint adapters call it
+// package: core / orchestration
+// type:    domain types
+// job:     the capability surface's domain values — the query language, results, and verification model
+// limits:  types only; the pipeline that carries them is request.go/core.go (-> adapters/endpoints)
 //
-// Package coreapi is the boundary between the application core and the endpoint
-// adapters (REST/HTTP, MCP/HTTP): core implements API, an adapter is handed it and
-// calls it to serve each request. It lives in its own package so both sides can
-// import it without a cycle — the endpoint dispatcher imports the adapters, the
-// adapters import coreapi, and coreapi imports neither.
-//
-// API mirrors the openapi/openapi.yaml REST contract, one method per operation:
-//
-//	Query               POST   /query
-//	Contribute          POST   /contribute?branch=
-//	Head                GET    /{branch}/head
-//	Claim               GET    /{branch}/claim/{id}
-//	Content             GET    /{branch}/content/{hash}
-//	UniverseClaim       GET    /$universe/claim/{id}
-//	UniverseContent     GET    /$universe/content/{hash}
-//	Health              GET    /health
-//	Layers              GET    /system/layers
-//	StartVerification   POST   /system/verification
-//	Verifications       GET    /system/verification
-//	Verification        GET    /system/verification/{id}
-//	CancelVerification  POST   /system/verification/{id}/cancel
-//	DeleteVerification  DELETE /system/verification/{id}
-//
-// Each call acts as the authenticated Subject and returns domain values — claims,
-// ids, streams — or one of the sentinel errors below.
-package coreapi
+// These are the typed values a Request carries in and out: the declarative query
+// AST (the paper's §Filtered Reads), the result/stream shapes, and the
+// verification-run model. They were drafted in the endpoint-side coreapi package;
+// they are core's domain, so they live here and the endpoint adapters import core
+// — not the other way round.
+package core
 
 import (
-	"context"
-	"errors"
 	"io"
 	"time"
 
 	"github.com/flocko-motion/ranke-go"
-)
-
-// API is the ranke-db capability surface: read, contribute, and operate.
-type API interface {
-	// Query runs query q and streams the claims it selects, in order.
-	Query(ctx context.Context, subj Subject, q Query) (ResultStream, error)
-
-	// Contribute adds the signed-CBOR claims in r to branch in one atomic step —
-	// all or none — and returns the new head and their ids. Re-adding the same
-	// claims is a no-op. ErrConflict if branch's head has moved on.
-	Contribute(ctx context.Context, subj Subject, branch string, r io.Reader) (Contribution, error)
-
-	// Head returns branch's current head id.
-	Head(ctx context.Context, subj Subject, branch string) (ranke.Id, error)
-
-	// Claim returns claim id if branch's closure holds it, else ErrNotFound.
-	Claim(ctx context.Context, subj Subject, branch string, id ranke.Id) (ranke.Claim, error)
-
-	// Content streams the blob hash if branch's closure holds it, else ErrNotFound.
-	Content(ctx context.Context, subj Subject, branch string, hash ranke.Id) (io.ReadCloser, error)
-
-	// UniverseClaim returns claim id from anywhere in the graph — the privileged
-	// $universe read.
-	UniverseClaim(ctx context.Context, subj Subject, id ranke.Id) (ranke.Claim, error)
-
-	// UniverseContent streams the blob hash from anywhere in the graph — the
-	// privileged $universe read.
-	UniverseContent(ctx context.Context, subj Subject, hash ranke.Id) (io.ReadCloser, error)
-
-	// Health reports liveness and the signing identity.
-	Health(ctx context.Context) (Health, error)
-
-	// Layers lists the storage layers by name and type.
-	Layers(ctx context.Context, subj Subject) ([]StorageLayer, error)
-
-	// StartVerification starts an asynchronous run and returns its running report
-	// at once. ErrBusy if too many runs are already active.
-	StartVerification(ctx context.Context, subj Subject, cfg VerificationConfig) (VerificationReport, error)
-
-	// Verifications lists all runs, newest first.
-	Verifications(ctx context.Context, subj Subject) ([]VerificationReport, error)
-
-	// Verification returns one run's report, or ErrNotFound.
-	Verification(ctx context.Context, subj Subject, id string) (VerificationReport, error)
-
-	// CancelVerification stops a running run and keeps its report; a no-op on a run
-	// that has already finished.
-	CancelVerification(ctx context.Context, subj Subject, id string) (VerificationReport, error)
-
-	// DeleteVerification removes a run and its report, or ErrNotFound.
-	DeleteVerification(ctx context.Context, subj Subject, id string) error
-}
-
-// Subject is the authenticated account a call acts as.
-type Subject string
-
-// Sentinel errors, with the status an endpoint maps each to. A missing or invalid
-// credential (401) is auth.ErrUnauthenticated, returned before a call reaches here.
-var (
-	// ErrNotFound — an unknown branch, claim, or content, or one outside the named
-	// branch's closure; the two are indistinguishable (404).
-	ErrNotFound = errors.New("coreapi: not found")
-	// ErrForbidden — the subject may not do this (403).
-	ErrForbidden = errors.New("coreapi: access denied")
-	// ErrConflict — a contribution clashes with the branch's current head (409).
-	ErrConflict = errors.New("coreapi: head conflict")
-	// ErrNotImplemented — the request needs an optional capability the stack does
-	// not offer (501).
-	ErrNotImplemented = errors.New("coreapi: capability not configured")
-	// ErrBusy — too many verification runs are active to start another (429).
-	ErrBusy = errors.New("coreapi: verification run limit reached")
 )
 
 // --- Query -----------------------------------------------------------------
@@ -212,7 +119,7 @@ type Limit struct {
 
 // Execution selects where the query runs and whether it reports on itself.
 type Execution struct {
-	Layer  string // pin to one named storage layer (see Layers); empty = ranke-db chooses
+	Layer  string // pin to one named storage layer (see StorageLayer); empty = ranke-db chooses
 	Report bool   // when true, the stream ends with a QueryReport
 }
 
@@ -272,6 +179,9 @@ type StorageLayer struct {
 	Name string
 	Type string // backend kind: mem, fs, sqlite, s3, postgres, neo4j, …
 }
+
+// Content streams a blob's bytes; the read side of Contribute's io.Reader body.
+type Content = io.ReadCloser
 
 // --- Verification ----------------------------------------------------------
 

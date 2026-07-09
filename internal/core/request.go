@@ -18,23 +18,41 @@ import (
 	"github.com/flocko-motion/rankedb/internal/core/access"
 )
 
-// Operation is what a request asks the server to do. Each operation maps to the
-// single CRUD right the access checker must confirm before it runs.
+// Universe is the reserved branch for privileged by-head-id reads — re-exported
+// from access so callers (endpoints) target it through core alone.
+const Universe = access.Universe
+
+// Operation is what a request asks the server to do. It fixes the access right the
+// authorize stage checks (a right of 0 means the operation needs no grant — health
+// and verification, per core-access) and selects the execute branch.
 type Operation int
 
 const (
-	OpQuery      Operation = iota // read a filtered subgraph
-	OpContribute                  // merge new claims onto a branch (creating/hiding branches too — a C on the branch table)
-	OpUpdate                      // overlay existing claims with newer versions
-	OpDelete                      // delete claims
+	OpQuery              Operation = iota // read a filtered subgraph          (Read)
+	OpContribute                          // merge claims onto a branch         (Contribute; branch-admin is C on the branch table)
+	OpUpdate                              // overlay claims with newer versions (Update)
+	OpDelete                              // delete claims                      (Delete)
+	OpHead                                // a branch's current head id         (Read)
+	OpClaim                               // one claim within a branch          (Read)
+	OpContent                             // one content blob within a branch   (Read)
+	OpUniverseClaim                       // one claim by id, privileged        (Read on $universe)
+	OpUniverseContent                     // one blob by hash, privileged       (Read on $universe)
+	OpHealth                              // liveness                           (no grant)
+	OpLayers                              // list storage layers                (no grant)
+	OpStartVerification                   // start a verification run           (no grant — verification needs none)
+	OpVerifications                       // list verification runs             (no grant)
+	OpVerification                        // one verification run               (no grant)
+	OpCancelVerification                  // cancel a run                       (no grant)
+	OpDeleteVerification                  // delete a run                       (no grant)
 )
 
-// Right is the access right this operation requires. Branch admin (create/hide)
-// is not distinct: it is an OpContribute whose target is the branch table, so it
-// maps to Contribute like any other write.
+// Right is the access right this operation requires, or 0 when it needs no grant.
+// The reads all require R; contribute/update/delete their CRUD letter; the
+// operational and verification ops need none (verification's independence from
+// grants is a core-access invariant).
 func (o Operation) Right() access.Right {
 	switch o {
-	case OpQuery:
+	case OpQuery, OpHead, OpClaim, OpContent, OpUniverseClaim, OpUniverseContent:
 		return access.Read
 	case OpContribute:
 		return access.Contribute
@@ -47,7 +65,8 @@ func (o Operation) Right() access.Right {
 }
 
 // Request is the single object that flows through the server, enriched at each
-// stage. Fields are grouped by the stage that fills them.
+// stage. Its ingress fields are op-specific — an operation reads only the ones it
+// needs — and the endpoint fills them from the wire.
 type Request struct {
 	// --- ingress: filled by the endpoint from the wire ---
 
@@ -57,11 +76,20 @@ type Request struct {
 	Credential auth.Credential
 	// Op is what the caller wants; it fixes the required access right.
 	Op Operation
-	// Branch is the target branch (or access.Universe for a privileged head read).
+	// Branch is the target branch, or access.Universe for a privileged by-id read.
 	Branch string
-	// Payload is the operation's opaque body — a query tree or the claims to
-	// contribute — parsed by the execution stage, not here.
-	Payload json.RawMessage
+	// Query is the read AST (OpQuery).
+	Query *Query
+	// Body is the signed-CBOR claims to merge (OpContribute).
+	Body io.Reader
+	// ClaimID targets one claim (OpClaim, OpUniverseClaim).
+	ClaimID ranke.Id
+	// Hash targets one content blob (OpContent, OpUniverseContent).
+	Hash ranke.Id
+	// VerConfig parameters a run (OpStartVerification).
+	VerConfig *VerificationConfig
+	// VerID targets one run (OpVerification, OpCancelVerification, OpDeleteVerification).
+	VerID string
 
 	// --- enrichment: filled by core as the request flows ---
 

@@ -1,15 +1,15 @@
 // package: rest_http / transport
 // type:    logic
 // job:     the verification run endpoints under /system/verification, and report mapping
-// limits:  translation only; runs are managed behind coreapi.API (-> coreapi)
+// limits:  translation only; runs are managed behind core.Handle (-> internal/core)
 package rest_http
 
 import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/flocko-motion/rankedb/adapters/endpoints/coreapi"
 	"github.com/flocko-motion/rankedb/api"
+	"github.com/flocko-motion/rankedb/internal/core"
 )
 
 // StartVerification serves POST /system/verification.
@@ -19,9 +19,15 @@ func (s *Server) StartVerification(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "malformed verification config")
 		return
 	}
-	rep, err := s.core.StartVerification(r.Context(), subjectOf(r.Context()), coreVerConfig(cfg))
-	if err != nil {
+	vc := coreVerConfig(cfg)
+	req := &core.Request{Credential: credentialOf(r.Context()), Op: core.OpStartVerification, VerConfig: &vc}
+	if err := s.core.Handle(r.Context(), req); err != nil {
 		s.fail(w, err)
+		return
+	}
+	rep, ok := req.Response.(core.VerificationReport)
+	if !ok {
+		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 	w.Header().Set("Location", "/system/verification/"+rep.ID)
@@ -31,9 +37,14 @@ func (s *Server) StartVerification(w http.ResponseWriter, r *http.Request) {
 
 // ListVerifications serves GET /system/verification.
 func (s *Server) ListVerifications(w http.ResponseWriter, r *http.Request) {
-	reps, err := s.core.Verifications(r.Context(), subjectOf(r.Context()))
-	if err != nil {
+	req := &core.Request{Credential: credentialOf(r.Context()), Op: core.OpVerifications}
+	if err := s.core.Handle(r.Context(), req); err != nil {
 		s.fail(w, err)
+		return
+	}
+	reps, ok := req.Response.([]core.VerificationReport)
+	if !ok {
+		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 	out := api.VerificationReportList{Reports: make([]api.VerificationReport, 0, len(reps))}
@@ -45,12 +56,17 @@ func (s *Server) ListVerifications(w http.ResponseWriter, r *http.Request) {
 
 // GetVerification serves GET /system/verification/{id}.
 func (s *Server) GetVerification(w http.ResponseWriter, r *http.Request, reportId string) {
-	rep, err := s.core.Verification(r.Context(), subjectOf(r.Context()), reportId)
-	if err != nil {
+	req := &core.Request{Credential: credentialOf(r.Context()), Op: core.OpVerification, VerID: reportId}
+	if err := s.core.Handle(r.Context(), req); err != nil {
 		s.fail(w, err)
 		return
 	}
-	if rep.Status == coreapi.RunRunning {
+	rep, ok := req.Response.(core.VerificationReport)
+	if !ok {
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	if rep.Status == core.RunRunning {
 		w.Header().Set("Retry-After", "30")
 	}
 	writeJSON(w, http.StatusOK, apiReport(rep))
@@ -58,9 +74,14 @@ func (s *Server) GetVerification(w http.ResponseWriter, r *http.Request, reportI
 
 // CancelVerification serves POST /system/verification/{id}/cancel.
 func (s *Server) CancelVerification(w http.ResponseWriter, r *http.Request, reportId string) {
-	rep, err := s.core.CancelVerification(r.Context(), subjectOf(r.Context()), reportId)
-	if err != nil {
+	req := &core.Request{Credential: credentialOf(r.Context()), Op: core.OpCancelVerification, VerID: reportId}
+	if err := s.core.Handle(r.Context(), req); err != nil {
 		s.fail(w, err)
+		return
+	}
+	rep, ok := req.Response.(core.VerificationReport)
+	if !ok {
+		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 	writeJSON(w, http.StatusOK, apiReport(rep))
@@ -68,7 +89,8 @@ func (s *Server) CancelVerification(w http.ResponseWriter, r *http.Request, repo
 
 // DeleteVerification serves DELETE /system/verification/{id}.
 func (s *Server) DeleteVerification(w http.ResponseWriter, r *http.Request, reportId string) {
-	if err := s.core.DeleteVerification(r.Context(), subjectOf(r.Context()), reportId); err != nil {
+	req := &core.Request{Credential: credentialOf(r.Context()), Op: core.OpDeleteVerification, VerID: reportId}
+	if err := s.core.Handle(r.Context(), req); err != nil {
 		s.fail(w, err)
 		return
 	}
@@ -77,13 +99,13 @@ func (s *Server) DeleteVerification(w http.ResponseWriter, r *http.Request, repo
 
 // --- report mapping --------------------------------------------------------
 
-func coreVerConfig(c api.VerificationConfig) coreapi.VerificationConfig {
-	cfg := coreapi.VerificationConfig{Closure: c.Closure}
+func coreVerConfig(c api.VerificationConfig) core.VerificationConfig {
+	cfg := core.VerificationConfig{Closure: c.Closure}
 	if c.Layer != nil {
 		cfg.Layer = *c.Layer
 	}
 	if c.Depth != nil {
-		cfg.Depth = coreapi.VerificationDepth(string(*c.Depth))
+		cfg.Depth = core.VerificationDepth(string(*c.Depth))
 	}
 	if c.ContentThreshold != nil {
 		cfg.ContentThreshold = int64(*c.ContentThreshold)
@@ -91,7 +113,7 @@ func coreVerConfig(c api.VerificationConfig) coreapi.VerificationConfig {
 	return cfg
 }
 
-func apiVerConfig(c coreapi.VerificationConfig) api.VerificationConfig {
+func apiVerConfig(c core.VerificationConfig) api.VerificationConfig {
 	out := api.VerificationConfig{Closure: c.Closure}
 	if c.Layer != "" {
 		layer := c.Layer
@@ -108,7 +130,7 @@ func apiVerConfig(c coreapi.VerificationConfig) api.VerificationConfig {
 	return out
 }
 
-func apiReport(r coreapi.VerificationReport) api.VerificationReport {
+func apiReport(r core.VerificationReport) api.VerificationReport {
 	out := api.VerificationReport{
 		Id:        r.ID,
 		Config:    apiVerConfig(r.Config),
