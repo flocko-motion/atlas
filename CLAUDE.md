@@ -83,12 +83,15 @@ runtime grant mutation.
 ## OpenAPI-first
 
 `openapi/openapi.yaml` is the **single source of truth** for the REST API. `make generate`
-produces, from it:
+produces every artifact from it **into `api/`**:
 - **Go** server interface + models → `api/openapi.gen.go` (oapi-codegen, strict net/http)
-- **TS/JS** client → `frontend/src/api/generated/api.gen.ts`
-- **HTML** reference → `docs/api/index.html`
+- **TS/JS** client → `api/openapi.gen.ts` (swagger-typescript-api)
+- **HTML** reference → `api/openapi.html` (Redocly) · **Markdown** reference → `api/openapi.md` (widdershins)
 
-Never hand-edit `*.gen.*` or the generated client — change the spec and regenerate.
+The two references are also symlinked under `docs/api/` (`openapi.html`, `openapi.md`) so
+they're browsable there without a second copy.
+
+Never hand-edit `*.gen.*` or the generated client/references — change the spec and regenerate.
 
 ## Tooling & shell conventions
 
