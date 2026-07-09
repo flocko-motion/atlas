@@ -104,16 +104,18 @@ Never hand-edit `*.gen.*` or the generated client/references — change the spec
   target**, don't paper over it.
 - **`make`** (default) = `generate` then `verify` — the full build (regenerate from the
   spec, then check it).
-- **`make verify`** is the green-gate (build + vet + gofmt-check + test), optimized for
-  agent use. Run it after changes instead of hand-rolled `go build`/`go test` chains.
-- **`make generate`** regenerates everything from the OpenAPI spec.
+- **`make verify`** is the green-gate: it first runs `generate`, then builds, vets,
+  gofmt-checks, and tests. Run it after changes instead of hand-rolled `go build`/`go test`
+  chains. (`generate` shells out to `npx`, so the first run fetches the doc/client tools.)
+- **`make generate`** regenerates everything from the OpenAPI spec into `api/` (Go server,
+  TS client, HTML + Markdown references) and refreshes the `docs/api/` symlinks.
 - **`make check-tools`** reports any missing generation tool (go + node) with install hints.
 
 ## Layout
 
 Classical single-module Go repo at the repo root (module `github.com/flocko-motion/rankedb`).
 
-- `openapi/` — the API spec (source of truth) · `api/` — generated Go server (`*.gen.go`)
+- `openapi/` — the API spec (source of truth) · `api/` — all generated artifacts (Go server `*.gen.go`, TS client `openapi.gen.ts`, `openapi.html`, `openapi.md`; the two references symlinked under `docs/api/`)
 - `cmd/ranke-db/` — the binary (`run <config>`, `verify <config>`; later `tui`/config edit)
 - `core/` · `config/` · `access/` · `port/` · `adapter/<port>/` — the hexagon
 - `frontend/` — kept, but **no longer part of ranke-db** (possible future app-layer tooling)

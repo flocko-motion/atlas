@@ -1,18 +1,18 @@
 # ranke-db — repo-level targets.
 #
-# The OpenAPI spec is the single source of truth; `make generate` produces the
-# Go server interface, the TS/JS client, and HTML + PDF reference docs from it.
+# The OpenAPI spec is the single source of truth; `make generate` produces every
+# artifact from it into api/ — the Go server, the TS/JS client, and the HTML +
+# Markdown references — and symlinks the two references under docs/api/.
 
 OPENAPI   := openapi/openapi.yaml
-API_DOCS  := docs/api
-TS_OUT    := frontend/src/api/generated
+API_OUT   := api
 RANKE_GO_MOD ?= github.com/flocko-motion/ranke-go
 
 RANKE_GRAPH_REPO ?= https://github.com/flocko-motion/ranke-graph
 RANKE_GRAPH_REF  ?= main
 PAPERS_DIR       := docs/papers
 
-.PHONY: all help check-tools generate gen-go gen-ts gen-html verify tidy build smoke test \
+.PHONY: all help check-tools generate verify tidy build smoke test \
         ranke-go-version release major minor patch breaking feature fix docs docs-clean
 
 BIN := bin/ranke-db
@@ -31,27 +31,25 @@ check-tools: ## Verify the generation toolchain is installed (reports all missin
 	@missing=0; \
 	check() { command -v "$$1" >/dev/null 2>&1 || { printf "  missing: %-6s → %s\n" "$$1" "$$2"; missing=1; }; }; \
 	check go  "https://go.dev/dl/"; \
-	check npx "Node.js 18+ — https://nodejs.org (provides npx; the TS/HTML/PDF generators run via npx)"; \
+	check npx "Node.js 18+ — https://nodejs.org (provides npx; the TS client and API docs run via npx)"; \
 	if [ "$$missing" -ne 0 ]; then \
-		echo "ERROR: install the tool(s) above, then re-run. (npx fetches swagger-typescript-api + @redocly/cli on first use.)"; exit 1; \
+		echo "ERROR: install the tool(s) above, then re-run. (npx fetches swagger-typescript-api, @redocly/cli, and widdershins on first use.)"; exit 1; \
 	fi; \
 	echo "generation toolchain OK (go + node)"
 
-generate: check-tools gen-go gen-ts gen-html ## Generate Go server, TS client, and HTML docs from the spec
-
-gen-go: ## OpenAPI → Go (strict net/http server interface + models)
-	@echo ">> gen-go  → api/openapi.gen.go"
-	@go tool oapi-codegen -config api/oapi-codegen.yaml $(OPENAPI)
-
-gen-ts: ## OpenAPI → TypeScript/JS client
-	@echo ">> gen-ts  → $(TS_OUT)/api.gen.ts"
-	@mkdir -p $(TS_OUT)
-	@npx --yes swagger-typescript-api@13 generate -p $(OPENAPI) -o $(TS_OUT) -n api.gen.ts >/dev/null
-
-gen-html: ## OpenAPI → self-contained HTML reference
-	@echo ">> gen-html → $(API_DOCS)/index.html"
-	@mkdir -p $(API_DOCS)
-	@npx --yes @redocly/cli@latest build-docs $(OPENAPI) -o $(API_DOCS)/index.html >/dev/null
+generate: check-tools ## Generate every artifact from the spec into api/ (Go server, TS client, HTML, Markdown) + docs/api/ symlinks
+	@echo ">> gen-go   → $(API_OUT)/openapi.gen.go"
+	@go tool oapi-codegen -config $(API_OUT)/oapi-codegen.yaml $(OPENAPI)
+	@echo ">> gen-ts   → $(API_OUT)/openapi.gen.ts"
+	@npx --yes swagger-typescript-api@13 generate -p $(OPENAPI) -o $(API_OUT) -n openapi.gen.ts >/dev/null
+	@echo ">> gen-html → $(API_OUT)/openapi.html"
+	@npx --yes @redocly/cli@latest build-docs $(OPENAPI) -o $(API_OUT)/openapi.html >/dev/null
+	@echo ">> gen-md   → $(API_OUT)/openapi.md"
+	@npx --yes widdershins@4 $(OPENAPI) -o $(API_OUT)/openapi.md --summary --code >/dev/null
+	@echo ">> link     → docs/api/openapi.{html,md}"
+	@mkdir -p docs/api
+	@ln -sf ../../$(API_OUT)/openapi.html docs/api/openapi.html
+	@ln -sf ../../$(API_OUT)/openapi.md docs/api/openapi.md
 
 # --- Build / test ----------------------------------------------------------
 
@@ -76,7 +74,7 @@ test/%:
 	@echo ">> go test -v ./$*/..."
 	@go test -v ./$*/...
 
-verify: ## Build, vet, test, and gofmt-check the module
+verify: generate ## Regenerate from the spec, then build, vet, test, and gofmt-check the module
 	@set -e; \
 		go build ./...; \
 		go vet ./...; \
