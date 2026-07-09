@@ -11,6 +11,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -22,6 +23,132 @@ import (
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/oapi-codegen/runtime"
 )
+
+const (
+	ApikeyScopes   apikeyContextKey   = "apikey.Scopes"
+	JwtScopes      jwtContextKey      = "jwt.Scopes"
+	MacaroonScopes macaroonContextKey = "macaroon.Scopes"
+)
+
+// Defines values for OrderDir.
+const (
+	Asc  OrderDir = "asc"
+	Desc OrderDir = "desc"
+)
+
+// Valid indicates whether the value is a known member of the OrderDir enum.
+func (e OrderDir) Valid() bool {
+	switch e {
+	case Asc:
+		return true
+	case Desc:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for OutputDetail.
+const (
+	Claim OutputDetail = "claim"
+	Id    OutputDetail = "id"
+	Path  OutputDetail = "path"
+)
+
+// Valid indicates whether the value is a known member of the OutputDetail enum.
+func (e OutputDetail) Valid() bool {
+	switch e {
+	case Claim:
+		return true
+	case Id:
+		return true
+	case Path:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for OutputEncoding.
+const (
+	CborSeq OutputEncoding = "cbor-seq"
+	JsonSeq OutputEncoding = "json-seq"
+)
+
+// Valid indicates whether the value is a known member of the OutputEncoding enum.
+func (e OutputEncoding) Valid() bool {
+	switch e {
+	case CborSeq:
+		return true
+	case JsonSeq:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for OutputOverflow.
+const (
+	Cutoff    OutputOverflow = "cutoff"
+	Omit      OutputOverflow = "omit"
+	Reference OutputOverflow = "reference"
+)
+
+// Valid indicates whether the value is a known member of the OutputOverflow enum.
+func (e OutputOverflow) Valid() bool {
+	switch e {
+	case Cutoff:
+		return true
+	case Omit:
+		return true
+	case Reference:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for PathStepDir.
+const (
+	Connections PathStepDir = "connections"
+	Provenance  PathStepDir = "provenance"
+	Uses        PathStepDir = "uses"
+)
+
+// Valid indicates whether the value is a known member of the PathStepDir enum.
+func (e PathStepDir) Valid() bool {
+	switch e {
+	case Connections:
+		return true
+	case Provenance:
+		return true
+	case Uses:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for VerificationConfigDepth.
+const (
+	Completeness      VerificationConfigDepth = "completeness"
+	FullContent       VerificationConfigDepth = "full-content"
+	RecordCorrectness VerificationConfigDepth = "record-correctness"
+)
+
+// Valid indicates whether the value is a known member of the VerificationConfigDepth enum.
+func (e VerificationConfigDepth) Valid() bool {
+	switch e {
+	case Completeness:
+		return true
+	case FullContent:
+		return true
+	case RecordCorrectness:
+		return true
+	default:
+		return false
+	}
+}
 
 // Defines values for VerificationFailureMode.
 const (
@@ -65,55 +192,191 @@ func (e VerificationReportStatus) Valid() bool {
 	}
 }
 
-// BranchList defines model for BranchList.
-type BranchList struct {
-	Branches []BranchSummary `json:"branches"`
-}
-
-// BranchSummary defines model for BranchSummary.
-type BranchSummary struct {
+// BranchHead defines model for BranchHead.
+type BranchHead struct {
 	// Head The content-addressed head claim id.
 	Head string `json:"head"`
-	Name string `json:"name"`
 }
 
-// ContributionResult The result of a contribution transaction — the ids (handles) of the appended claims.
+// Comparison A test on one field. Exactly one operator is expected. `in` takes a set;
+// `glob` a shell-style wildcard; the rest a scalar.
+type Comparison struct {
+	Eq   interface{}    `json:"eq,omitempty"`
+	Ge   interface{}    `json:"ge,omitempty"`
+	Glob *string        `json:"glob,omitempty"`
+	Gt   interface{}    `json:"gt,omitempty"`
+	In   *[]interface{} `json:"in,omitempty"`
+	Le   interface{}    `json:"le,omitempty"`
+	Lt   interface{}    `json:"lt,omitempty"`
+	Ne   interface{}    `json:"ne,omitempty"`
+}
+
+// ContributionResult The outcome of a contribution — the new branch-table head and the appended claim ids.
 type ContributionResult struct {
+	// Head The new branch-table head id after the merge.
+	Head string `json:"head"`
+
 	// Ids Content-addressed ids of the contributed claims, in order.
 	Ids []string `json:"ids"`
 }
 
 // Error defines model for Error.
 type Error struct {
-	// Error Human-readable message.
+	// Error Human-readable message. Carries no subject id, even on 403.
 	Error string `json:"error"`
-
-	// Subject On 403, the subject id to grant in config.
-	Subject *string `json:"subject,omitempty"`
 }
 
-// GqlQuery defines model for GqlQuery.
-type GqlQuery struct {
-	// Parameters Optional named query parameters.
-	Parameters *map[string]interface{} `json:"parameters,omitempty"`
+// Execution Tunes and inspects how the query runs (paper 02 §Filtered Reads). Queries are
+// declarative; the planner lowers each to the most capable engine the storage
+// stack offers, so these controls affect execution and diagnostics only, never
+// the result set.
+type Execution struct {
+	// Layer Pin execution to a named storage layer — any layer the stack composes —
+	// instead of letting the planner choose which layer answers. The engine then
+	// follows from that layer's capability (its native walk, or a Cypher/GQL
+	// engine if it has one).
+	Layer *string `json:"layer,omitempty"`
 
-	// Query A read-only Cypher query.
-	Query string `json:"query"`
-}
-
-// GqlResult defines model for GqlResult.
-type GqlResult struct {
-	Columns []string `json:"columns"`
-
-	// Rows Row-major result; each row aligns with columns.
-	Rows [][]interface{} `json:"rows"`
+	// Report When true, the query returns detail on how it ran: the sequence's **final
+	// item** is a QueryReport (identifiable by its shape, always last).
+	Report *bool `json:"report,omitempty"`
 }
 
 // Health defines model for Health.
 type Health struct {
-	// Signer The contributor identity this stack signs with.
+	// Signer The contributor identity this stack signs merges with.
 	Signer *string `json:"signer,omitempty"`
 	Status string  `json:"status"`
+}
+
+// Limit Bounds the read.
+type Limit struct {
+	// Results Maximum number of claims returned.
+	Results *int `json:"results,omitempty"`
+
+	// Time Wall-clock budget (duration, e.g. `"5s"`); the query is cancelled when exceeded.
+	Time *string `json:"time,omitempty"`
+}
+
+// Order A named sort. Without it, results order by `(created_at, id)`; claims lacking
+// the named field sort last.
+type Order struct {
+	Dir   *OrderDir `json:"dir,omitempty"`
+	Field string    `json:"field"`
+}
+
+// OrderDir defines model for Order.Dir.
+type OrderDir string
+
+// Output Shapes each result and fixes the wire serialization.
+type Output struct {
+	// Content Cap on inlined content bytes per claim. `false` (default) carries no
+	// content; a byte size (e.g. `4096` or `"4kb"`) inlines up to that much.
+	Content *Output_Content `json:"content,omitempty"`
+
+	// Detail id (just the id), claim (the reached claim), path (the whole route).
+	Detail *OutputDetail `json:"detail,omitempty"`
+
+	// Encoding Wire serialization. json-seq (RFC 7464) is a convenience projection
+	// (content base64-encoded, NOT id-verifiable); cbor-seq (RFC 8742) is the
+	// canonical, verifiable form.
+	Encoding *OutputEncoding `json:"encoding,omitempty"`
+
+	// Overflow How to handle content past the `content` cap: cutoff (truncate),
+	// omit (drop the content), reference (return a hash stub in its place).
+	Overflow *OutputOverflow `json:"overflow,omitempty"`
+}
+
+// OutputContent0 defines model for .
+type OutputContent0 = bool
+
+// OutputContent1 defines model for .
+type OutputContent1 = int
+
+// OutputContent2 defines model for .
+type OutputContent2 = string
+
+// Output_Content Cap on inlined content bytes per claim. `false` (default) carries no
+// content; a byte size (e.g. `4096` or `"4kb"`) inlines up to that much.
+type Output_Content struct {
+	union json.RawMessage
+}
+
+// OutputDetail id (just the id), claim (the reached claim), path (the whole route).
+type OutputDetail string
+
+// OutputEncoding Wire serialization. json-seq (RFC 7464) is a convenience projection
+// (content base64-encoded, NOT id-verifiable); cbor-seq (RFC 8742) is the
+// canonical, verifiable form.
+type OutputEncoding string
+
+// OutputOverflow How to handle content past the `content` cap: cutoff (truncate),
+// omit (drop the content), reference (return a hash stub in its place).
+type OutputOverflow string
+
+// PathStep One traversal step following typed edges to a bounded depth.
+type PathStep struct {
+	// Depth Maximum hops for this step.
+	Depth *int `json:"depth,omitempty"`
+
+	// Dir provenance (outgoing, default), uses (incoming), connections (either).
+	Dir *PathStepDir `json:"dir,omitempty"`
+
+	// Edges Edge types to follow; a leading `-` on an entry excludes that type.
+	Edges []string `json:"edges"`
+
+	// Nodes Endpoint node types the step may land on; a leading `-` excludes a type.
+	Nodes *[]string `json:"nodes,omitempty"`
+}
+
+// PathStepDir provenance (outgoing, default), uses (incoming), connections (either).
+type PathStepDir string
+
+// Query A tree-structured read — generate, filter, shape, bound.
+type Query struct {
+	// Execution Tunes and inspects how the query runs (paper 02 §Filtered Reads). Queries are
+	// declarative; the planner lowers each to the most capable engine the storage
+	// stack offers, so these controls affect execution and diagnostics only, never
+	// the result set.
+	Execution *Execution `json:"execution,omitempty"`
+
+	// Limit Bounds the read.
+	Limit *Limit `json:"limit,omitempty"`
+
+	// Order A named sort. Without it, results order by `(created_at, id)`; claims lacking
+	// the named field sort last.
+	Order *Order `json:"order,omitempty"`
+
+	// Output Shapes each result and fixes the wire serialization.
+	Output *Output `json:"output,omitempty"`
+
+	// Select A generator: a starting point and a traversal. `branch` roots at a branch's
+	// current head and confines the query to it; `claim` optionally roots at a
+	// claim id within the branch; `claim` **without** `branch` is a privileged
+	// Universe read. Without `path`, the generator follows every edge outward to
+	// the full closure.
+	Select Select `json:"select"`
+
+	// Where A boolean tree of comparisons. `and`/`or`/`not` combine subtrees (`or` also
+	// unions result sets); otherwise the object is a field→comparison map, each
+	// field tested by one comparator.
+	Where *Where `json:"where,omitempty"`
+}
+
+// Select A generator: a starting point and a traversal. `branch` roots at a branch's
+// current head and confines the query to it; `claim` optionally roots at a
+// claim id within the branch; `claim` **without** `branch` is a privileged
+// Universe read. Without `path`, the generator follows every edge outward to
+// the full closure.
+type Select struct {
+	// Branch Branch name to root at (its current head).
+	Branch *string `json:"branch,omitempty"`
+
+	// Claim Claim id to root at; without `branch`, a privileged Universe read.
+	Claim *string `json:"claim,omitempty"`
+
+	// Path Traversal steps, applied in order.
+	Path *[]PathStep `json:"path,omitempty"`
 }
 
 // StorageLayer defines model for StorageLayer.
@@ -130,22 +393,30 @@ type StorageLayerList struct {
 	Layers []StorageLayer `json:"layers"`
 }
 
-// VerificationConfig Parameters for a verification run — the same shape whether declared in
-// the stack config (scheduled/automatic) or posted ad-hoc.
+// VerificationConfig Parameters for a verification run — the same shape whether declared in the
+// stack config (scheduled) or posted ad-hoc. Depths are those of
+// core-verification.
 type VerificationConfig struct {
 	// Closure Root of the closure to verify — a branch name or a claim id.
 	Closure string `json:"closure"`
 
-	// ContentThreshold Max content size, in bytes, to re-read and re-hash per claim. Larger
-	// content is skipped this run (the claim's signature is still checked).
-	// Omit to verify all content regardless of size.
+	// ContentThreshold For full-content, the max content size in bytes to re-read and re-hash
+	// per claim; larger content is skipped this run. Omit to verify all content.
 	ContentThreshold *int `json:"contentThreshold,omitempty"`
+
+	// Depth completeness (a `has` sweep), record-correctness (recanonicalise and
+	// recheck the id-chain and signatures), or full-content (also re-hash blobs).
+	Depth *VerificationConfigDepth `json:"depth,omitempty"`
 
 	// Layer Storage layer (by name) to read directly. Omit to read the composed
 	// read-through view — which may mask the loss of an object on a deeper
 	// layer, so name a layer to verify it without blind spots.
 	Layer *string `json:"layer,omitempty"`
 }
+
+// VerificationConfigDepth completeness (a `has` sweep), record-correctness (recanonicalise and
+// recheck the id-chain and signatures), or full-content (also re-hash blobs).
+type VerificationConfigDepth string
 
 // VerificationFailure defines model for VerificationFailure.
 type VerificationFailure struct {
@@ -159,36 +430,54 @@ type VerificationFailure struct {
 
 	// Mode corrupt-bytes — stored bytes don't match their hash (storage rot/loss;
 	// self-heals via read-through if a deeper layer is intact).
-	// invalid-content — the claim itself doesn't validate (e.g. bad
-	// signature); unrepairable.
+	// invalid-content — the claim itself doesn't validate (e.g. bad signature);
+	// unrepairable.
 	Mode VerificationFailureMode `json:"mode"`
 }
 
 // VerificationFailureMode corrupt-bytes — stored bytes don't match their hash (storage rot/loss;
 // self-heals via read-through if a deeper layer is intact).
-// invalid-content — the claim itself doesn't validate (e.g. bad
-// signature); unrepairable.
+// invalid-content — the claim itself doesn't validate (e.g. bad signature);
+// unrepairable.
 type VerificationFailureMode string
 
 // VerificationReport A point-in-time record of a verification run; embeds the config that produced it.
 type VerificationReport struct {
-	BytesRead     *int       `json:"bytesRead,omitempty"`
+	// BytesRead Content bytes re-read so far; advances while `status` is `running`.
+	BytesRead *int `json:"bytesRead,omitempty"`
+
+	// ClaimsChecked Claims checked so far; advances while `status` is `running`.
 	ClaimsChecked *int       `json:"claimsChecked,omitempty"`
 	CompletedAt   *time.Time `json:"completedAt,omitempty"`
 
-	// Config Parameters for a verification run — the same shape whether declared in
-	// the stack config (scheduled/automatic) or posted ad-hoc.
-	Config   VerificationConfig     `json:"config"`
+	// Config Parameters for a verification run — the same shape whether declared in the
+	// stack config (scheduled) or posted ad-hoc. Depths are those of
+	// core-verification.
+	Config VerificationConfig `json:"config"`
+
+	// Failures The failures found, accumulating while `status` is `running`. Empty (with
+	// `ok: true`) for an intact closure; a healthy archive verifies with none.
 	Failures *[]VerificationFailure `json:"failures,omitempty"`
-	Id       string                 `json:"id"`
+
+	// Head The head id the run verified — the closure it pinned at start. When
+	// `config.closure` names a branch, this is the branch's head at start time;
+	// the report stays fixed to it even as the branch head moves on.
+	Head string `json:"head"`
+	Id   string `json:"id"`
 
 	// Ok True when no failures were found in this run.
-	Ok        bool                     `json:"ok"`
-	StartedAt time.Time                `json:"startedAt"`
-	Status    VerificationReportStatus `json:"status"`
+	Ok        bool      `json:"ok"`
+	StartedAt time.Time `json:"startedAt"`
+
+	// Status running (in progress), complete (finished on its own), stopped (cancelled
+	// by an operator via the cancel action — partial findings kept), or error
+	// (the run itself failed).
+	Status VerificationReportStatus `json:"status"`
 }
 
-// VerificationReportStatus defines model for VerificationReport.Status.
+// VerificationReportStatus running (in progress), complete (finished on its own), stopped (cancelled
+// by an operator via the cancel action — partial findings kept), or error
+// (the run itself failed).
 type VerificationReportStatus string
 
 // VerificationReportList defines model for VerificationReportList.
@@ -196,8 +485,42 @@ type VerificationReportList struct {
 	Reports []VerificationReport `json:"reports"`
 }
 
+// Where A boolean tree of comparisons. `and`/`or`/`not` combine subtrees (`or` also
+// unions result sets); otherwise the object is a field→comparison map, each
+// field tested by one comparator.
+type Where struct {
+	union json.RawMessage
+}
+
+// Where0 defines model for .
+type Where0 struct {
+	And []Where `json:"and"`
+}
+
+// Where1 defines model for .
+type Where1 struct {
+	Or []Where `json:"or"`
+}
+
+// Where2 defines model for .
+type Where2 struct {
+	// Not A boolean tree of comparisons. `and`/`or`/`not` combine subtrees (`or` also
+	// unions result sets); otherwise the object is a field→comparison map, each
+	// field tested by one comparator.
+	Not Where `json:"not"`
+}
+
+// Where3 A field→comparison map (e.g. {"type": {"glob": "source/*"}}).
+type Where3 map[string]Comparison
+
 // BranchName defines model for BranchName.
 type BranchName = string
+
+// ClaimId defines model for ClaimId.
+type ClaimId = string
+
+// ContentHash defines model for ContentHash.
+type ContentHash = string
 
 // BadRequest defines model for BadRequest.
 type BadRequest = Error
@@ -214,50 +537,273 @@ type NotFound = Error
 // Unauthorized defines model for Unauthorized.
 type Unauthorized = Error
 
-// GqlJSONRequestBody defines body for Gql for application/json ContentType.
-type GqlJSONRequestBody = GqlQuery
+// apikeyContextKey is the context key for apikey security scheme
+type apikeyContextKey string
+
+// jwtContextKey is the context key for jwt security scheme
+type jwtContextKey string
+
+// macaroonContextKey is the context key for macaroon security scheme
+type macaroonContextKey string
+
+// ContributeParams defines parameters for Contribute.
+type ContributeParams struct {
+	// Branch The target branch the claims are merged onto (the `C` right applies here).
+	Branch string `form:"branch" json:"branch"`
+}
+
+// QueryJSONRequestBody defines body for Query for application/json ContentType.
+type QueryJSONRequestBody = Query
 
 // StartVerificationJSONRequestBody defines body for StartVerification for application/json ContentType.
 type StartVerificationJSONRequestBody = VerificationConfig
 
+// AsOutputContent0 returns the union data inside the Output_Content as a OutputContent0
+func (t Output_Content) AsOutputContent0() (OutputContent0, error) {
+	var body OutputContent0
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromOutputContent0 overwrites any union data inside the Output_Content as the provided OutputContent0
+func (t *Output_Content) FromOutputContent0(v OutputContent0) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeOutputContent0 performs a merge with any union data inside the Output_Content, using the provided OutputContent0
+func (t *Output_Content) MergeOutputContent0(v OutputContent0) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsOutputContent1 returns the union data inside the Output_Content as a OutputContent1
+func (t Output_Content) AsOutputContent1() (OutputContent1, error) {
+	var body OutputContent1
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromOutputContent1 overwrites any union data inside the Output_Content as the provided OutputContent1
+func (t *Output_Content) FromOutputContent1(v OutputContent1) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeOutputContent1 performs a merge with any union data inside the Output_Content, using the provided OutputContent1
+func (t *Output_Content) MergeOutputContent1(v OutputContent1) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsOutputContent2 returns the union data inside the Output_Content as a OutputContent2
+func (t Output_Content) AsOutputContent2() (OutputContent2, error) {
+	var body OutputContent2
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromOutputContent2 overwrites any union data inside the Output_Content as the provided OutputContent2
+func (t *Output_Content) FromOutputContent2(v OutputContent2) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeOutputContent2 performs a merge with any union data inside the Output_Content, using the provided OutputContent2
+func (t *Output_Content) MergeOutputContent2(v OutputContent2) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t Output_Content) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *Output_Content) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
+// AsWhere0 returns the union data inside the Where as a Where0
+func (t Where) AsWhere0() (Where0, error) {
+	var body Where0
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromWhere0 overwrites any union data inside the Where as the provided Where0
+func (t *Where) FromWhere0(v Where0) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeWhere0 performs a merge with any union data inside the Where, using the provided Where0
+func (t *Where) MergeWhere0(v Where0) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsWhere1 returns the union data inside the Where as a Where1
+func (t Where) AsWhere1() (Where1, error) {
+	var body Where1
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromWhere1 overwrites any union data inside the Where as the provided Where1
+func (t *Where) FromWhere1(v Where1) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeWhere1 performs a merge with any union data inside the Where, using the provided Where1
+func (t *Where) MergeWhere1(v Where1) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsWhere2 returns the union data inside the Where as a Where2
+func (t Where) AsWhere2() (Where2, error) {
+	var body Where2
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromWhere2 overwrites any union data inside the Where as the provided Where2
+func (t *Where) FromWhere2(v Where2) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeWhere2 performs a merge with any union data inside the Where, using the provided Where2
+func (t *Where) MergeWhere2(v Where2) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsWhere3 returns the union data inside the Where as a Where3
+func (t Where) AsWhere3() (Where3, error) {
+	var body Where3
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromWhere3 overwrites any union data inside the Where as the provided Where3
+func (t *Where) FromWhere3(v Where3) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeWhere3 performs a merge with any union data inside the Where, using the provided Where3
+func (t *Where) MergeWhere3(v Where3) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t Where) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *Where) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
-	// List branch names with their current head
-	// (GET /branches)
-	ListBranches(w http.ResponseWriter, r *http.Request)
-	// Contribute a set of claims (bulk)
-	// (POST /branches/{name}/claims)
-	Contribute(w http.ResponseWriter, r *http.Request, name BranchName)
-	// Fetch a claim within a branch's closure
-	// (GET /branches/{name}/claims/{id})
-	GetClaim(w http.ResponseWriter, r *http.Request, name BranchName, id string)
-	// Contribute a single claim
-	// (PUT /branches/{name}/claims/{id})
-	PutClaim(w http.ResponseWriter, r *http.Request, name BranchName, id string)
-	// Fetch content bytes within a branch's closure
-	// (GET /branches/{name}/contents/{hash})
-	GetContent(w http.ResponseWriter, r *http.Request, name BranchName, hash string)
-	// Cypher query over a branch (optional)
-	// (POST /branches/{name}/gql)
-	Gql(w http.ResponseWriter, r *http.Request, name BranchName)
-	// Liveness and readiness of the stack
+	// Fetch a claim by id from the Universe (privileged)
+	// (GET /$universe/claim/{id})
+	GetUniverseClaim(w http.ResponseWriter, r *http.Request, id ClaimId)
+	// Fetch content bytes by hash from the Universe (privileged)
+	// (GET /$universe/content/{hash})
+	GetUniverseContent(w http.ResponseWriter, r *http.Request, hash ContentHash)
+	// Contribute signed claims (atomic)
+	// (POST /contribute)
+	Contribute(w http.ResponseWriter, r *http.Request, params ContributeParams)
+	// Liveness and signer identity
 	// (GET /health)
 	Health(w http.ResponseWriter, r *http.Request)
+	// Read the graph with a declarative query
+	// (POST /query)
+	Query(w http.ResponseWriter, r *http.Request)
 	// List storage layers
-	// (GET /storage/layers)
+	// (GET /system/layers)
 	ListStorageLayers(w http.ResponseWriter, r *http.Request)
 	// List verification runs
-	// (GET /verification)
+	// (GET /system/verification)
 	ListVerifications(w http.ResponseWriter, r *http.Request)
 	// Start a verification run
-	// (POST /verification)
+	// (POST /system/verification)
 	StartVerification(w http.ResponseWriter, r *http.Request)
-	// Stop a verification run
-	// (DELETE /verification/{reportId})
-	StopVerification(w http.ResponseWriter, r *http.Request, reportId string)
+	// Delete a verification run
+	// (DELETE /system/verification/{reportId})
+	DeleteVerification(w http.ResponseWriter, r *http.Request, reportId string)
 	// Show a verification run
-	// (GET /verification/{reportId})
+	// (GET /system/verification/{reportId})
 	GetVerification(w http.ResponseWriter, r *http.Request, reportId string)
+	// Cancel a running verification run
+	// (POST /system/verification/{reportId}/cancel)
+	CancelVerification(w http.ResponseWriter, r *http.Request, reportId string)
+	// Fetch a claim within a branch's closure
+	// (GET /{branch}/claim/{id})
+	GetBranchClaim(w http.ResponseWriter, r *http.Request, branch BranchName, id ClaimId)
+	// Fetch content bytes within a branch's closure
+	// (GET /{branch}/content/{hash})
+	GetBranchContent(w http.ResponseWriter, r *http.Request, branch BranchName, hash ContentHash)
+	// Current head id of a branch
+	// (GET /{branch}/head)
+	GetBranchHead(w http.ResponseWriter, r *http.Request, branch BranchName)
 }
 
 // ServerInterfaceWrapper converts contexts to parameters.
@@ -269,11 +815,69 @@ type ServerInterfaceWrapper struct {
 
 type MiddlewareFunc func(http.Handler) http.Handler
 
-// ListBranches operation middleware
-func (siw *ServerInterfaceWrapper) ListBranches(w http.ResponseWriter, r *http.Request) {
+// GetUniverseClaim operation middleware
+func (siw *ServerInterfaceWrapper) GetUniverseClaim(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id ClaimId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, JwtScopes, []string{})
+
+	ctx = context.WithValue(ctx, ApikeyScopes, []string{})
+
+	ctx = context.WithValue(ctx, MacaroonScopes, []string{})
+
+	r = r.WithContext(ctx)
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ListBranches(w, r)
+		siw.Handler.GetUniverseClaim(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetUniverseContent operation middleware
+func (siw *ServerInterfaceWrapper) GetUniverseContent(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "hash" -------------
+	var hash ContentHash
+
+	err = runtime.BindStyledParameterWithOptions("simple", "hash", r.PathValue("hash"), &hash, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "hash", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, JwtScopes, []string{})
+
+	ctx = context.WithValue(ctx, ApikeyScopes, []string{})
+
+	ctx = context.WithValue(ctx, MacaroonScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetUniverseContent(w, r, hash)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -289,148 +893,34 @@ func (siw *ServerInterfaceWrapper) Contribute(w http.ResponseWriter, r *http.Req
 	var err error
 	_ = err
 
-	// ------------- Path parameter "name" -------------
-	var name BranchName
+	ctx := r.Context()
 
-	err = runtime.BindStyledParameterWithOptions("simple", "name", r.PathValue("name"), &name, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	ctx = context.WithValue(ctx, JwtScopes, []string{})
+
+	ctx = context.WithValue(ctx, ApikeyScopes, []string{})
+
+	ctx = context.WithValue(ctx, MacaroonScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ContributeParams
+
+	// ------------- Required query parameter "branch" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, true, "branch", r.URL.Query(), &params.Branch, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
 	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "branch"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "branch", Err: err})
+		}
 		return
 	}
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.Contribute(w, r, name)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// GetClaim operation middleware
-func (siw *ServerInterfaceWrapper) GetClaim(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "name" -------------
-	var name BranchName
-
-	err = runtime.BindStyledParameterWithOptions("simple", "name", r.PathValue("name"), &name, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
-		return
-	}
-
-	// ------------- Path parameter "id" -------------
-	var id string
-
-	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
-		return
-	}
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.GetClaim(w, r, name, id)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// PutClaim operation middleware
-func (siw *ServerInterfaceWrapper) PutClaim(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "name" -------------
-	var name BranchName
-
-	err = runtime.BindStyledParameterWithOptions("simple", "name", r.PathValue("name"), &name, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
-		return
-	}
-
-	// ------------- Path parameter "id" -------------
-	var id string
-
-	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
-		return
-	}
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.PutClaim(w, r, name, id)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// GetContent operation middleware
-func (siw *ServerInterfaceWrapper) GetContent(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "name" -------------
-	var name BranchName
-
-	err = runtime.BindStyledParameterWithOptions("simple", "name", r.PathValue("name"), &name, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
-		return
-	}
-
-	// ------------- Path parameter "hash" -------------
-	var hash string
-
-	err = runtime.BindStyledParameterWithOptions("simple", "hash", r.PathValue("hash"), &hash, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "hash", Err: err})
-		return
-	}
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.GetContent(w, r, name, hash)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// Gql operation middleware
-func (siw *ServerInterfaceWrapper) Gql(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "name" -------------
-	var name BranchName
-
-	err = runtime.BindStyledParameterWithOptions("simple", "name", r.PathValue("name"), &name, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
-		return
-	}
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.Gql(w, r, name)
+		siw.Handler.Contribute(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -443,6 +933,16 @@ func (siw *ServerInterfaceWrapper) Gql(w http.ResponseWriter, r *http.Request) {
 // Health operation middleware
 func (siw *ServerInterfaceWrapper) Health(w http.ResponseWriter, r *http.Request) {
 
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, JwtScopes, []string{})
+
+	ctx = context.WithValue(ctx, ApikeyScopes, []string{})
+
+	ctx = context.WithValue(ctx, MacaroonScopes, []string{})
+
+	r = r.WithContext(ctx)
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.Health(w, r)
 	}))
@@ -454,8 +954,42 @@ func (siw *ServerInterfaceWrapper) Health(w http.ResponseWriter, r *http.Request
 	handler.ServeHTTP(w, r)
 }
 
+// Query operation middleware
+func (siw *ServerInterfaceWrapper) Query(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, JwtScopes, []string{})
+
+	ctx = context.WithValue(ctx, ApikeyScopes, []string{})
+
+	ctx = context.WithValue(ctx, MacaroonScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.Query(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListStorageLayers operation middleware
 func (siw *ServerInterfaceWrapper) ListStorageLayers(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, JwtScopes, []string{})
+
+	ctx = context.WithValue(ctx, ApikeyScopes, []string{})
+
+	ctx = context.WithValue(ctx, MacaroonScopes, []string{})
+
+	r = r.WithContext(ctx)
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ListStorageLayers(w, r)
@@ -471,6 +1005,16 @@ func (siw *ServerInterfaceWrapper) ListStorageLayers(w http.ResponseWriter, r *h
 // ListVerifications operation middleware
 func (siw *ServerInterfaceWrapper) ListVerifications(w http.ResponseWriter, r *http.Request) {
 
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, JwtScopes, []string{})
+
+	ctx = context.WithValue(ctx, ApikeyScopes, []string{})
+
+	ctx = context.WithValue(ctx, MacaroonScopes, []string{})
+
+	r = r.WithContext(ctx)
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ListVerifications(w, r)
 	}))
@@ -485,6 +1029,16 @@ func (siw *ServerInterfaceWrapper) ListVerifications(w http.ResponseWriter, r *h
 // StartVerification operation middleware
 func (siw *ServerInterfaceWrapper) StartVerification(w http.ResponseWriter, r *http.Request) {
 
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, JwtScopes, []string{})
+
+	ctx = context.WithValue(ctx, ApikeyScopes, []string{})
+
+	ctx = context.WithValue(ctx, MacaroonScopes, []string{})
+
+	r = r.WithContext(ctx)
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.StartVerification(w, r)
 	}))
@@ -496,8 +1050,8 @@ func (siw *ServerInterfaceWrapper) StartVerification(w http.ResponseWriter, r *h
 	handler.ServeHTTP(w, r)
 }
 
-// StopVerification operation middleware
-func (siw *ServerInterfaceWrapper) StopVerification(w http.ResponseWriter, r *http.Request) {
+// DeleteVerification operation middleware
+func (siw *ServerInterfaceWrapper) DeleteVerification(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	_ = err
@@ -511,8 +1065,18 @@ func (siw *ServerInterfaceWrapper) StopVerification(w http.ResponseWriter, r *ht
 		return
 	}
 
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, JwtScopes, []string{})
+
+	ctx = context.WithValue(ctx, ApikeyScopes, []string{})
+
+	ctx = context.WithValue(ctx, MacaroonScopes, []string{})
+
+	r = r.WithContext(ctx)
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.StopVerification(w, r, reportId)
+		siw.Handler.DeleteVerification(w, r, reportId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -537,8 +1101,180 @@ func (siw *ServerInterfaceWrapper) GetVerification(w http.ResponseWriter, r *htt
 		return
 	}
 
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, JwtScopes, []string{})
+
+	ctx = context.WithValue(ctx, ApikeyScopes, []string{})
+
+	ctx = context.WithValue(ctx, MacaroonScopes, []string{})
+
+	r = r.WithContext(ctx)
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetVerification(w, r, reportId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CancelVerification operation middleware
+func (siw *ServerInterfaceWrapper) CancelVerification(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "reportId" -------------
+	var reportId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "reportId", r.PathValue("reportId"), &reportId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "reportId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, JwtScopes, []string{})
+
+	ctx = context.WithValue(ctx, ApikeyScopes, []string{})
+
+	ctx = context.WithValue(ctx, MacaroonScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CancelVerification(w, r, reportId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetBranchClaim operation middleware
+func (siw *ServerInterfaceWrapper) GetBranchClaim(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "branch" -------------
+	var branch BranchName
+
+	err = runtime.BindStyledParameterWithOptions("simple", "branch", r.PathValue("branch"), &branch, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "branch", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "id" -------------
+	var id ClaimId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, JwtScopes, []string{})
+
+	ctx = context.WithValue(ctx, ApikeyScopes, []string{})
+
+	ctx = context.WithValue(ctx, MacaroonScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetBranchClaim(w, r, branch, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetBranchContent operation middleware
+func (siw *ServerInterfaceWrapper) GetBranchContent(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "branch" -------------
+	var branch BranchName
+
+	err = runtime.BindStyledParameterWithOptions("simple", "branch", r.PathValue("branch"), &branch, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "branch", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "hash" -------------
+	var hash ContentHash
+
+	err = runtime.BindStyledParameterWithOptions("simple", "hash", r.PathValue("hash"), &hash, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "hash", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, JwtScopes, []string{})
+
+	ctx = context.WithValue(ctx, ApikeyScopes, []string{})
+
+	ctx = context.WithValue(ctx, MacaroonScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetBranchContent(w, r, branch, hash)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetBranchHead operation middleware
+func (siw *ServerInterfaceWrapper) GetBranchHead(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "branch" -------------
+	var branch BranchName
+
+	err = runtime.BindStyledParameterWithOptions("simple", "branch", r.PathValue("branch"), &branch, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "branch", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, JwtScopes, []string{})
+
+	ctx = context.WithValue(ctx, ApikeyScopes, []string{})
+
+	ctx = context.WithValue(ctx, MacaroonScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetBranchHead(w, r, branch)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -668,18 +1404,20 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 		ErrorHandlerFunc:   options.ErrorHandlerFunc,
 	}
 
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/branches", wrapper.ListBranches)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/branches/{name}/claims", wrapper.Contribute)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/branches/{name}/claims/{id}", wrapper.GetClaim)
-	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/branches/{name}/claims/{id}", wrapper.PutClaim)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/branches/{name}/contents/{hash}", wrapper.GetContent)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/branches/{name}/gql", wrapper.Gql)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/$universe/claim/{id}", wrapper.GetUniverseClaim)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/$universe/content/{hash}", wrapper.GetUniverseContent)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/contribute", wrapper.Contribute)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/health", wrapper.Health)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/storage/layers", wrapper.ListStorageLayers)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/verification", wrapper.ListVerifications)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/verification", wrapper.StartVerification)
-	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/verification/{reportId}", wrapper.StopVerification)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/verification/{reportId}", wrapper.GetVerification)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/query", wrapper.Query)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/system/layers", wrapper.ListStorageLayers)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/system/verification", wrapper.ListVerifications)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/system/verification", wrapper.StartVerification)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/system/verification/{reportId}", wrapper.DeleteVerification)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/system/verification/{reportId}", wrapper.GetVerification)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/system/verification/{reportId}/cancel", wrapper.CancelVerification)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/{branch}/claim/{id}", wrapper.GetBranchClaim)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/{branch}/content/{hash}", wrapper.GetBranchContent)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/{branch}/head", wrapper.GetBranchHead)
 
 	return m
 }
@@ -694,30 +1432,45 @@ type NotFoundJSONResponse Error
 
 type UnauthorizedJSONResponse Error
 
-type ListBranchesRequestObject struct {
+type GetUniverseClaimRequestObject struct {
+	Id ClaimId `json:"id"`
 }
 
-type ListBranchesResponseObject interface {
-	VisitListBranchesResponse(w http.ResponseWriter) error
+type GetUniverseClaimResponseObject interface {
+	VisitGetUniverseClaimResponse(w http.ResponseWriter) error
 }
 
-type ListBranches200JSONResponse BranchList
+type GetUniverseClaim200ResponseHeaders struct {
+	ETag *string
+}
 
-func (response ListBranches200JSONResponse) VisitListBranchesResponse(w http.ResponseWriter) error {
+type GetUniverseClaim200ApplicationcborResponse struct {
+	Body          io.Reader
+	Headers       GetUniverseClaim200ResponseHeaders
+	ContentLength int64
+}
 
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
+func (response GetUniverseClaim200ApplicationcborResponse) VisitGetUniverseClaimResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", "application/cbor")
+	if response.ContentLength != 0 {
+		w.Header().Set("Content-Length", fmt.Sprint(response.ContentLength))
 	}
-	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.ETag != nil {
+		w.Header().Set("ETag", fmt.Sprint(*response.Headers.ETag))
+	}
 	w.WriteHeader(200)
-	_, err := buf.WriteTo(w)
+
+	if closer, ok := response.Body.(io.ReadCloser); ok {
+		defer closer.Close()
+	}
+	_, err := io.Copy(w, response.Body)
 	return err
 }
 
-type ListBranches401JSONResponse struct{ UnauthorizedJSONResponse }
+type GetUniverseClaim401JSONResponse struct{ UnauthorizedJSONResponse }
 
-func (response ListBranches401JSONResponse) VisitListBranchesResponse(w http.ResponseWriter) error {
+func (response GetUniverseClaim401JSONResponse) VisitGetUniverseClaimResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -729,9 +1482,9 @@ func (response ListBranches401JSONResponse) VisitListBranchesResponse(w http.Res
 	return err
 }
 
-type ListBranches403JSONResponse struct{ ForbiddenJSONResponse }
+type GetUniverseClaim403JSONResponse struct{ ForbiddenJSONResponse }
 
-func (response ListBranches403JSONResponse) VisitListBranchesResponse(w http.ResponseWriter) error {
+func (response GetUniverseClaim403JSONResponse) VisitGetUniverseClaimResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -743,9 +1496,101 @@ func (response ListBranches403JSONResponse) VisitListBranchesResponse(w http.Res
 	return err
 }
 
+type GetUniverseClaim404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response GetUniverseClaim404JSONResponse) VisitGetUniverseClaimResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetUniverseContentRequestObject struct {
+	Hash ContentHash `json:"hash"`
+}
+
+type GetUniverseContentResponseObject interface {
+	VisitGetUniverseContentResponse(w http.ResponseWriter) error
+}
+
+type GetUniverseContent200ResponseHeaders struct {
+	ETag *string
+}
+
+type GetUniverseContent200ApplicationoctetStreamResponse struct {
+	Body          io.Reader
+	Headers       GetUniverseContent200ResponseHeaders
+	ContentLength int64
+}
+
+func (response GetUniverseContent200ApplicationoctetStreamResponse) VisitGetUniverseContentResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", "application/octet-stream")
+	if response.ContentLength != 0 {
+		w.Header().Set("Content-Length", fmt.Sprint(response.ContentLength))
+	}
+	if response.Headers.ETag != nil {
+		w.Header().Set("ETag", fmt.Sprint(*response.Headers.ETag))
+	}
+	w.WriteHeader(200)
+
+	if closer, ok := response.Body.(io.ReadCloser); ok {
+		defer closer.Close()
+	}
+	_, err := io.Copy(w, response.Body)
+	return err
+}
+
+type GetUniverseContent401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response GetUniverseContent401JSONResponse) VisitGetUniverseContentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetUniverseContent403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response GetUniverseContent403JSONResponse) VisitGetUniverseContentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetUniverseContent404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response GetUniverseContent404JSONResponse) VisitGetUniverseContentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type ContributeRequestObject struct {
-	Name BranchName `json:"name"`
-	Body io.Reader
+	Params ContributeParams
+	Body   io.Reader
 }
 
 type ContributeResponseObject interface {
@@ -836,315 +1681,6 @@ func (response Contribute409JSONResponse) VisitContributeResponse(w http.Respons
 	return err
 }
 
-type GetClaimRequestObject struct {
-	Name BranchName `json:"name"`
-	Id   string     `json:"id"`
-}
-
-type GetClaimResponseObject interface {
-	VisitGetClaimResponse(w http.ResponseWriter) error
-}
-
-type GetClaim200ApplicationcborResponse struct {
-	Body          io.Reader
-	ContentLength int64
-}
-
-func (response GetClaim200ApplicationcborResponse) VisitGetClaimResponse(w http.ResponseWriter) error {
-
-	w.Header().Set("Content-Type", "application/cbor")
-	if response.ContentLength != 0 {
-		w.Header().Set("Content-Length", fmt.Sprint(response.ContentLength))
-	}
-	w.WriteHeader(200)
-
-	if closer, ok := response.Body.(io.ReadCloser); ok {
-		defer closer.Close()
-	}
-	_, err := io.Copy(w, response.Body)
-	return err
-}
-
-type GetClaim401JSONResponse struct{ UnauthorizedJSONResponse }
-
-func (response GetClaim401JSONResponse) VisitGetClaimResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(401)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type GetClaim403JSONResponse struct{ ForbiddenJSONResponse }
-
-func (response GetClaim403JSONResponse) VisitGetClaimResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(403)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type GetClaim404JSONResponse struct{ NotFoundJSONResponse }
-
-func (response GetClaim404JSONResponse) VisitGetClaimResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(404)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type PutClaimRequestObject struct {
-	Name BranchName `json:"name"`
-	Id   string     `json:"id"`
-	Body io.Reader
-}
-
-type PutClaimResponseObject interface {
-	VisitPutClaimResponse(w http.ResponseWriter) error
-}
-
-type PutClaim204Response struct {
-}
-
-func (response PutClaim204Response) VisitPutClaimResponse(w http.ResponseWriter) error {
-	w.WriteHeader(204)
-	return nil
-}
-
-type PutClaim400JSONResponse struct{ BadRequestJSONResponse }
-
-func (response PutClaim400JSONResponse) VisitPutClaimResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(400)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type PutClaim401JSONResponse struct{ UnauthorizedJSONResponse }
-
-func (response PutClaim401JSONResponse) VisitPutClaimResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(401)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type PutClaim403JSONResponse struct{ ForbiddenJSONResponse }
-
-func (response PutClaim403JSONResponse) VisitPutClaimResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(403)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type PutClaim404JSONResponse struct{ NotFoundJSONResponse }
-
-func (response PutClaim404JSONResponse) VisitPutClaimResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(404)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type PutClaim409JSONResponse struct{ ConflictJSONResponse }
-
-func (response PutClaim409JSONResponse) VisitPutClaimResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(409)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type GetContentRequestObject struct {
-	Name BranchName `json:"name"`
-	Hash string     `json:"hash"`
-}
-
-type GetContentResponseObject interface {
-	VisitGetContentResponse(w http.ResponseWriter) error
-}
-
-type GetContent200ApplicationoctetStreamResponse struct {
-	Body          io.Reader
-	ContentLength int64
-}
-
-func (response GetContent200ApplicationoctetStreamResponse) VisitGetContentResponse(w http.ResponseWriter) error {
-
-	w.Header().Set("Content-Type", "application/octet-stream")
-	if response.ContentLength != 0 {
-		w.Header().Set("Content-Length", fmt.Sprint(response.ContentLength))
-	}
-	w.WriteHeader(200)
-
-	if closer, ok := response.Body.(io.ReadCloser); ok {
-		defer closer.Close()
-	}
-	_, err := io.Copy(w, response.Body)
-	return err
-}
-
-type GetContent401JSONResponse struct{ UnauthorizedJSONResponse }
-
-func (response GetContent401JSONResponse) VisitGetContentResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(401)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type GetContent403JSONResponse struct{ ForbiddenJSONResponse }
-
-func (response GetContent403JSONResponse) VisitGetContentResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(403)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type GetContent404JSONResponse struct{ NotFoundJSONResponse }
-
-func (response GetContent404JSONResponse) VisitGetContentResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(404)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type GqlRequestObject struct {
-	Name BranchName `json:"name"`
-	Body *GqlJSONRequestBody
-}
-
-type GqlResponseObject interface {
-	VisitGqlResponse(w http.ResponseWriter) error
-}
-
-type Gql200JSONResponse GqlResult
-
-func (response Gql200JSONResponse) VisitGqlResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(200)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type Gql401JSONResponse struct{ UnauthorizedJSONResponse }
-
-func (response Gql401JSONResponse) VisitGqlResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(401)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type Gql403JSONResponse struct{ ForbiddenJSONResponse }
-
-func (response Gql403JSONResponse) VisitGqlResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(403)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type Gql404JSONResponse struct{ NotFoundJSONResponse }
-
-func (response Gql404JSONResponse) VisitGqlResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(404)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type Gql501JSONResponse Error
-
-func (response Gql501JSONResponse) VisitGqlResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(501)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
 type HealthRequestObject struct {
 }
 
@@ -1162,6 +1698,110 @@ func (response Health200JSONResponse) VisitHealthResponse(w http.ResponseWriter)
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type QueryRequestObject struct {
+	Body *QueryJSONRequestBody
+}
+
+type QueryResponseObject interface {
+	VisitQueryResponse(w http.ResponseWriter) error
+}
+
+type Query200ApplicationcborSeqResponse struct {
+	Body          io.Reader
+	ContentLength int64
+}
+
+func (response Query200ApplicationcborSeqResponse) VisitQueryResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", "application/cbor-seq")
+	if response.ContentLength != 0 {
+		w.Header().Set("Content-Length", fmt.Sprint(response.ContentLength))
+	}
+	w.WriteHeader(200)
+
+	if closer, ok := response.Body.(io.ReadCloser); ok {
+		defer closer.Close()
+	}
+	_, err := io.Copy(w, response.Body)
+	return err
+}
+
+type Query200ApplicationjsonSeqResponse struct {
+	Body          io.Reader
+	ContentLength int64
+}
+
+func (response Query200ApplicationjsonSeqResponse) VisitQueryResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", "application/json-seq")
+	if response.ContentLength != 0 {
+		w.Header().Set("Content-Length", fmt.Sprint(response.ContentLength))
+	}
+	w.WriteHeader(200)
+
+	if closer, ok := response.Body.(io.ReadCloser); ok {
+		defer closer.Close()
+	}
+	_, err := io.Copy(w, response.Body)
+	return err
+}
+
+type Query400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response Query400JSONResponse) VisitQueryResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type Query401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response Query401JSONResponse) VisitQueryResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type Query403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response Query403JSONResponse) VisitQueryResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type Query404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response Query404JSONResponse) VisitQueryResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -1272,15 +1912,29 @@ type StartVerificationResponseObject interface {
 	VisitStartVerificationResponse(w http.ResponseWriter) error
 }
 
-type StartVerification202JSONResponse VerificationReport
+type StartVerification202ResponseHeaders struct {
+	Location   *string
+	RetryAfter *int
+}
+
+type StartVerification202JSONResponse struct {
+	Body    VerificationReport
+	Headers StartVerification202ResponseHeaders
+}
 
 func (response StartVerification202JSONResponse) VisitStartVerificationResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
 		return err
 	}
 	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.Location != nil {
+		w.Header().Set("Location", fmt.Sprint(*response.Headers.Location))
+	}
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
 	w.WriteHeader(202)
 	_, err := buf.WriteTo(w)
 	return err
@@ -1328,31 +1982,49 @@ func (response StartVerification403JSONResponse) VisitStartVerificationResponse(
 	return err
 }
 
-type StopVerificationRequestObject struct {
-	ReportId string `json:"reportId"`
+type StartVerification429ResponseHeaders struct {
+	RetryAfter *int
 }
 
-type StopVerificationResponseObject interface {
-	VisitStopVerificationResponse(w http.ResponseWriter) error
+type StartVerification429JSONResponse struct {
+	Body    Error
+	Headers StartVerification429ResponseHeaders
 }
 
-type StopVerification200JSONResponse VerificationReport
-
-func (response StopVerification200JSONResponse) VisitStopVerificationResponse(w http.ResponseWriter) error {
+func (response StartVerification429JSONResponse) VisitStartVerificationResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
 		return err
 	}
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(200)
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
 	_, err := buf.WriteTo(w)
 	return err
 }
 
-type StopVerification401JSONResponse struct{ UnauthorizedJSONResponse }
+type DeleteVerificationRequestObject struct {
+	ReportId string `json:"reportId"`
+}
 
-func (response StopVerification401JSONResponse) VisitStopVerificationResponse(w http.ResponseWriter) error {
+type DeleteVerificationResponseObject interface {
+	VisitDeleteVerificationResponse(w http.ResponseWriter) error
+}
+
+type DeleteVerification204Response struct {
+}
+
+func (response DeleteVerification204Response) VisitDeleteVerificationResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type DeleteVerification401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response DeleteVerification401JSONResponse) VisitDeleteVerificationResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -1364,9 +2036,9 @@ func (response StopVerification401JSONResponse) VisitStopVerificationResponse(w 
 	return err
 }
 
-type StopVerification403JSONResponse struct{ ForbiddenJSONResponse }
+type DeleteVerification403JSONResponse struct{ ForbiddenJSONResponse }
 
-func (response StopVerification403JSONResponse) VisitStopVerificationResponse(w http.ResponseWriter) error {
+func (response DeleteVerification403JSONResponse) VisitDeleteVerificationResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -1378,9 +2050,9 @@ func (response StopVerification403JSONResponse) VisitStopVerificationResponse(w 
 	return err
 }
 
-type StopVerification404JSONResponse struct{ NotFoundJSONResponse }
+type DeleteVerification404JSONResponse struct{ NotFoundJSONResponse }
 
-func (response StopVerification404JSONResponse) VisitStopVerificationResponse(w http.ResponseWriter) error {
+func (response DeleteVerification404JSONResponse) VisitDeleteVerificationResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -1400,15 +2072,25 @@ type GetVerificationResponseObject interface {
 	VisitGetVerificationResponse(w http.ResponseWriter) error
 }
 
-type GetVerification200JSONResponse VerificationReport
+type GetVerification200ResponseHeaders struct {
+	RetryAfter *int
+}
+
+type GetVerification200JSONResponse struct {
+	Body    VerificationReport
+	Headers GetVerification200ResponseHeaders
+}
 
 func (response GetVerification200JSONResponse) VisitGetVerificationResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
 		return err
 	}
 	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
 	w.WriteHeader(200)
 	_, err := buf.WriteTo(w)
 	return err
@@ -1456,44 +2138,346 @@ func (response GetVerification404JSONResponse) VisitGetVerificationResponse(w ht
 	return err
 }
 
+type CancelVerificationRequestObject struct {
+	ReportId string `json:"reportId"`
+}
+
+type CancelVerificationResponseObject interface {
+	VisitCancelVerificationResponse(w http.ResponseWriter) error
+}
+
+type CancelVerification200JSONResponse VerificationReport
+
+func (response CancelVerification200JSONResponse) VisitCancelVerificationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CancelVerification401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response CancelVerification401JSONResponse) VisitCancelVerificationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CancelVerification403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response CancelVerification403JSONResponse) VisitCancelVerificationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CancelVerification404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response CancelVerification404JSONResponse) VisitCancelVerificationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetBranchClaimRequestObject struct {
+	Branch BranchName `json:"branch"`
+	Id     ClaimId    `json:"id"`
+}
+
+type GetBranchClaimResponseObject interface {
+	VisitGetBranchClaimResponse(w http.ResponseWriter) error
+}
+
+type GetBranchClaim200ResponseHeaders struct {
+	ETag *string
+}
+
+type GetBranchClaim200ApplicationcborResponse struct {
+	Body          io.Reader
+	Headers       GetBranchClaim200ResponseHeaders
+	ContentLength int64
+}
+
+func (response GetBranchClaim200ApplicationcborResponse) VisitGetBranchClaimResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", "application/cbor")
+	if response.ContentLength != 0 {
+		w.Header().Set("Content-Length", fmt.Sprint(response.ContentLength))
+	}
+	if response.Headers.ETag != nil {
+		w.Header().Set("ETag", fmt.Sprint(*response.Headers.ETag))
+	}
+	w.WriteHeader(200)
+
+	if closer, ok := response.Body.(io.ReadCloser); ok {
+		defer closer.Close()
+	}
+	_, err := io.Copy(w, response.Body)
+	return err
+}
+
+type GetBranchClaim401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response GetBranchClaim401JSONResponse) VisitGetBranchClaimResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetBranchClaim403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response GetBranchClaim403JSONResponse) VisitGetBranchClaimResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetBranchClaim404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response GetBranchClaim404JSONResponse) VisitGetBranchClaimResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetBranchContentRequestObject struct {
+	Branch BranchName  `json:"branch"`
+	Hash   ContentHash `json:"hash"`
+}
+
+type GetBranchContentResponseObject interface {
+	VisitGetBranchContentResponse(w http.ResponseWriter) error
+}
+
+type GetBranchContent200ResponseHeaders struct {
+	ETag *string
+}
+
+type GetBranchContent200ApplicationoctetStreamResponse struct {
+	Body          io.Reader
+	Headers       GetBranchContent200ResponseHeaders
+	ContentLength int64
+}
+
+func (response GetBranchContent200ApplicationoctetStreamResponse) VisitGetBranchContentResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", "application/octet-stream")
+	if response.ContentLength != 0 {
+		w.Header().Set("Content-Length", fmt.Sprint(response.ContentLength))
+	}
+	if response.Headers.ETag != nil {
+		w.Header().Set("ETag", fmt.Sprint(*response.Headers.ETag))
+	}
+	w.WriteHeader(200)
+
+	if closer, ok := response.Body.(io.ReadCloser); ok {
+		defer closer.Close()
+	}
+	_, err := io.Copy(w, response.Body)
+	return err
+}
+
+type GetBranchContent401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response GetBranchContent401JSONResponse) VisitGetBranchContentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetBranchContent403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response GetBranchContent403JSONResponse) VisitGetBranchContentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetBranchContent404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response GetBranchContent404JSONResponse) VisitGetBranchContentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetBranchHeadRequestObject struct {
+	Branch BranchName `json:"branch"`
+}
+
+type GetBranchHeadResponseObject interface {
+	VisitGetBranchHeadResponse(w http.ResponseWriter) error
+}
+
+type GetBranchHead200ResponseHeaders struct {
+	ETag *string
+}
+
+type GetBranchHead200JSONResponse struct {
+	Body    BranchHead
+	Headers GetBranchHead200ResponseHeaders
+}
+
+func (response GetBranchHead200JSONResponse) VisitGetBranchHeadResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.ETag != nil {
+		w.Header().Set("ETag", fmt.Sprint(*response.Headers.ETag))
+	}
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetBranchHead401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response GetBranchHead401JSONResponse) VisitGetBranchHeadResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetBranchHead403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response GetBranchHead403JSONResponse) VisitGetBranchHeadResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetBranchHead404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response GetBranchHead404JSONResponse) VisitGetBranchHeadResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 // StrictServerInterface represents all server handlers.
 type StrictServerInterface interface {
-	// List branch names with their current head
-	// (GET /branches)
-	ListBranches(ctx context.Context, request ListBranchesRequestObject) (ListBranchesResponseObject, error)
-	// Contribute a set of claims (bulk)
-	// (POST /branches/{name}/claims)
+	// Fetch a claim by id from the Universe (privileged)
+	// (GET /$universe/claim/{id})
+	GetUniverseClaim(ctx context.Context, request GetUniverseClaimRequestObject) (GetUniverseClaimResponseObject, error)
+	// Fetch content bytes by hash from the Universe (privileged)
+	// (GET /$universe/content/{hash})
+	GetUniverseContent(ctx context.Context, request GetUniverseContentRequestObject) (GetUniverseContentResponseObject, error)
+	// Contribute signed claims (atomic)
+	// (POST /contribute)
 	Contribute(ctx context.Context, request ContributeRequestObject) (ContributeResponseObject, error)
-	// Fetch a claim within a branch's closure
-	// (GET /branches/{name}/claims/{id})
-	GetClaim(ctx context.Context, request GetClaimRequestObject) (GetClaimResponseObject, error)
-	// Contribute a single claim
-	// (PUT /branches/{name}/claims/{id})
-	PutClaim(ctx context.Context, request PutClaimRequestObject) (PutClaimResponseObject, error)
-	// Fetch content bytes within a branch's closure
-	// (GET /branches/{name}/contents/{hash})
-	GetContent(ctx context.Context, request GetContentRequestObject) (GetContentResponseObject, error)
-	// Cypher query over a branch (optional)
-	// (POST /branches/{name}/gql)
-	Gql(ctx context.Context, request GqlRequestObject) (GqlResponseObject, error)
-	// Liveness and readiness of the stack
+	// Liveness and signer identity
 	// (GET /health)
 	Health(ctx context.Context, request HealthRequestObject) (HealthResponseObject, error)
+	// Read the graph with a declarative query
+	// (POST /query)
+	Query(ctx context.Context, request QueryRequestObject) (QueryResponseObject, error)
 	// List storage layers
-	// (GET /storage/layers)
+	// (GET /system/layers)
 	ListStorageLayers(ctx context.Context, request ListStorageLayersRequestObject) (ListStorageLayersResponseObject, error)
 	// List verification runs
-	// (GET /verification)
+	// (GET /system/verification)
 	ListVerifications(ctx context.Context, request ListVerificationsRequestObject) (ListVerificationsResponseObject, error)
 	// Start a verification run
-	// (POST /verification)
+	// (POST /system/verification)
 	StartVerification(ctx context.Context, request StartVerificationRequestObject) (StartVerificationResponseObject, error)
-	// Stop a verification run
-	// (DELETE /verification/{reportId})
-	StopVerification(ctx context.Context, request StopVerificationRequestObject) (StopVerificationResponseObject, error)
+	// Delete a verification run
+	// (DELETE /system/verification/{reportId})
+	DeleteVerification(ctx context.Context, request DeleteVerificationRequestObject) (DeleteVerificationResponseObject, error)
 	// Show a verification run
-	// (GET /verification/{reportId})
+	// (GET /system/verification/{reportId})
 	GetVerification(ctx context.Context, request GetVerificationRequestObject) (GetVerificationResponseObject, error)
+	// Cancel a running verification run
+	// (POST /system/verification/{reportId}/cancel)
+	CancelVerification(ctx context.Context, request CancelVerificationRequestObject) (CancelVerificationResponseObject, error)
+	// Fetch a claim within a branch's closure
+	// (GET /{branch}/claim/{id})
+	GetBranchClaim(ctx context.Context, request GetBranchClaimRequestObject) (GetBranchClaimResponseObject, error)
+	// Fetch content bytes within a branch's closure
+	// (GET /{branch}/content/{hash})
+	GetBranchContent(ctx context.Context, request GetBranchContentRequestObject) (GetBranchContentResponseObject, error)
+	// Current head id of a branch
+	// (GET /{branch}/head)
+	GetBranchHead(ctx context.Context, request GetBranchHeadRequestObject) (GetBranchHeadResponseObject, error)
 }
 
 type StrictHandlerFunc func(ctx context.Context, w http.ResponseWriter, r *http.Request, request any) (any, error)
@@ -1525,23 +2509,51 @@ type strictHandler struct {
 	options     StrictHTTPServerOptions
 }
 
-// ListBranches operation middleware
-func (sh *strictHandler) ListBranches(w http.ResponseWriter, r *http.Request) {
-	var request ListBranchesRequestObject
+// GetUniverseClaim operation middleware
+func (sh *strictHandler) GetUniverseClaim(w http.ResponseWriter, r *http.Request, id ClaimId) {
+	var request GetUniverseClaimRequestObject
+
+	request.Id = id
 
 	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.ListBranches(ctx, request.(ListBranchesRequestObject))
+		return sh.ssi.GetUniverseClaim(ctx, request.(GetUniverseClaimRequestObject))
 	}
 	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "ListBranches")
+		handler = middleware(handler, "GetUniverseClaim")
 	}
 
 	response, err := handler(r.Context(), w, r, request)
 
 	if err != nil {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(ListBranchesResponseObject); ok {
-		if err := validResponse.VisitListBranchesResponse(w); err != nil {
+	} else if validResponse, ok := response.(GetUniverseClaimResponseObject); ok {
+		if err := validResponse.VisitGetUniverseClaimResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetUniverseContent operation middleware
+func (sh *strictHandler) GetUniverseContent(w http.ResponseWriter, r *http.Request, hash ContentHash) {
+	var request GetUniverseContentRequestObject
+
+	request.Hash = hash
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetUniverseContent(ctx, request.(GetUniverseContentRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetUniverseContent")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetUniverseContentResponseObject); ok {
+		if err := validResponse.VisitGetUniverseContentResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -1550,10 +2562,10 @@ func (sh *strictHandler) ListBranches(w http.ResponseWriter, r *http.Request) {
 }
 
 // Contribute operation middleware
-func (sh *strictHandler) Contribute(w http.ResponseWriter, r *http.Request, name BranchName) {
+func (sh *strictHandler) Contribute(w http.ResponseWriter, r *http.Request, params ContributeParams) {
 	var request ContributeRequestObject
 
-	request.Name = name
+	request.Params = params
 
 	request.Body = r.Body
 
@@ -1570,122 +2582,6 @@ func (sh *strictHandler) Contribute(w http.ResponseWriter, r *http.Request, name
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(ContributeResponseObject); ok {
 		if err := validResponse.VisitContributeResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
-// GetClaim operation middleware
-func (sh *strictHandler) GetClaim(w http.ResponseWriter, r *http.Request, name BranchName, id string) {
-	var request GetClaimRequestObject
-
-	request.Name = name
-	request.Id = id
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.GetClaim(ctx, request.(GetClaimRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "GetClaim")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(GetClaimResponseObject); ok {
-		if err := validResponse.VisitGetClaimResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
-// PutClaim operation middleware
-func (sh *strictHandler) PutClaim(w http.ResponseWriter, r *http.Request, name BranchName, id string) {
-	var request PutClaimRequestObject
-
-	request.Name = name
-	request.Id = id
-
-	request.Body = r.Body
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.PutClaim(ctx, request.(PutClaimRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "PutClaim")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(PutClaimResponseObject); ok {
-		if err := validResponse.VisitPutClaimResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
-// GetContent operation middleware
-func (sh *strictHandler) GetContent(w http.ResponseWriter, r *http.Request, name BranchName, hash string) {
-	var request GetContentRequestObject
-
-	request.Name = name
-	request.Hash = hash
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.GetContent(ctx, request.(GetContentRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "GetContent")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(GetContentResponseObject); ok {
-		if err := validResponse.VisitGetContentResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
-// Gql operation middleware
-func (sh *strictHandler) Gql(w http.ResponseWriter, r *http.Request, name BranchName) {
-	var request GqlRequestObject
-
-	request.Name = name
-
-	var body GqlJSONRequestBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
-		return
-	}
-	request.Body = &body
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.Gql(ctx, request.(GqlRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "Gql")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(GqlResponseObject); ok {
-		if err := validResponse.VisitGqlResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -1710,6 +2606,37 @@ func (sh *strictHandler) Health(w http.ResponseWriter, r *http.Request) {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(HealthResponseObject); ok {
 		if err := validResponse.VisitHealthResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// Query operation middleware
+func (sh *strictHandler) Query(w http.ResponseWriter, r *http.Request) {
+	var request QueryRequestObject
+
+	var body QueryJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.Query(ctx, request.(QueryRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "Query")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(QueryResponseObject); ok {
+		if err := validResponse.VisitQueryResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -1796,25 +2723,25 @@ func (sh *strictHandler) StartVerification(w http.ResponseWriter, r *http.Reques
 	}
 }
 
-// StopVerification operation middleware
-func (sh *strictHandler) StopVerification(w http.ResponseWriter, r *http.Request, reportId string) {
-	var request StopVerificationRequestObject
+// DeleteVerification operation middleware
+func (sh *strictHandler) DeleteVerification(w http.ResponseWriter, r *http.Request, reportId string) {
+	var request DeleteVerificationRequestObject
 
 	request.ReportId = reportId
 
 	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.StopVerification(ctx, request.(StopVerificationRequestObject))
+		return sh.ssi.DeleteVerification(ctx, request.(DeleteVerificationRequestObject))
 	}
 	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "StopVerification")
+		handler = middleware(handler, "DeleteVerification")
 	}
 
 	response, err := handler(r.Context(), w, r, request)
 
 	if err != nil {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(StopVerificationResponseObject); ok {
-		if err := validResponse.VisitStopVerificationResponse(w); err != nil {
+	} else if validResponse, ok := response.(DeleteVerificationResponseObject); ok {
+		if err := validResponse.VisitDeleteVerificationResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -1848,89 +2775,270 @@ func (sh *strictHandler) GetVerification(w http.ResponseWriter, r *http.Request,
 	}
 }
 
+// CancelVerification operation middleware
+func (sh *strictHandler) CancelVerification(w http.ResponseWriter, r *http.Request, reportId string) {
+	var request CancelVerificationRequestObject
+
+	request.ReportId = reportId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CancelVerification(ctx, request.(CancelVerificationRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CancelVerification")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CancelVerificationResponseObject); ok {
+		if err := validResponse.VisitCancelVerificationResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetBranchClaim operation middleware
+func (sh *strictHandler) GetBranchClaim(w http.ResponseWriter, r *http.Request, branch BranchName, id ClaimId) {
+	var request GetBranchClaimRequestObject
+
+	request.Branch = branch
+	request.Id = id
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetBranchClaim(ctx, request.(GetBranchClaimRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetBranchClaim")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetBranchClaimResponseObject); ok {
+		if err := validResponse.VisitGetBranchClaimResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetBranchContent operation middleware
+func (sh *strictHandler) GetBranchContent(w http.ResponseWriter, r *http.Request, branch BranchName, hash ContentHash) {
+	var request GetBranchContentRequestObject
+
+	request.Branch = branch
+	request.Hash = hash
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetBranchContent(ctx, request.(GetBranchContentRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetBranchContent")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetBranchContentResponseObject); ok {
+		if err := validResponse.VisitGetBranchContentResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetBranchHead operation middleware
+func (sh *strictHandler) GetBranchHead(w http.ResponseWriter, r *http.Request, branch BranchName) {
+	var request GetBranchHeadRequestObject
+
+	request.Branch = branch
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetBranchHead(ctx, request.(GetBranchHeadRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetBranchHead")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetBranchHeadResponseObject); ok {
+		if err := validResponse.VisitGetBranchHeadResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // Base64 encoded, compressed with deflate, json marshaled OpenAPI spec.
 // Stored as a slice of fixed-width chunks rather than one concatenated
 // const string: with thousands of chunks the chained `+` fold is several
 // times slower for the Go compiler than parsing a slice literal.
 var swaggerSpec = []string{
-	"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",
-	"3kYx1bj95fZ/AgAA//8=",
+	"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",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,

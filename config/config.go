@@ -185,7 +185,10 @@ func (c *Config) build(ctx context.Context, v vault.Vault) (*App, error) {
 	}
 
 	for i, e := range c.Endpoints {
-		ep, err := endpoints.New(ctx, newSection(e, v), app.Sequencer, app.Auth)
+		// TODO: pass the assembled core (a coreapi.API over storage/sequencer/
+		// signer/access) once it exists. Until then the core is nil; this loop is
+		// not reached at runtime while sequencer.New is a stub that errors above.
+		ep, err := endpoints.New(ctx, newSection(e, v), nil, app.Auth)
 		if err != nil {
 			return nil, fmt.Errorf("config: endpoints[%d]: %w", i, err)
 		}
