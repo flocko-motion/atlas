@@ -1,6 +1,6 @@
 // package: rest_http / transport
 // type:    logic
-// job:     the verification run endpoints under /system/verification, and report mapping
+// job:     the verification run endpoints under /system/verification, and config mapping
 // limits:  translation only; runs are managed behind core.Handle (-> internal/core)
 package rest_http
 
@@ -8,98 +8,79 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/flocko-motion/rankedb/api"
 	"github.com/flocko-motion/rankedb/internal/core"
+	"github.com/flocko-motion/rankedb/openapi"
 )
 
 // StartVerification serves POST /system/verification.
 func (s *Server) StartVerification(w http.ResponseWriter, r *http.Request) {
-	var cfg api.VerificationConfig
+	var cfg openapi.VerificationConfig
 	if err := json.NewDecoder(r.Body).Decode(&cfg); err != nil {
-		writeError(w, http.StatusBadRequest, "malformed verification config")
+		writeError(w, core.CatInvalid, "malformed verification config")
 		return
 	}
 	vc := coreVerConfig(cfg)
-	req := &core.Request{Credential: credentialOf(r.Context()), Op: core.OpStartVerification, VerConfig: &vc}
-	if err := s.core.Handle(r.Context(), req); err != nil {
+	req := &core.Request{Credential: credentialOf(r.Context()), Op: core.OpVerificationStart, VerConfig: &vc}
+	stream, err := s.core.Handle(r.Context(), req)
+	if err != nil {
 		s.fail(w, err)
 		return
 	}
-	rep, ok := req.Response.(core.VerificationReport)
-	if !ok {
-		writeError(w, http.StatusInternalServerError, "internal error")
-		return
-	}
-	w.Header().Set("Location", "/system/verification/"+rep.ID)
-	w.Header().Set("Retry-After", "30")
-	writeJSON(w, http.StatusAccepted, apiReport(rep))
+	// TODO(location): once execute produces the report, buffer the stream instead of
+	// streaming it through, read the run id from the buffered body, set
+	// Location: /system/verification/{id}, then write the buffer. The body already
+	// carries the id; buffering lets this route derive the header with no core change
+	// (a small create-response is cheap to buffer, unlike a query or a blob).
+	s.respond(w, stream, http.StatusAccepted)
 }
 
 // ListVerifications serves GET /system/verification.
 func (s *Server) ListVerifications(w http.ResponseWriter, r *http.Request) {
-	req := &core.Request{Credential: credentialOf(r.Context()), Op: core.OpVerifications}
-	if err := s.core.Handle(r.Context(), req); err != nil {
+	req := &core.Request{Credential: credentialOf(r.Context()), Op: core.OpVerificationList}
+	stream, err := s.core.Handle(r.Context(), req)
+	if err != nil {
 		s.fail(w, err)
 		return
 	}
-	reps, ok := req.Response.([]core.VerificationReport)
-	if !ok {
-		writeError(w, http.StatusInternalServerError, "internal error")
-		return
-	}
-	out := api.VerificationReportList{Reports: make([]api.VerificationReport, 0, len(reps))}
-	for _, rep := range reps {
-		out.Reports = append(out.Reports, apiReport(rep))
-	}
-	writeJSON(w, http.StatusOK, out)
+	s.respond(w, stream, http.StatusOK)
 }
 
 // GetVerification serves GET /system/verification/{id}.
 func (s *Server) GetVerification(w http.ResponseWriter, r *http.Request, reportId string) {
-	req := &core.Request{Credential: credentialOf(r.Context()), Op: core.OpVerification, VerID: reportId}
-	if err := s.core.Handle(r.Context(), req); err != nil {
+	req := &core.Request{Credential: credentialOf(r.Context()), Op: core.OpVerificationGet, VerID: reportId}
+	stream, err := s.core.Handle(r.Context(), req)
+	if err != nil {
 		s.fail(w, err)
 		return
 	}
-	rep, ok := req.Response.(core.VerificationReport)
-	if !ok {
-		writeError(w, http.StatusInternalServerError, "internal error")
-		return
-	}
-	if rep.Status == core.RunRunning {
-		w.Header().Set("Retry-After", "30")
-	}
-	writeJSON(w, http.StatusOK, apiReport(rep))
+	s.respond(w, stream, http.StatusOK)
 }
 
 // CancelVerification serves POST /system/verification/{id}/cancel.
 func (s *Server) CancelVerification(w http.ResponseWriter, r *http.Request, reportId string) {
-	req := &core.Request{Credential: credentialOf(r.Context()), Op: core.OpCancelVerification, VerID: reportId}
-	if err := s.core.Handle(r.Context(), req); err != nil {
+	req := &core.Request{Credential: credentialOf(r.Context()), Op: core.OpVerificationCancel, VerID: reportId}
+	stream, err := s.core.Handle(r.Context(), req)
+	if err != nil {
 		s.fail(w, err)
 		return
 	}
-	rep, ok := req.Response.(core.VerificationReport)
-	if !ok {
-		writeError(w, http.StatusInternalServerError, "internal error")
-		return
-	}
-	writeJSON(w, http.StatusOK, apiReport(rep))
+	s.respond(w, stream, http.StatusOK)
 }
 
 // DeleteVerification serves DELETE /system/verification/{id}.
 func (s *Server) DeleteVerification(w http.ResponseWriter, r *http.Request, reportId string) {
-	req := &core.Request{Credential: credentialOf(r.Context()), Op: core.OpDeleteVerification, VerID: reportId}
-	if err := s.core.Handle(r.Context(), req); err != nil {
+	req := &core.Request{Credential: credentialOf(r.Context()), Op: core.OpVerificationDelete, VerID: reportId}
+	stream, err := s.core.Handle(r.Context(), req)
+	if err != nil {
 		s.fail(w, err)
 		return
 	}
+	_ = stream.Close() // no body on a 204
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// --- report mapping --------------------------------------------------------
-
-func coreVerConfig(c api.VerificationConfig) core.VerificationConfig {
+// coreVerConfig maps the wire verification config to core's.
+func coreVerConfig(c openapi.VerificationConfig) core.VerificationConfig {
 	cfg := core.VerificationConfig{Closure: c.Closure}
 	if c.Layer != nil {
 		cfg.Layer = *c.Layer
@@ -111,57 +92,4 @@ func coreVerConfig(c api.VerificationConfig) core.VerificationConfig {
 		cfg.ContentThreshold = int64(*c.ContentThreshold)
 	}
 	return cfg
-}
-
-func apiVerConfig(c core.VerificationConfig) api.VerificationConfig {
-	out := api.VerificationConfig{Closure: c.Closure}
-	if c.Layer != "" {
-		layer := c.Layer
-		out.Layer = &layer
-	}
-	if c.Depth != "" {
-		d := api.VerificationConfigDepth(string(c.Depth))
-		out.Depth = &d
-	}
-	if c.ContentThreshold > 0 {
-		ct := int(c.ContentThreshold)
-		out.ContentThreshold = &ct
-	}
-	return out
-}
-
-func apiReport(r core.VerificationReport) api.VerificationReport {
-	out := api.VerificationReport{
-		Id:        r.ID,
-		Config:    apiVerConfig(r.Config),
-		Head:      idString(r.Head),
-		Status:    api.VerificationReportStatus(string(r.Status)),
-		StartedAt: r.StartedAt,
-		Ok:        r.OK,
-	}
-	if !r.CompletedAt.IsZero() {
-		completed := r.CompletedAt
-		out.CompletedAt = &completed
-	}
-	cc := int(r.ClaimsChecked)
-	out.ClaimsChecked = &cc
-	br := int(r.BytesRead)
-	out.BytesRead = &br
-	if len(r.Failures) > 0 {
-		fs := make([]api.VerificationFailure, 0, len(r.Failures))
-		for _, f := range r.Failures {
-			af := api.VerificationFailure{
-				Id:    idString(f.ID),
-				Mode:  api.VerificationFailureMode(string(f.Mode)),
-				Layer: f.Layer,
-			}
-			if f.Detail != "" {
-				detail := f.Detail
-				af.Detail = &detail
-			}
-			fs = append(fs, af)
-		}
-		out.Failures = &fs
-	}
-	return out
 }

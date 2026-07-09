@@ -5,60 +5,66 @@
 //
 // Package core is the hexagon's center: it drives the driven ports (storage,
 // sequencer, signer) and is driven by the driving ports (auth, endpoints). Its
-// spine is one Request value that flows endpoint → auth → access → execution and
-// back, gaining fields as it goes rather than being repackaged at each boundary.
-// The endpoint fills the ingress fields from the wire; core fills the rest.
+// spine is one Request value that flows endpoint → auth → access → execution; the
+// response comes back as a Stream (see stream.go, core.go). The endpoint fills the
+// ingress fields from the wire; core fills the enrichment.
 package core
 
 import (
-	"encoding/json"
 	"fmt"
+	"io"
+
+	"github.com/flocko-motion/ranke-go"
 
 	"github.com/flocko-motion/rankedb/adapters/auth"
 	"github.com/flocko-motion/rankedb/internal/core/access"
 )
 
-// Universe is the reserved branch for privileged by-head-id reads — re-exported
-// from access so callers (endpoints) target it through core alone.
-const Universe = access.Universe
+// The reserved pseudo-branches, re-exported from access so a request targets them
+// through core alone (Branch = core.Universe / core.Branches). Universe is the
+// privileged by-id read across the whole graph; Branches is the branch table.
+const (
+	Universe = access.Universe
+	Branches = access.Branches
+)
 
-// Operation is what a request asks the server to do. It fixes the access right the
-// authorize stage checks (a right of 0 means the operation needs no grant — health
-// and verification, per core-access) and selects the execute branch.
+// Operation is what a request asks the server to do, named Subject+Verb so it
+// sorts hierarchically and disambiguates (OpClaimDelete vs OpVerificationDelete).
+// It fixes the access right the authorize stage checks — 0 means no grant is
+// required (health, verification) — and selects the execute branch. A read of a
+// claim by id is one op whether the branch is a name or $universe; the pseudo-
+// branch generalises the scope, so there is no separate universe op.
 type Operation int
 
 const (
-	OpQuery              Operation = iota // read a filtered subgraph          (Read)
-	OpContribute                          // merge claims onto a branch         (Contribute; branch-admin is C on the branch table)
-	OpUpdate                              // overlay claims with newer versions (Update)
-	OpDelete                              // delete claims                      (Delete)
-	OpHead                                // a branch's current head id         (Read)
-	OpClaim                               // one claim within a branch          (Read)
-	OpContent                             // one content blob within a branch   (Read)
-	OpUniverseClaim                       // one claim by id, privileged        (Read on $universe)
-	OpUniverseContent                     // one blob by hash, privileged       (Read on $universe)
-	OpHealth                              // liveness                           (no grant)
-	OpLayers                              // list storage layers                (no grant)
-	OpStartVerification                   // start a verification run           (no grant — verification needs none)
-	OpVerifications                       // list verification runs             (no grant)
-	OpVerification                        // one verification run               (no grant)
-	OpCancelVerification                  // cancel a run                       (no grant)
-	OpDeleteVerification                  // delete a run                       (no grant)
+	OpClaimQuery         Operation = iota // query claims                           (Read)
+	OpClaimGet                            // one claim by id (branch or $universe)   (Read)
+	OpClaimContent                        // one claim's content                    (Read)
+	OpClaimContribute                     // merge claims onto a branch             (Contribute; branch-admin is C on the branch table)
+	OpClaimDelete                         // purge claims — physical removal, not a mutation (Delete)
+	OpBranchHead                          // a branch's current head id             (Read)
+	OpBranchList                          // list the branch table's branches       (Read on $branches)
+	OpLayerList                           // list storage layers (name + type)      (no grant)
+	OpLayerInfo                           // runtime info on one storage layer      (no grant)
+	OpHealthGet                           // liveness                               (no grant)
+	OpVerificationStart                   // start a verification run               (no grant — verification needs none)
+	OpVerificationList                    // list verification runs                 (no grant)
+	OpVerificationGet                     // one verification run                   (no grant)
+	OpVerificationCancel                  // cancel a run                           (no grant)
+	OpVerificationDelete                  // delete a run                           (no grant)
 )
 
 // Right is the access right this operation requires, or 0 when it needs no grant.
-// The reads all require R; contribute/update/delete their CRUD letter; the
-// operational and verification ops need none (verification's independence from
-// grants is a core-access invariant).
+// The reads require R; contribute/update/delete their CRUD letter; the operational
+// and verification ops need none (verification's independence from grants is a
+// core-access invariant).
 func (o Operation) Right() access.Right {
 	switch o {
-	case OpQuery, OpHead, OpClaim, OpContent, OpUniverseClaim, OpUniverseContent:
+	case OpClaimQuery, OpClaimGet, OpClaimContent, OpBranchHead, OpBranchList:
 		return access.Read
-	case OpContribute:
+	case OpClaimContribute:
 		return access.Contribute
-	case OpUpdate:
-		return access.Update
-	case OpDelete:
+	case OpClaimDelete:
 		return access.Delete
 	}
 	return 0
@@ -66,7 +72,8 @@ func (o Operation) Right() access.Right {
 
 // Request is the single object that flows through the server, enriched at each
 // stage. Its ingress fields are op-specific — an operation reads only the ones it
-// needs — and the endpoint fills them from the wire.
+// needs — and the endpoint fills them from the wire. The response is not a field:
+// Handle returns a Stream.
 type Request struct {
 	// --- ingress: filled by the endpoint from the wire ---
 
@@ -76,28 +83,25 @@ type Request struct {
 	Credential auth.Credential
 	// Op is what the caller wants; it fixes the required access right.
 	Op Operation
-	// Branch is the target branch, or access.Universe for a privileged by-id read.
+	// Branch is the target branch, or Universe for a privileged by-id read.
 	Branch string
-	// Query is the read AST (OpQuery).
+	// Query is the read AST (OpClaimQuery).
 	Query *Query
-	// Body is the signed-CBOR claims to merge (OpContribute).
+	// Body is the signed-CBOR claims to merge (OpClaimContribute).
 	Body io.Reader
-	// ClaimID targets one claim (OpClaim, OpUniverseClaim).
+	// ClaimID targets one claim (OpClaimGet, OpClaimContent) — content is addressed
+	// by the claim that holds it, so it inherits the claim's branch/access scope and
+	// hides whether the bytes are inline or an external blob.
 	ClaimID ranke.Id
-	// Hash targets one content blob (OpContent, OpUniverseContent).
-	Hash ranke.Id
-	// VerConfig parameters a run (OpStartVerification).
+	// VerConfig parameters a run (OpVerificationStart).
 	VerConfig *VerificationConfig
-	// VerID targets one run (OpVerification, OpCancelVerification, OpDeleteVerification).
+	// VerID targets one run (OpVerificationGet, OpVerificationCancel, OpVerificationDelete).
 	VerID string
 
 	// --- enrichment: filled by core as the request flows ---
 
 	// Principal is who the request authenticated as (set by the authenticate stage).
 	Principal access.Principal
-	// Result is the operation's output, rendered back by the endpoint (set by
-	// the execution stage).
-	Result json.RawMessage
 	// Report is the running execution trace, accumulated across stages.
 	Report Report
 }

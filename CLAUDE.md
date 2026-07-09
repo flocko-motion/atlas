@@ -83,12 +83,12 @@ runtime grant mutation.
 ## OpenAPI-first
 
 `openapi/openapi.yaml` is the **single source of truth** for the REST API. `make generate`
-produces every artifact from it **into `api/`**:
-- **Go** server interface + models → `api/openapi.gen.go` (oapi-codegen, strict net/http)
-- **TS/JS** client → `api/openapi.gen.ts` (swagger-typescript-api)
-- **HTML** reference → `api/openapi.html` (Redocly) · **Markdown** reference → `api/openapi.md` (widdershins)
+produces every artifact from it **into `openapi/`** (alongside the spec):
+- **Go** server interface + models → `openapi/openapi.gen.go` (oapi-codegen, strict net/http)
+- **TS/JS** client → `openapi/openapi.gen.ts` (swagger-typescript-api)
+- **HTML** reference → `openapi/openapi.html` (Redocly) · **Markdown** reference → `openapi/openapi.md` (widdershins)
 
-The two references are also symlinked under `docs/api/` (`openapi.html`, `openapi.md`) so
+The two references are also symlinked under `docs/openapi/` (`openapi.html`, `openapi.md`) so
 they're browsable there without a second copy.
 
 Never hand-edit `*.gen.*` or the generated client/references — change the spec and regenerate.
@@ -105,17 +105,18 @@ Never hand-edit `*.gen.*` or the generated client/references — change the spec
 - **`make`** (default) = `generate` then `verify` — the full build (regenerate from the
   spec, then check it).
 - **`make verify`** is the green-gate: it first runs `generate`, then builds, vets,
-  gofmt-checks, and tests. Run it after changes instead of hand-rolled `go build`/`go test`
-  chains. (`generate` shells out to `npx`, so the first run fetches the doc/client tools.)
-- **`make generate`** regenerates everything from the OpenAPI spec into `api/` (Go server,
-  TS client, HTML + Markdown references) and refreshes the `docs/api/` symlinks.
+  gofmt-checks, tests, and lints (`brokkr lint`, falling back to `sindri lint`). Run it after
+  changes instead of hand-rolled `go build`/`go test` chains. (`generate` shells out to
+  `npx`, so the first run fetches the doc/client tools.)
+- **`make generate`** regenerates everything from the OpenAPI spec into `openapi/` (Go server,
+  TS client, HTML + Markdown references) and refreshes the `docs/openapi/` symlinks.
 - **`make check-tools`** reports any missing generation tool (go + node) with install hints.
 
 ## Layout
 
 Classical single-module Go repo at the repo root (module `github.com/flocko-motion/rankedb`).
 
-- `openapi/` — the API spec (source of truth) · `api/` — all generated artifacts (Go server `*.gen.go`, TS client `openapi.gen.ts`, `openapi.html`, `openapi.md`; the two references symlinked under `docs/api/`)
+- `openapi/` — the API spec (source of truth) **and** its generated artifacts (Go server `openapi.gen.go`, TS client `openapi.gen.ts`, `openapi.html`, `openapi.md`; the two references symlinked under `docs/openapi/`)
 - `cmd/ranke-db/` — the binary (`run <config>`, `verify <config>`; later `tui`/config edit)
 - `core/` · `config/` · `access/` · `port/` · `adapter/<port>/` — the hexagon
 - `frontend/` — kept, but **no longer part of ranke-db** (possible future app-layer tooling)

@@ -36,10 +36,12 @@ generators, `where` filters, `output` shaping, `limit` bounds) as a JSON
 object. Cypher/GQL is **never** a client route — it is an internal execution
 engine the planner lowers a query to. A **cacheable GET subset** covers the by-id
 reads without a query body: `GET /{branch}/head`, `GET /{branch}/claim/{id}`,
-`GET /{branch}/content/{hash}`, and the privileged `GET /$universe/claim/{id}` /
-`GET /$universe/content/{hash}`. Content also rides **inline** in query results
-via `output.content`; the content route fetches a single blob by hash — including
-the blob an `output.overflow: reference` stub names.
+`GET /{branch}/claim/{id}/content`, and the privileged `GET /$universe/claim/{id}` /
+`GET /$universe/claim/{id}/content`. Content is addressed by the **claim** that
+holds it (not a raw hash), so whether the bytes are inline or a separate blob is
+hidden and the read is scoped to the claim's branch. Content also rides **inline**
+in query results via `output.content`; the content route fetches the bytes for a
+single claim — including the blob an `output.overflow: reference` stub names.
 
 ## Encodings and verifiability
 
@@ -192,6 +194,7 @@ The response media type mirrors `output.encoding`: `application/json-seq` or
 
 ```json
 {
+  "code": "string",
   "error": "string"
 }
 ```
@@ -291,6 +294,7 @@ immutable`): the id content-addresses the bytes, so they never change.
 
 ```json
 {
+  "code": "string",
   "error": "string"
 }
 ```
@@ -317,25 +321,25 @@ To perform this operation, you must be authenticated by means of one of the foll
 None, jwt, apikey, macaroon
 </aside>
 
-## Fetch content bytes within a branch's closure
+## Fetch the content of a claim within a branch's closure
 
-<a id="opIdgetBranchContent"></a>
+<a id="opIdgetBranchClaimContent"></a>
 
-`GET /{branch}/content/{hash}`
+`GET /{branch}/claim/{id}/content`
 
-Streams the content blob addressed by `{hash}` — **only if a claim in branch
-`{name}`'s closure references it** (same closure guarantee as claims;
-out-of-closure or unknown → `404`). The bytes verify against `{hash}` and size
-as they stream. Immutably **cacheable** by hash. This is how a client pulls a
-specific blob: the "source content" step of a read, and the way to retrieve a
-blob an `output.overflow: reference` stub named rather than inlined.
+Streams the content of claim `{id}` — **only if it lies in branch `{name}`'s
+closure** (same closure guarantee as the claim itself; out-of-closure or
+unknown → `404`). Content is addressed by the claim that holds it, not by a
+raw hash: the server resolves whether the bytes live inline in the claim or
+in a separate blob, so the client can't tell and doesn't need to — and the
+read is scoped to the claim's branch. Immutably **cacheable** by the claim id.
 
-<h3 id="fetch-content-bytes-within-a-branch's-closure-parameters">Parameters</h3>
+<h3 id="fetch-the-content-of-a-claim-within-a-branch's-closure-parameters">Parameters</h3>
 
 |Name|In|Type|Required|Description|
 |---|---|---|---|---|
 |branch|path|string|true|The branch name (`$` is reserved and illegal in ordinary names).|
-|hash|path|string|true|The content-addressed hash of the blob.|
+|id|path|string|true|The content-addressed claim id.|
 
 > Example responses
 
@@ -345,11 +349,12 @@ blob an `output.overflow: reference` stub named rather than inlined.
 
 ```json
 {
+  "code": "string",
   "error": "string"
 }
 ```
 
-<h3 id="fetch-content-bytes-within-a-branch's-closure-responses">Responses</h3>
+<h3 id="fetch-the-content-of-a-claim-within-a-branch's-closure-responses">Responses</h3>
 
 |Status|Meaning|Description|Schema|
 |---|---|---|---|
@@ -364,7 +369,7 @@ branch's closure. The two are indistinguishable.|[Error](#schemaerror)|
 
 |Status|Header|Type|Format|Description|
 |---|---|---|---|---|
-|200|ETag|string||Strong validator — the content hash.|
+|200|ETag|string||Strong validator — the claim id.|
 
 <aside class="warning">
 To perform this operation, you must be authenticated by means of one of the following methods:
@@ -396,6 +401,7 @@ cacheable by id.
 
 ```json
 {
+  "code": "string",
   "error": "string"
 }
 ```
@@ -422,22 +428,22 @@ To perform this operation, you must be authenticated by means of one of the foll
 None, jwt, apikey, macaroon
 </aside>
 
-## Fetch content bytes by hash from the Universe (privileged)
+## Fetch the content of a claim by id from the Universe (privileged)
 
-<a id="opIdgetUniverseContent"></a>
+<a id="opIdgetUniverseClaimContent"></a>
 
-`GET /$universe/content/{hash}`
+`GET /$universe/claim/{id}/content`
 
-Streams the content blob addressed by `{hash}` directly from the Universe,
-bypassing any branch table — a **privileged** read conferred only through
-`$universe`. The bytes verify against `{hash}` and size as they stream.
-Immutably cacheable by hash.
+Streams the content of claim `{id}` directly from the Universe, bypassing
+any branch table — a **privileged** read conferred only through `$universe`.
+Content is addressed by the claim; whether the bytes are inline or a separate
+blob is hidden. Immutably cacheable by the claim id.
 
-<h3 id="fetch-content-bytes-by-hash-from-the-universe-(privileged)-parameters">Parameters</h3>
+<h3 id="fetch-the-content-of-a-claim-by-id-from-the-universe-(privileged)-parameters">Parameters</h3>
 
 |Name|In|Type|Required|Description|
 |---|---|---|---|---|
-|hash|path|string|true|The content-addressed hash of the blob.|
+|id|path|string|true|The content-addressed claim id.|
 
 > Example responses
 
@@ -447,11 +453,12 @@ Immutably cacheable by hash.
 
 ```json
 {
+  "code": "string",
   "error": "string"
 }
 ```
 
-<h3 id="fetch-content-bytes-by-hash-from-the-universe-(privileged)-responses">Responses</h3>
+<h3 id="fetch-the-content-of-a-claim-by-id-from-the-universe-(privileged)-responses">Responses</h3>
 
 |Status|Meaning|Description|Schema|
 |---|---|---|---|
@@ -466,7 +473,7 @@ branch's closure. The two are indistinguishable.|[Error](#schemaerror)|
 
 |Status|Header|Type|Format|Description|
 |---|---|---|---|---|
-|200|ETag|string||Strong validator — the content hash.|
+|200|ETag|string||Strong validator — the claim id.|
 
 <aside class="warning">
 To perform this operation, you must be authenticated by means of one of the following methods:
@@ -872,6 +879,7 @@ cancel keeps the report, delete removes it.
 
 ```json
 {
+  "code": "string",
   "error": "string"
 }
 ```
@@ -1680,6 +1688,7 @@ A point-in-time record of a verification run; embeds the config that produced it
 
 ```json
 {
+  "code": "string",
   "error": "string"
 }
 
@@ -1689,5 +1698,6 @@ A point-in-time record of a verification run; embeds the config that produced it
 
 |Name|Type|Required|Restrictions|Description|
 |---|---|---|---|---|
+|code|string|true|none|Machine-readable failure category, stable across releases — one of<br>unauthenticated, forbidden, not_found, conflict, busy, invalid,<br>unimplemented, internal. Clients branch on this, not on the message.|
 |error|string|true|none|Human-readable message. Carries no subject id, even on 403.|
 

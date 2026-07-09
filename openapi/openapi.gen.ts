@@ -323,6 +323,12 @@ export interface VerificationFailure {
 }
 
 export interface Error {
+  /**
+   * Machine-readable failure category, stable across releases — one of
+   * unauthenticated, forbidden, not_found, conflict, busy, invalid,
+   * unimplemented, internal. Clients branch on this, not on the message.
+   */
+  code: string;
   /** Human-readable message. Carries no subject id, even on 403. */
   error: string;
 }
@@ -600,10 +606,12 @@ export class HttpClient<SecurityDataType = unknown> {
  * object. Cypher/GQL is **never** a client route — it is an internal execution
  * engine the planner lowers a query to. A **cacheable GET subset** covers the by-id
  * reads without a query body: `GET /{branch}/head`, `GET /{branch}/claim/{id}`,
- * `GET /{branch}/content/{hash}`, and the privileged `GET /$universe/claim/{id}` /
- * `GET /$universe/content/{hash}`. Content also rides **inline** in query results
- * via `output.content`; the content route fetches a single blob by hash — including
- * the blob an `output.overflow: reference` stub names.
+ * `GET /{branch}/claim/{id}/content`, and the privileged `GET /$universe/claim/{id}` /
+ * `GET /$universe/claim/{id}/content`. Content is addressed by the **claim** that
+ * holds it (not a raw hash), so whether the bytes are inline or a separate blob is
+ * hidden and the read is scoped to the claim's branch. Content also rides **inline**
+ * in query results via `output.content`; the content route fetches the bytes for a
+ * single claim — including the blob an `output.overflow: reference` stub names.
  *
  * ## Encodings and verifiability
  *
@@ -763,21 +771,21 @@ export class Api<
       }),
 
     /**
-     * @description Streams the content blob addressed by `{hash}` — **only if a claim in branch `{name}`'s closure references it** (same closure guarantee as claims; out-of-closure or unknown → `404`). The bytes verify against `{hash}` and size as they stream. Immutably **cacheable** by hash. This is how a client pulls a specific blob: the "source content" step of a read, and the way to retrieve a blob an `output.overflow: reference` stub named rather than inlined.
+     * @description Streams the content of claim `{id}` — **only if it lies in branch `{name}`'s closure** (same closure guarantee as the claim itself; out-of-closure or unknown → `404`). Content is addressed by the claim that holds it, not by a raw hash: the server resolves whether the bytes live inline in the claim or in a separate blob, so the client can't tell and doesn't need to — and the read is scoped to the claim's branch. Immutably **cacheable** by the claim id.
      *
      * @tags read
-     * @name GetBranchContent
-     * @summary Fetch content bytes within a branch's closure
-     * @request GET:/{branch}/content/{hash}
+     * @name GetBranchClaimContent
+     * @summary Fetch the content of a claim within a branch's closure
+     * @request GET:/{branch}/claim/{id}/content
      * @secure
      */
-    getBranchContent: (
+    getBranchClaimContent: (
       branch: string,
-      hash: string,
+      id: string,
       params: RequestParams = {},
     ) =>
       this.request<Blob, Error>({
-        path: `/${branch}/content/${hash}`,
+        path: `/${branch}/claim/${id}/content`,
         method: "GET",
         secure: true,
         ...params,
@@ -802,17 +810,17 @@ export class Api<
       }),
 
     /**
-     * @description Streams the content blob addressed by `{hash}` directly from the Universe, bypassing any branch table — a **privileged** read conferred only through `$universe`. The bytes verify against `{hash}` and size as they stream. Immutably cacheable by hash.
+     * @description Streams the content of claim `{id}` directly from the Universe, bypassing any branch table — a **privileged** read conferred only through `$universe`. Content is addressed by the claim; whether the bytes are inline or a separate blob is hidden. Immutably cacheable by the claim id.
      *
      * @tags read
-     * @name GetUniverseContent
-     * @summary Fetch content bytes by hash from the Universe (privileged)
-     * @request GET:/$universe/content/{hash}
+     * @name GetUniverseClaimContent
+     * @summary Fetch the content of a claim by id from the Universe (privileged)
+     * @request GET:/$universe/claim/{id}/content
      * @secure
      */
-    getUniverseContent: (hash: string, params: RequestParams = {}) =>
+    getUniverseClaimContent: (id: string, params: RequestParams = {}) =>
       this.request<Blob, Error>({
-        path: `/$universe/content/${hash}`,
+        path: `/$universe/claim/${id}/content`,
         method: "GET",
         secure: true,
         ...params,

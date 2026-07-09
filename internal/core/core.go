@@ -41,6 +41,49 @@ var (
 	ErrNotImplemented = errors.New("core: not implemented")
 )
 
+// Category is a transport-neutral, machine-readable classification of a failure.
+// Core never names an HTTP status; an endpoint maps a Category to its transport's
+// status (an HTTP code, an MCP error) and echoes the Category as the response's
+// machine-readable code. Defined once here so every transport classifies alike.
+type Category string
+
+const (
+	CatUnauthenticated Category = "unauthenticated" // no/invalid credential
+	CatForbidden       Category = "forbidden"       // authenticated but ungranted
+	CatNotFound        Category = "not_found"       // unknown/out-of-scope branch, claim, or content
+	CatConflict        Category = "conflict"        // contribution clashes with the head
+	CatBusy            Category = "busy"            // too many active runs
+	CatInvalid         Category = "invalid"         // malformed request
+	CatUnimplemented   Category = "unimplemented"   // capability not configured
+	CatInternal        Category = "internal"        // anything else
+)
+
+// Categorize classifies an error into its Category by walking the sentinel chain,
+// so an endpoint has one place to translate to its transport. A nil error yields
+// the empty category (callers only classify a non-nil error).
+func Categorize(err error) Category {
+	switch {
+	case err == nil:
+		return ""
+	case errors.Is(err, auth.ErrUnauthenticated):
+		return CatUnauthenticated
+	case errors.Is(err, auth.ErrAmbiguousCredentials):
+		return CatInvalid
+	case errors.Is(err, ErrForbidden):
+		return CatForbidden
+	case errors.Is(err, ErrNotFound):
+		return CatNotFound
+	case errors.Is(err, ErrConflict):
+		return CatConflict
+	case errors.Is(err, ErrBusy):
+		return CatBusy
+	case errors.Is(err, ErrNotImplemented):
+		return CatUnimplemented
+	default:
+		return CatInternal
+	}
+}
+
 // Core composes the ports into the request pipeline. It is assembled once by
 // config and shared by every endpoint.
 type Core struct {
@@ -55,15 +98,17 @@ func New(a *auth.Set, chk *access.Checker, seq sequencer.Sequencer, store storag
 	return &Core{auth: a, access: chk, seq: seq, store: store}
 }
 
-// Handle runs a request through the pipeline, enriching it in place: authenticate
-// → authorize → execute. It stops at the first stage that fails, leaving the
-// Report showing how far it got.
-func (c *Core) Handle(ctx context.Context, req *Request) error {
+// Handle runs a request through the pipeline: authenticate → authorize → execute,
+// enriching the request in place and returning the response as a Stream. A
+// pre-stream failure (auth, access, bad input) comes back as the error with no
+// stream; success returns a Stream the endpoint frames. The Report shows how far
+// it got.
+func (c *Core) Handle(ctx context.Context, req *Request) (Stream, error) {
 	if err := c.authenticate(ctx, req); err != nil {
-		return err
+		return nil, err
 	}
 	if err := c.authorize(req); err != nil {
-		return err
+		return nil, err
 	}
 	return c.execute(ctx, req)
 }
@@ -95,9 +140,10 @@ func (c *Core) authorize(req *Request) error {
 	return nil
 }
 
-// execute runs the operation against the ports. Scaffold: the query and
-// contribution engines over storage and the sequencer land here.
-func (c *Core) execute(ctx context.Context, req *Request) error {
+// execute runs the operation against the ports and returns its response stream.
+// Scaffold: the query, contribution, read, and verification engines over storage
+// and the sequencer land here, each producing a Stream of Items.
+func (c *Core) execute(ctx context.Context, req *Request) (Stream, error) {
 	req.Report.step("execute %v: not yet implemented", req.Op)
-	return ErrNotImplemented
+	return nil, ErrNotImplemented
 }

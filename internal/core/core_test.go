@@ -37,9 +37,9 @@ func newTestCore(t *testing.T) *Core {
 // execute stub — the Report showing each stage it passed.
 func TestHandleFlow(t *testing.T) {
 	c := newTestCore(t)
-	req := &Request{Op: OpQuery, Branch: "foo-bar"}
+	req := &Request{Op: OpClaimQuery, Branch: "foo-bar"}
 
-	err := c.Handle(context.Background(), req)
+	_, err := c.Handle(context.Background(), req)
 	if !errors.Is(err, ErrNotImplemented) {
 		t.Fatalf("Handle err = %v, want ErrNotImplemented (execute is a stub)", err)
 	}
@@ -55,9 +55,9 @@ func TestHandleFlow(t *testing.T) {
 // only, so a read of bar-baz is forbidden and never reaches execution.
 func TestHandleForbidden(t *testing.T) {
 	c := newTestCore(t)
-	req := &Request{Op: OpQuery, Branch: "bar-baz"}
+	req := &Request{Op: OpClaimQuery, Branch: "bar-baz"}
 
-	err := c.Handle(context.Background(), req)
+	_, err := c.Handle(context.Background(), req)
 	if !errors.Is(err, ErrForbidden) {
 		t.Fatalf("Handle err = %v, want ErrForbidden", err)
 	}

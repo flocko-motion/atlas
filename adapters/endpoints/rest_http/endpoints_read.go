@@ -1,7 +1,7 @@
 // package: rest_http / transport
 // type:    logic
-// job:     the read endpoints — POST /query and the cacheable by-id GET reads — with query mapping and json-seq projection
-// limits:  translation only; the reads run behind core.Handle (-> internal/core)
+// job:     the read endpoints — POST /query and the cacheable by-id GET reads — with wire→core query mapping
+// limits:  translation only; the reads run behind core.Handle and render inside the Stream (-> internal/core)
 package rest_http
 
 import (
@@ -12,159 +12,122 @@ import (
 
 	ranke "github.com/flocko-motion/ranke-go"
 
-	"github.com/flocko-motion/rankedb/api"
 	"github.com/flocko-motion/rankedb/internal/core"
+	"github.com/flocko-motion/rankedb/openapi"
 )
 
-// Query serves POST /query: it runs the declarative query and streams the
-// results in the requested encoding.
+// Query serves POST /query: it runs the declarative query and streams the results.
 func (s *Server) Query(w http.ResponseWriter, r *http.Request) {
-	var q api.Query
+	var q openapi.Query
 	if err := json.NewDecoder(r.Body).Decode(&q); err != nil {
-		writeError(w, http.StatusBadRequest, "malformed query")
+		writeError(w, core.CatInvalid, "malformed query")
 		return
 	}
 	cq, err := coreQuery(q)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeError(w, core.CatInvalid, err.Error())
 		return
 	}
-	stream, err := s.core.Query(r.Context(), subjectOf(r.Context()), cq)
+	// A branch-rooted read authorizes R on that branch; a claim-rooted read with no
+	// branch is the privileged $universe read.
+	branch := cq.Select.Branch
+	if branch == "" {
+		branch = core.Universe
+	}
+	req := &core.Request{
+		Credential: credentialOf(r.Context()),
+		Op:         core.OpClaimQuery,
+		Branch:     branch,
+		Query:      &cq,
+	}
+	stream, err := s.core.Handle(r.Context(), req)
 	if err != nil {
 		s.fail(w, err)
 		return
 	}
-	defer stream.Close()
-
-	encoding := "json-seq"
-	if q.Output != nil && q.Output.Encoding != nil {
-		encoding = string(*q.Output.Encoding)
-	}
-	// Once the status is written the stream can no longer signal a mid-stream
-	// failure through the status code; that is inherent to a streamed response.
-	if encoding == "cbor-seq" {
-		w.Header().Set("Content-Type", "application/cbor-seq")
-		w.WriteHeader(http.StatusOK)
-		for stream.Next() {
-			b, encErr := stream.Result().Claim.Encode()
-			if encErr != nil {
-				return
-			}
-			_, _ = w.Write(b)
-		}
-		// TODO: emit the trailing QueryReport as a final CBOR item when
-		// stream.Report() != nil.
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json-seq")
-	w.WriteHeader(http.StatusOK)
-	for stream.Next() {
-		writeJSONSeq(w, projectResult(stream.Result()))
-	}
-	if rep := stream.Report(); rep != nil {
-		writeJSONSeq(w, map[string]any{"report": projectReport(rep)})
-	}
+	s.respond(w, stream, http.StatusOK)
 }
 
 // GetBranchHead serves GET /{branch}/head.
 func (s *Server) GetBranchHead(w http.ResponseWriter, r *http.Request, branch string) {
-	req := &core.Request{Credential: credentialOf(r.Context()), Op: core.OpHead, Branch: branch}
-	if err := s.core.Handle(r.Context(), req); err != nil {
+	req := &core.Request{Credential: credentialOf(r.Context()), Op: core.OpBranchHead, Branch: branch}
+	stream, err := s.core.Handle(r.Context(), req)
+	if err != nil {
 		s.fail(w, err)
 		return
 	}
-	head, ok := req.Response.(ranke.Id)
-	if !ok {
-		writeError(w, http.StatusInternalServerError, "internal error")
-		return
-	}
-	writeJSON(w, http.StatusOK, api.BranchHead{Head: idString(head)})
+	s.respond(w, stream, http.StatusOK)
 }
 
 // GetBranchClaim serves GET /{branch}/claim/{id}.
 func (s *Server) GetBranchClaim(w http.ResponseWriter, r *http.Request, branch string, idParam string) {
 	id, err := ranke.ParseId(idParam)
 	if err != nil {
-		writeError(w, http.StatusNotFound, "not found")
+		writeError(w, core.CatNotFound, "not found")
 		return
 	}
-	req := &core.Request{Credential: credentialOf(r.Context()), Op: core.OpClaim, Branch: branch, ClaimID: id}
-	if err := s.core.Handle(r.Context(), req); err != nil {
+	req := &core.Request{Credential: credentialOf(r.Context()), Op: core.OpClaimGet, Branch: branch, ClaimID: id}
+	stream, err := s.core.Handle(r.Context(), req)
+	if err != nil {
 		s.fail(w, err)
 		return
 	}
-	claim, ok := req.Response.(ranke.Claim)
-	if !ok {
-		writeError(w, http.StatusInternalServerError, "internal error")
-		return
-	}
-	writeClaim(w, claim)
+	s.respond(w, stream, http.StatusOK)
 }
 
-// GetBranchContent serves GET /{branch}/content/{hash}.
-func (s *Server) GetBranchContent(w http.ResponseWriter, r *http.Request, branch string, hashParam string) {
-	hash, err := ranke.ParseId(hashParam)
+// GetBranchClaimContent serves GET /{branch}/claim/{id}/content — the content of
+// claim {id} within branch {name}'s closure (inline or blob, resolved by core).
+func (s *Server) GetBranchClaimContent(w http.ResponseWriter, r *http.Request, branch string, idParam string) {
+	id, err := ranke.ParseId(idParam)
 	if err != nil {
-		writeError(w, http.StatusNotFound, "not found")
+		writeError(w, core.CatNotFound, "not found")
 		return
 	}
-	req := &core.Request{Credential: credentialOf(r.Context()), Op: core.OpContent, Branch: branch, Hash: hash}
-	if err := s.core.Handle(r.Context(), req); err != nil {
+	req := &core.Request{Credential: credentialOf(r.Context()), Op: core.OpClaimContent, Branch: branch, ClaimID: id}
+	stream, err := s.core.Handle(r.Context(), req)
+	if err != nil {
 		s.fail(w, err)
 		return
 	}
-	rc, ok := req.Response.(core.Content)
-	if !ok {
-		writeError(w, http.StatusInternalServerError, "internal error")
-		return
-	}
-	streamContent(w, hashParam, rc)
+	s.respond(w, stream, http.StatusOK)
 }
 
 // GetUniverseClaim serves GET /$universe/claim/{id}.
 func (s *Server) GetUniverseClaim(w http.ResponseWriter, r *http.Request, idParam string) {
 	id, err := ranke.ParseId(idParam)
 	if err != nil {
-		writeError(w, http.StatusNotFound, "not found")
+		writeError(w, core.CatNotFound, "not found")
 		return
 	}
-	req := &core.Request{Credential: credentialOf(r.Context()), Op: core.OpUniverseClaim, Branch: core.Universe, ClaimID: id}
-	if err := s.core.Handle(r.Context(), req); err != nil {
+	req := &core.Request{Credential: credentialOf(r.Context()), Op: core.OpClaimGet, Branch: core.Universe, ClaimID: id}
+	stream, err := s.core.Handle(r.Context(), req)
+	if err != nil {
 		s.fail(w, err)
 		return
 	}
-	claim, ok := req.Response.(ranke.Claim)
-	if !ok {
-		writeError(w, http.StatusInternalServerError, "internal error")
-		return
-	}
-	writeClaim(w, claim)
+	s.respond(w, stream, http.StatusOK)
 }
 
-// GetUniverseContent serves GET /$universe/content/{hash}.
-func (s *Server) GetUniverseContent(w http.ResponseWriter, r *http.Request, hashParam string) {
-	hash, err := ranke.ParseId(hashParam)
+// GetUniverseClaimContent serves GET /$universe/claim/{id}/content — the content
+// of claim {id}, privileged.
+func (s *Server) GetUniverseClaimContent(w http.ResponseWriter, r *http.Request, idParam string) {
+	id, err := ranke.ParseId(idParam)
 	if err != nil {
-		writeError(w, http.StatusNotFound, "not found")
+		writeError(w, core.CatNotFound, "not found")
 		return
 	}
-	req := &core.Request{Credential: credentialOf(r.Context()), Op: core.OpUniverseContent, Branch: core.Universe, Hash: hash}
-	if err := s.core.Handle(r.Context(), req); err != nil {
+	req := &core.Request{Credential: credentialOf(r.Context()), Op: core.OpClaimContent, Branch: core.Universe, ClaimID: id}
+	stream, err := s.core.Handle(r.Context(), req)
+	if err != nil {
 		s.fail(w, err)
 		return
 	}
-	rc, ok := req.Response.(core.Content)
-	if !ok {
-		writeError(w, http.StatusInternalServerError, "internal error")
-		return
-	}
-	streamContent(w, hashParam, rc)
+	s.respond(w, stream, http.StatusOK)
 }
 
 // coreQuery maps the wire query to the core query. The wire encoding is not part
-// of the core query — the adapter applies it to the streamed results.
-func coreQuery(q api.Query) (core.Query, error) {
+// of the core query — the Stream renders in the negotiated form.
+func coreQuery(q openapi.Query) (core.Query, error) {
 	var cq core.Query
 
 	if q.Select.Branch != nil {
@@ -235,37 +198,4 @@ func coreQuery(q api.Query) (core.Query, error) {
 	// cq.Where. Until then a query filters nothing.
 
 	return cq, nil
-}
-
-// writeJSONSeq writes one RFC 7464 record: RS, the JSON value, LF.
-func writeJSONSeq(w http.ResponseWriter, v any) {
-	_, _ = w.Write([]byte{0x1e})
-	_ = json.NewEncoder(w).Encode(v) // Encode appends the LF
-	if f, ok := w.(http.Flusher); ok {
-		f.Flush()
-	}
-}
-
-// projectResult is the JSON (convenience) projection of one query result. It is
-// not the canonical claim — that is the cbor-seq encoding.
-//
-// TODO: project the full claim (node fields, edges) per output.detail, not only
-// the id and inlined content.
-func projectResult(res core.QueryResult) map[string]any {
-	m := map[string]any{"id": idString(res.Claim.ID())}
-	if res.Content != nil {
-		m["content"] = res.Content // marshals to base64
-	}
-	return m
-}
-
-func projectReport(r *core.QueryReport) map[string]any {
-	return map[string]any{
-		"engine":    r.Engine,
-		"layer":     r.Layer,
-		"lowered":   r.Lowered,
-		"elapsedMs": r.Elapsed.Milliseconds(),
-		"results":   r.Results,
-		"truncated": r.Truncated,
-	}
 }

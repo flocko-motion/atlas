@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/flocko-motion/rankedb/adapters/auth"
+	"github.com/flocko-motion/rankedb/internal/core"
 )
 
 type ctxKey int
@@ -24,7 +25,7 @@ func (s *Server) withCredential(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		cred, err := extractCredential(r)
 		if err != nil {
-			writeError(w, http.StatusBadRequest, "ambiguous credentials")
+			writeError(w, core.CatInvalid, "ambiguous credentials")
 			return
 		}
 		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), credentialKey, cred)))

@@ -7,29 +7,22 @@ package rest_http
 import (
 	"net/http"
 
-	"github.com/flocko-motion/rankedb/api"
 	"github.com/flocko-motion/rankedb/internal/core"
+	"github.com/flocko-motion/rankedb/openapi"
 )
 
 // Contribute serves POST /contribute?branch=.
-func (s *Server) Contribute(w http.ResponseWriter, r *http.Request, params api.ContributeParams) {
+func (s *Server) Contribute(w http.ResponseWriter, r *http.Request, params openapi.ContributeParams) {
 	req := &core.Request{
 		Credential: credentialOf(r.Context()),
-		Op:         core.OpContribute,
+		Op:         core.OpClaimContribute,
 		Branch:     params.Branch,
 		Body:       r.Body,
 	}
-	if err := s.core.Handle(r.Context(), req); err != nil {
+	stream, err := s.core.Handle(r.Context(), req)
+	if err != nil {
 		s.fail(w, err)
 		return
 	}
-	res, ok := req.Response.(core.Contribution)
-	if !ok {
-		writeError(w, http.StatusInternalServerError, "internal error")
-		return
-	}
-	writeJSON(w, http.StatusCreated, api.ContributionResult{
-		Head: idString(res.Head),
-		Ids:  idStrings(res.Ids),
-	})
+	s.respond(w, stream, http.StatusCreated)
 }

@@ -57,7 +57,7 @@ This change specifies the REST/HTTP contract as the paper defines it, so the
 ## Impact
 
 - **`openapi/openapi.yaml`**: rewritten to this contract; `make generate` then
-  regenerates `api/openapi.gen.go`, the TS client, and the HTML reference. No
+  regenerates `openapi/openapi.gen.go`, the TS client, and the HTML reference. No
   `*.gen.*` is hand-edited.
 - **`adapter-endpoint`**: unchanged at the requirement level — it already pins this
   surface; `rest-api` is its concrete HTTP realisation.

@@ -1,11 +1,12 @@
 # ranke-db — repo-level targets.
 #
 # The OpenAPI spec is the single source of truth; `make generate` produces every
-# artifact from it into api/ — the Go server, the TS/JS client, and the HTML +
-# Markdown references — and symlinks the two references under docs/api/.
+# artifact from it into openapi/ (alongside the spec) — the Go server, the TS/JS
+# client, and the HTML + Markdown references — and symlinks the two references
+# under docs/openapi/.
 
 OPENAPI   := openapi/openapi.yaml
-API_OUT   := api
+API_OUT   := openapi
 RANKE_GO_MOD ?= github.com/flocko-motion/ranke-go
 
 RANKE_GRAPH_REPO ?= https://github.com/flocko-motion/ranke-graph
@@ -37,7 +38,7 @@ check-tools: ## Verify the generation toolchain is installed (reports all missin
 	fi; \
 	echo "generation toolchain OK (go + node)"
 
-generate: check-tools ## Generate every artifact from the spec into api/ (Go server, TS client, HTML, Markdown) + docs/api/ symlinks
+generate: check-tools ## Generate every artifact from the spec into openapi/ (Go server, TS client, HTML, Markdown) + docs/openapi/ symlinks
 	@echo ">> gen-go   → $(API_OUT)/openapi.gen.go"
 	@go tool oapi-codegen -config $(API_OUT)/oapi-codegen.yaml $(OPENAPI)
 	@echo ">> gen-ts   → $(API_OUT)/openapi.gen.ts"
@@ -46,10 +47,10 @@ generate: check-tools ## Generate every artifact from the spec into api/ (Go ser
 	@npx --yes @redocly/cli@latest build-docs $(OPENAPI) -o $(API_OUT)/openapi.html >/dev/null
 	@echo ">> gen-md   → $(API_OUT)/openapi.md"
 	@npx --yes widdershins@4 $(OPENAPI) -o $(API_OUT)/openapi.md --summary --code >/dev/null
-	@echo ">> link     → docs/api/openapi.{html,md}"
-	@mkdir -p docs/api
-	@ln -sf ../../$(API_OUT)/openapi.html docs/api/openapi.html
-	@ln -sf ../../$(API_OUT)/openapi.md docs/api/openapi.md
+	@echo ">> link     → docs/openapi/openapi.{html,md}"
+	@mkdir -p docs/openapi
+	@ln -sf ../../$(API_OUT)/openapi.html docs/openapi/openapi.html
+	@ln -sf ../../$(API_OUT)/openapi.md docs/openapi/openapi.md
 
 # --- Build / test ----------------------------------------------------------
 

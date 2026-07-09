@@ -9,7 +9,7 @@ contract changes only by editing the spec and regenerating.
 
 #### Scenario: The generated server matches the spec
 - **WHEN** `make generate` runs against `openapi/openapi.yaml`
-- **THEN** `api/openapi.gen.go`, the TS client, and the HTML reference are produced from it, and no generated file is edited by hand
+- **THEN** `openapi/openapi.gen.go`, the TS client, and the HTML reference are produced from it, and no generated file is edited by hand
 
 ### Requirement: REST binds the paper's read-and-contribute surface
 

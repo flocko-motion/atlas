@@ -4,7 +4,7 @@
 // limits:  transport + translation only; all capability lives behind core.Core (-> internal/core)
 //
 // Package rest_http serves the ranke-db REST API over HTTP. It implements the
-// generated api.ServerInterface (from openapi/openapi.yaml) by, for each request,
+// generated openapi.ServerInterface (from openapi/openapi.yaml) by, for each request,
 // extracting the caller's raw credential from the wire, translating the request
 // into a core.Request, handing it to core.Handle — which authenticates, authorizes
 // and executes — and rendering the response, or the mapped status for a sentinel
@@ -29,9 +29,9 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/flocko-motion/rankedb/api"
 	"github.com/flocko-motion/rankedb/config/scope"
 	"github.com/flocko-motion/rankedb/internal/core"
+	"github.com/flocko-motion/rankedb/openapi"
 )
 
 // Server is a running REST/HTTP endpoint: an http.Server whose handlers translate
@@ -55,7 +55,7 @@ func New(ctx context.Context, cfg scope.Section, c *core.Core) (*Server, error) 
 		}
 	}
 	s := &Server{core: c}
-	s.srv = &http.Server{Addr: addr, Handler: s.withCredential(api.Handler(s)), ReadHeaderTimeout: 5 * time.Second}
+	s.srv = &http.Server{Addr: addr, Handler: s.withCredential(openapi.Handler(s)), ReadHeaderTimeout: 5 * time.Second}
 	return s, nil
 }
 

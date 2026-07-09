@@ -89,8 +89,8 @@ func TestBuildEndpointAdmits(t *testing.T) {
 		t.Fatalf("buildEndpoint: %v", err)
 	}
 
-	req := &core.Request{Op: core.OpQuery, Branch: "proj-x"}
-	if err := cr.Handle(context.Background(), req); !errors.Is(err, core.ErrNotImplemented) {
+	req := &core.Request{Op: core.OpClaimQuery, Branch: "proj-x"}
+	if _, err := cr.Handle(context.Background(), req); !errors.Is(err, core.ErrNotImplemented) {
 		t.Fatalf("Handle = %v, want ErrNotImplemented (authorized, reached execute)", err)
 	}
 	if req.Principal.Account != "webapp" {
@@ -122,8 +122,8 @@ func TestBuildEndpointRejectsUnadmitted(t *testing.T) {
 		t.Fatalf("buildEndpoint: %v", err)
 	}
 
-	req := &core.Request{Op: core.OpQuery, Branch: "proj-x"}
-	if err := cr.Handle(context.Background(), req); !errors.Is(err, core.ErrForbidden) {
+	req := &core.Request{Op: core.OpClaimQuery, Branch: "proj-x"}
+	if _, err := cr.Handle(context.Background(), req); !errors.Is(err, core.ErrForbidden) {
 		t.Fatalf("Handle = %v, want ErrForbidden (admin authenticates but is not admitted here)", err)
 	}
 }
@@ -152,16 +152,16 @@ func TestBuildEndpointAPIKey(t *testing.T) {
 		t.Fatalf("buildEndpoint: %v", err)
 	}
 
-	ok := &core.Request{Op: core.OpQuery, Branch: "proj-x", Credential: auth.Credential{Scheme: "apikey", Token: key}}
-	if err := cr.Handle(context.Background(), ok); !errors.Is(err, core.ErrNotImplemented) {
+	ok := &core.Request{Op: core.OpClaimQuery, Branch: "proj-x", Credential: auth.Credential{Scheme: "apikey", Token: key}}
+	if _, err := cr.Handle(context.Background(), ok); !errors.Is(err, core.ErrNotImplemented) {
 		t.Fatalf("valid key: Handle = %v, want ErrNotImplemented (authenticated + authorized)", err)
 	}
 	if ok.Principal.Account != "webapp" {
 		t.Fatalf("account = %q, want webapp", ok.Principal.Account)
 	}
 
-	bad := &core.Request{Op: core.OpQuery, Branch: "proj-x", Credential: auth.Credential{Scheme: "apikey", Token: "wrong-key-0123456789"}}
-	if err := cr.Handle(context.Background(), bad); err == nil || errors.Is(err, core.ErrNotImplemented) {
+	bad := &core.Request{Op: core.OpClaimQuery, Branch: "proj-x", Credential: auth.Credential{Scheme: "apikey", Token: "wrong-key-0123456789"}}
+	if _, err := cr.Handle(context.Background(), bad); err == nil || errors.Is(err, core.ErrNotImplemented) {
 		t.Fatalf("wrong key: Handle = %v, want an auth error before authorization", err)
 	}
 }
