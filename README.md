@@ -6,35 +6,59 @@ A provenance-first foundation for knowledge systems.
 
 Please visit [github.com/flocko-motion/ranke-graph](https://github.com/flocko-motion/ranke-graph) to learn about the underlying concepts - this repo focusses on the implementation.
 
+RankeDB is the **server**: a hexagonal wrapper around the
+[`ranke-go`](https://github.com/flocko-motion/ranke-go) library, which owns the graph
+model and verification. One process serves exactly one Ranke-Archive, assembled from
+exactly one configuration supplied at launch.
+
 ## Repository structure
 
 | Path | What |
 |---|---|
-| `go/` | Server (schemaf project), SDK, CLI |
-| `go/sdk/` | Worker SDK — typed client for building RankeDB workers |
-| `go/cmd/ranke-cli/` | CLI tool for admin and ingestion |
-| `frontend/` | Graph Explorer (React + Cytoscape) |
+| `openapi/` | The REST API spec — the single source of truth — and the artifacts generated from it |
+| `cmd/ranke-db/` | The binary: `run <config>`, `verify <config>` |
+| `internal/core/` | The core: endpoints, access, persistence composition, contribution |
+| `config/` | Configuration — the composition root |
+| `adapters/` | One directory per adapter port: `storage`, `sequencer`, `signer`, `vault`, `auth`, `endpoints` |
+| `examples/` | Launchable example configurations |
+| `docs/`, `openspec/` | Documentation and capability specs |
 
-## Building workers
+## Building
 
-See [WORKERS.md](WORKERS.md) — the complete guide for building RankeDB workers using the SDK (`go/sdk/`).
+```bash
+make            # regenerate from the OpenAPI spec, then build, vet, test and lint
+make build      # compile bin/ranke-db
+make smoke      # launch the minimal example, health-check it, shut down again
+```
 
 ## Running
 
+An instance is one binary and one config file — there is no runtime reconfiguration.
+The admin cycle is edit → run → observe → stop.
+
 ```bash
-./schemaf.sh dev backend,frontend    # dev mode (Postgres + MinIO + server + Explorer)
-./schemaf.sh run                     # prod mode (Docker)
+ranke-db verify examples/minimal/config.json   # offline, secret-free check of the config
+ranke-db run    examples/minimal/config.json   # resolve secrets, assemble the stack, serve
 ```
+
+See [`examples/minimal/`](examples/minimal/) for the smallest launchable stack.
+
+## API
+
+`openapi/openapi.yaml` is the single source of truth for the REST API. `make generate`
+produces the Go server interface, the TS client and the HTML + Markdown references from
+it; the references are browsable under [`docs/openapi/`](docs/openapi/).
 
 ## Papers
 
 The theory lives in the separate [`ranke-graph`](https://github.com/flocko-motion/ranke-graph)
-repository as Typst (`.typ`) sources — **not in this repo**. Read the `.typ` source directly:
+repository as Typst (`.typ`) sources — **not in this repo**. Read the `.typ` source directly,
+or run `make docs` to pull copies into `docs/papers/`:
 
 1. [`01-ranke-graph/ranke-graph.typ`](https://github.com/flocko-motion/ranke-graph/blob/main/01-ranke-graph/ranke-graph.typ)
    — foundational model and design philosophy. **Required reading.**
-2. [`02-rankedb/rankedb.typ`](https://github.com/flocko-motion/ranke-graph/blob/main/02-rankedb/rankedb.typ)
-   — the RankeDB architecture paper. *In progress — landing very soon; read it before implementation work once available.*
+2. [`02-ranke-db/ranke-db.typ`](https://github.com/flocko-motion/ranke-graph/blob/main/02-ranke-db/ranke-db.typ)
+   — the RankeDB architecture paper. **Read it before implementation work.**
 
 ## License
 
