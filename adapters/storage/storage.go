@@ -11,6 +11,11 @@
 // "layers", "partition" over its "shards"), and composites recurse, so a layer
 // or a shard may itself be a stack or a partition. Each leaf reads its own
 // settings from its section, resolving env()/vault() delegations as it does.
+//
+// A layer's write role and content cap are not ours to set: ranke-go reports
+// them per universe as ranke.Capabilities, fixed by the backend's own adapter
+// options, so this package only holds a layer's declared "mode"/"maxContentSize"
+// against what the built universe reports and fails when they disagree.
 package storage
 
 import (
@@ -80,68 +85,75 @@ func build(ctx context.Context, sec scope.Section) (ranke.Universe, error) {
 	}
 }
 
-// buildStack composes ordered layer descriptors into an eager/lazy stack. Each
-// layer is a universe descriptor plus the stack options mode (eager|lazy),
-// maxContentSize, and noReadFill. The stack reads top-down and the first layer
-// must be eager; the order is preserved from the config.
+// buildStack composes ordered layer descriptors into a stack. A layer is a bare
+// universe descriptor: since ranke-go v0.3.0 the write role (eager cache, lazy
+// cache, authoritative source of truth) and the content cap are properties the
+// *universe* reports through ranke.Capabilities, chosen by its adapter, not
+// options of the composition. The stack reads top-down in config order and
+// requires at least one authoritative layer.
 func buildStack(ctx context.Context, layers []scope.Section) (ranke.Universe, error) {
 	if len(layers) == 0 {
 		return nil, fmt.Errorf("storage: stack has no layers")
 	}
-	built := make([]stack.Layer, 0, len(layers))
+	built := make([]ranke.Universe, 0, len(layers))
 	for i, l := range layers {
 		u, err := build(ctx, l)
 		if err != nil {
 			return nil, fmt.Errorf("storage: stack layer %d: %w", i, err)
 		}
-		opts, err := layerOpts(ctx, l)
-		if err != nil {
+		if err := checkLayer(ctx, l, u); err != nil {
 			return nil, fmt.Errorf("storage: stack layer %d: %w", i, err)
 		}
-		mode := "eager"
-		if l.HasValue("mode") {
-			if mode, err = l.Get(ctx, "mode"); err != nil {
-				return nil, fmt.Errorf("storage: stack layer %d: mode: %w", i, err)
-			}
-		}
-		switch mode {
-		case "eager", "":
-			built = append(built, stack.Eager(u, opts...))
-		case "lazy":
-			built = append(built, stack.Lazy(u, opts...))
-		default:
-			return nil, fmt.Errorf("storage: stack layer %d: unknown mode %q (want eager|lazy)", i, mode)
-		}
+		built = append(built, u)
 	}
 	return stack.NewStack(built...)
 }
 
-// layerOpts reads a layer's optional stack options (maxContentSize, noReadFill).
-func layerOpts(ctx context.Context, l scope.Section) ([]stack.Option, error) {
-	var opts []stack.Option
+// checkLayer holds a layer's declared role and cap against what the built
+// universe actually reports. Because the backend now decides both, a wish it
+// cannot honour is a configuration error — never a silent downgrade, which for
+// `mode` would quietly change where writes durably land.
+func checkLayer(ctx context.Context, l scope.Section, u ranke.Universe) error {
+	caps := u.Capabilities()
+	if l.HasValue("mode") {
+		mode, err := l.Get(ctx, "mode")
+		if err != nil {
+			return fmt.Errorf("mode: %w", err)
+		}
+		want := ranke.StorageTier(mode)
+		switch want {
+		case ranke.StorageTierAuthoritative, ranke.StorageTierEager,
+			ranke.StorageTierBackground, ranke.StorageTierLazy:
+		default:
+			return fmt.Errorf("mode: unknown %q (want authoritative|eager|background|lazy)", mode)
+		}
+		if want != caps.Tier {
+			return fmt.Errorf("mode %q: this backend serves the %q tier; the tier is an adapter option in ranke-go, not a stack option — drop the key, or use a backend that offers one", want, caps.Tier)
+		}
+	}
 	if l.HasValue("maxContentSize") {
 		raw, err := l.Get(ctx, "maxContentSize")
 		if err != nil {
-			return nil, fmt.Errorf("maxContentSize: %w", err)
+			return fmt.Errorf("maxContentSize: %w", err)
 		}
 		size, err := parseSize(raw)
 		if err != nil {
-			return nil, fmt.Errorf("maxContentSize: %w", err)
+			return fmt.Errorf("maxContentSize: %w", err)
 		}
-		if size > 0 {
-			opts = append(opts, stack.MaxContentSize(size))
+		if size != caps.ContentCap {
+			return fmt.Errorf("maxContentSize %d: this backend caps content at %d (0 = uncapped); the cap is an adapter option in ranke-go, not a stack option", size, caps.ContentCap)
 		}
 	}
 	if l.HasValue("noReadFill") {
 		v, err := l.Get(ctx, "noReadFill")
 		if err != nil {
-			return nil, fmt.Errorf("noReadFill: %w", err)
+			return fmt.Errorf("noReadFill: %w", err)
 		}
 		if v == "true" {
-			opts = append(opts, stack.NoReadFill())
+			return fmt.Errorf("noReadFill: ranke-go's stack repairs a read miss itself; the switch no longer exists — remove the key")
 		}
 	}
-	return opts, nil
+	return nil
 }
 
 // buildPartition composes shard descriptors into a partition that routes content

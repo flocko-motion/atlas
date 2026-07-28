@@ -8,13 +8,19 @@
 OPENAPI   := openapi/openapi.yaml
 API_OUT   := openapi
 RANKE_GO_MOD ?= github.com/flocko-motion/ranke-go
+RANKE_GO_VERSION ?= latest
+# ask = prompt before raising the go directive; keep = leave it; or a version.
+GO_VERSION ?= ask
 
 RANKE_GRAPH_REPO ?= https://github.com/flocko-motion/ranke-graph
 RANKE_GRAPH_REF  ?= main
 PAPERS_DIR       := docs/papers
+# Everything at the top of the paper repo is reference material and gets pulled;
+# these are the exceptions (its own tooling). Dotdirs never match the glob.
+PAPERS_SKIP      := scripts
 
 .PHONY: all help check-tools generate verify tidy build smoke test \
-        ranke-go-version release major minor patch breaking feature fix docs docs-clean
+        ranke-go-version upgrade release major minor patch breaking feature fix docs docs-clean
 
 BIN := bin/ranke-db
 
@@ -87,6 +93,12 @@ verify: generate ## Regenerate from the spec, then build, vet, test, gofmt-check
 		else echo ">> lint: neither brokkr nor sindri on PATH; skipping" >&2; fi
 	@$(MAKE) -s ranke-go-version
 
+upgrade: ## Upgrade all deps, tools and ranke-go to latest, tidy, then verify; asks before raising the go directive (GO_VERSION=keep|1.26.5, RANKE_GO_VERSION=vX.Y.Z)
+	@GO_VERSION=$(GO_VERSION) \
+		RANKE_GO_MOD=$(RANKE_GO_MOD) \
+		RANKE_GO_VERSION=$(RANKE_GO_VERSION) \
+		./scripts/upgrade.sh
+
 ranke-go-version: ## Recommend a ranke-go bump if a newer release exists
 	-@grep -q "$(RANKE_GO_MOD)" go.mod 2>/dev/null && { \
 		cur=$$(go list -m -f '{{.Version}}' $(RANKE_GO_MOD) 2>/dev/null); \
@@ -104,16 +116,20 @@ release: ## Release: clean → merge to default via PR → tag merged tip → pu
 major minor patch breaking feature fix:
 	@:
 
-docs: ## Pull the latest ranke-graph papers into docs/papers/ for reference
-	@echo ">> fetching ranke-graph papers into $(PAPERS_DIR)/"
+docs: ## Pull the latest ranke-graph documents (papers, spec, glossary) into docs/papers/
+	@echo ">> fetching ranke-graph documents into $(PAPERS_DIR)/"
 	@tmp=$$(mktemp -d) && \
 		git clone --depth 1 --branch $(RANKE_GRAPH_REF) $(RANKE_GRAPH_REPO) $$tmp >/dev/null 2>&1 && \
 		rm -rf $(PAPERS_DIR) && mkdir -p $(PAPERS_DIR) && \
-		cp -r $$tmp/[0-9]*-* $(PAPERS_DIR)/ && \
-		{ [ -d $$tmp/shared ] && cp -r $$tmp/shared $(PAPERS_DIR)/ || true; } && \
+		for d in $$tmp/*/; do \
+			name=$$(basename $$d); \
+			case " $(PAPERS_SKIP) " in *" $$name "*) continue ;; esac; \
+			cp -r $$d $(PAPERS_DIR)/; \
+		done && \
 		cp $$tmp/LICENSE $(PAPERS_DIR)/LICENSE 2>/dev/null || true; \
 		rm -rf $$tmp; \
-		echo ">> pulled $$(find $(PAPERS_DIR) -name '*.typ' | wc -l | tr -d ' ') paper(s)"
+		echo ">> pulled $$(find $(PAPERS_DIR) -name '*.typ' | wc -l | tr -d ' ') document(s):"; \
+		find $(PAPERS_DIR) -name '*.typ' | sort | sed 's|^|     |'
 
 docs-clean: ## Remove the pulled paper references
 	rm -rf $(PAPERS_DIR)

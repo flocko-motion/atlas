@@ -3,13 +3,20 @@
     "type": "inmemory",
     "key": "env(RANKE_SIGNER_KEY)"
   },
-  "auth": [
-    { "type": "noauth", "subject": "ops" }
-  ],
   "storage": {
     "type": "stack",
     "layers": [
-      { "mode": "eager", "type": "mem", "maxContentSize": "8kb" }
+      { "type": "mem" }
     ]
-  }
+  },
+  "accounts": {
+    "ops": { "grants": ["CR *"] }
+  },
+  "endpoints": [
+    {
+      "transport": { "type": "rest", "addr": ":8080" },
+      "auth": [ { "type": "noauth", "subject": "ops" } ],
+      "admit": ["ops"]
+    }
+  ]
 }

@@ -1,13 +1,17 @@
 // package: rest_http / transport
 // type:    logic
-// job:     the read endpoints — POST /query and the cacheable by-id GET reads — with wire→core query mapping
-// limits:  translation only; the reads run behind core.Handle and render inside the Stream (-> internal/core)
+// job:     the read endpoints — POST /query and the cacheable by-id GET reads — with wire→RQL query mapping
+// limits:  translation only; the query language is ranke-go's, the reads run behind core.Handle and render inside the Stream (-> internal/core)
 package rest_http
 
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/http"
+	"sort"
+	"strconv"
+	"strings"
 	"time"
 
 	ranke "github.com/flocko-motion/ranke-go"
@@ -23,14 +27,14 @@ func (s *Server) Query(w http.ResponseWriter, r *http.Request) {
 		writeError(w, core.CatInvalid, "malformed query")
 		return
 	}
-	cq, err := coreQuery(q)
+	rq, err := rankeQuery(q)
 	if err != nil {
 		writeError(w, core.CatInvalid, err.Error())
 		return
 	}
-	// A branch-rooted read authorizes R on that branch; a claim-rooted read with no
-	// branch is the privileged $universe read.
-	branch := cq.Select.Branch
+	// A branch-rooted read authorizes R on that branch; a read with no branch is
+	// the privileged $universe read.
+	branch := rq.Select.Branch
 	if branch == "" {
 		branch = core.Universe
 	}
@@ -38,7 +42,7 @@ func (s *Server) Query(w http.ResponseWriter, r *http.Request) {
 		Credential: credentialOf(r.Context()),
 		Op:         core.OpClaimQuery,
 		Branch:     branch,
-		Query:      &cq,
+		Query:      &rq,
 	}
 	stream, err := s.core.Handle(r.Context(), req)
 	if err != nil {
@@ -125,77 +129,260 @@ func (s *Server) GetUniverseClaimContent(w http.ResponseWriter, r *http.Request,
 	s.respond(w, stream, http.StatusOK)
 }
 
-// coreQuery maps the wire query to the core query. The wire encoding is not part
-// of the core query — the Stream renders in the negotiated form.
-func coreQuery(q openapi.Query) (core.Query, error) {
-	var cq core.Query
+// rankeQuery maps the wire query onto ranke-go's RQL, which the engine executes
+// as-is. Only the translation is ours: the wire's own concerns — its narrower
+// `detail`, its `bool|int|string` content cap, its sequence framing — resolve to
+// the library's vocabulary here, and nothing of the query language is restated.
+func rankeQuery(q openapi.Query) (ranke.Query, error) {
+	var rq ranke.Query
 
 	if q.Select.Branch != nil {
-		cq.Select.Branch = *q.Select.Branch
+		rq.Select.Branch = *q.Select.Branch
 	}
 	if q.Select.Claim != nil {
 		id, err := ranke.ParseId(*q.Select.Claim)
 		if err != nil {
-			return cq, fmt.Errorf("select.claim: invalid id")
+			return rq, fmt.Errorf("select.claim: invalid id")
 		}
-		cq.Select.Claim = id
+		rq.Select.Claim = id
+		// A claim with no branch is the privileged unconfined read; the library
+		// spells that scope as a reserved branch name.
+		if rq.Select.Branch == "" {
+			rq.Select.Branch = ranke.BranchUniverse
+		}
 	}
-	if q.Select.Path != nil {
-		for _, p := range *q.Select.Path {
-			step := core.PathStep{Edges: p.Edges}
-			if p.Dir != nil {
-				step.Dir = core.Direction(string(*p.Dir))
-			}
-			if p.Depth != nil {
-				step.Depth = *p.Depth
-			}
-			if p.Nodes != nil {
-				step.Nodes = *p.Nodes
-			}
-			cq.Select.Path = append(cq.Select.Path, step)
+	for _, p := range deref(q.Select.Path) {
+		step := ranke.PathStep{Edges: p.Edges, Nodes: deref(p.Nodes)}
+		if p.Dir != nil {
+			step.Dir = ranke.Direction(*p.Dir)
 		}
+		if p.Depth != nil {
+			step.Max = *p.Depth // the wire's depth is a max-hop bound
+		}
+		rq.Select.Path = append(rq.Select.Path, step)
 	}
 
 	if q.Output != nil {
-		if q.Output.Detail != nil {
-			cq.Output.Detail = core.Detail(string(*q.Output.Detail))
+		if err := outputInto(&rq.Output, *q.Output); err != nil {
+			return rq, err
 		}
-		if q.Output.Overflow != nil {
-			cq.Output.Overflow = core.Overflow(string(*q.Output.Overflow))
-		}
-		// TODO: q.Output.Content is a bool|int|string union; resolve it (and a
-		// human size like "4kb") to the core.Output.Content byte cap.
 	}
 
 	if q.Order != nil {
-		cq.Order = &core.Order{
-			Field: q.Order.Field,
-			Desc:  q.Order.Dir != nil && string(*q.Order.Dir) == "desc",
+		key := ranke.OrderKey{Field: q.Order.Field}
+		if q.Order.Dir != nil {
+			key.Dir = ranke.SortDir(*q.Order.Dir)
 		}
+		rq.Order = []ranke.OrderKey{key}
 	}
 
 	if q.Limit != nil {
 		if q.Limit.Results != nil {
-			cq.Limit.Results = *q.Limit.Results
+			rq.Limit.Results = *q.Limit.Results
 		}
 		if q.Limit.Time != nil {
-			if d, err := time.ParseDuration(*q.Limit.Time); err == nil {
-				cq.Limit.Time = d
+			d, err := time.ParseDuration(*q.Limit.Time)
+			if err != nil {
+				return rq, fmt.Errorf("limit.time: invalid duration %q", *q.Limit.Time)
 			}
+			rq.Limit.Time = d
 		}
 	}
 
 	if q.Execution != nil {
 		if q.Execution.Layer != nil {
-			cq.Execution.Layer = *q.Execution.Layer
+			rq.Execution.Layer = *q.Execution.Layer
 		}
-		if q.Execution.Report != nil {
-			cq.Execution.Report = *q.Execution.Report
+		// The wire asks for a report or not; the library grades verbosity.
+		if q.Execution.Report != nil && *q.Execution.Report {
+			rq.Execution.Report = ranke.ReportInfo
 		}
 	}
 
-	// TODO: q.Where is a boolean-tree union (and/or/not/field-map); map it to
-	// cq.Where. Until then a query filters nothing.
+	if q.Where != nil {
+		w, err := whereOf(*q.Where)
+		if err != nil {
+			return rq, err
+		}
+		rq.Where = w
+	}
 
-	return cq, nil
+	return rq, nil
+}
+
+// outputInto resolves the wire's output shaping. The wire's `detail` folds two of
+// the library's orthogonal axes into one enum — "path" asks for the route, which
+// is a Shape, not a Detail — so it unfolds here.
+func outputInto(out *ranke.Output, o openapi.Output) error {
+	if o.Detail != nil {
+		switch *o.Detail {
+		case "id":
+			out.Detail = ranke.DetailID
+		case "claim":
+			out.Detail = ranke.DetailClaims
+		case "path":
+			out.Shape, out.Detail = ranke.ShapePath, ranke.DetailClaims
+		default:
+			return fmt.Errorf("output.detail: unknown %q", *o.Detail)
+		}
+	}
+	if o.Encoding != nil {
+		// The wire names a sequence framing; the library names each claim's form.
+		switch *o.Encoding {
+		case "json-seq":
+			out.Encoding = ranke.ResultJSON
+		case "cbor-seq":
+			out.Encoding = ranke.ResultCBOR
+		default:
+			return fmt.Errorf("output.encoding: unknown %q", *o.Encoding)
+		}
+	}
+	cap, err := contentCap(o.Content)
+	if err != nil {
+		return err
+	}
+	if cap > 0 {
+		out.Content = &ranke.Content{Max: cap}
+		if o.Overflow != nil {
+			out.Content.Overflow = ranke.Overflow(*o.Overflow)
+		}
+	}
+	return nil
+}
+
+// contentCap resolves the content cap, a bool|int|string union: false (or absent)
+// carries no content, true means uncapped-per-claim, a number is bytes, and a
+// string is a human size ("4kb").
+func contentCap(raw *openapi.Output_Content) (int64, error) {
+	if raw == nil {
+		return 0, nil
+	}
+	if b, err := raw.AsOutputContent0(); err == nil {
+		if !b {
+			return 0, nil
+		}
+		return math.MaxInt64, nil
+	}
+	if n, err := raw.AsOutputContent1(); err == nil {
+		return int64(n), nil
+	}
+	s, err := raw.AsOutputContent2()
+	if err != nil {
+		return 0, fmt.Errorf("output.content: want a boolean, a byte count, or a size like \"4kb\"")
+	}
+	size, err := parseSize(s)
+	if err != nil {
+		return 0, fmt.Errorf("output.content: %w", err)
+	}
+	return size, nil
+}
+
+// whereOf maps the wire's boolean tree onto the library's. The wire models the
+// tree as a oneOf — and/or/not subtrees, or a field→comparison map — so the
+// variant is found by which key is present.
+func whereOf(w openapi.Where) (*ranke.Where, error) {
+	if and, err := w.AsWhere0(); err == nil && len(and.And) > 0 {
+		subs, err := whereList(and.And)
+		if err != nil {
+			return nil, err
+		}
+		return &ranke.Where{And: subs}, nil
+	}
+	if or, err := w.AsWhere1(); err == nil && len(or.Or) > 0 {
+		subs, err := whereList(or.Or)
+		if err != nil {
+			return nil, err
+		}
+		return &ranke.Where{Or: subs}, nil
+	}
+	if not, err := w.AsWhere2(); err == nil {
+		if sub, err := whereOf(not.Not); err == nil && sub != nil {
+			return &ranke.Where{Not: sub}, nil
+		}
+	}
+	fields, err := w.AsWhere3()
+	if err != nil {
+		return nil, fmt.Errorf("where: want and/or/not or a field→comparison map")
+	}
+	// A field map is a leaf per field; several fields conjoin, since each field
+	// carries exactly one comparison. Sorted so the tree is deterministic.
+	names := make([]string, 0, len(fields))
+	for name := range fields {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	leaves := make([]ranke.Where, 0, len(names))
+	for _, name := range names {
+		leaves = append(leaves, ranke.Where{Field: name, Test: comparisonOf(fields[name])})
+	}
+	switch len(leaves) {
+	case 0:
+		return nil, fmt.Errorf("where: empty")
+	case 1:
+		return &leaves[0], nil
+	default:
+		return &ranke.Where{And: leaves}, nil
+	}
+}
+
+// whereList maps a subtree list, flattening the pointers the recursion returns.
+func whereList(ws []openapi.Where) ([]ranke.Where, error) {
+	out := make([]ranke.Where, 0, len(ws))
+	for _, w := range ws {
+		sub, err := whereOf(w)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, *sub)
+	}
+	return out, nil
+}
+
+// comparisonOf maps one field's comparison. The operators are passed through as
+// the untyped values the wire carried; the engine decides how each compares.
+func comparisonOf(c openapi.Comparison) *ranke.Comparison {
+	out := &ranke.Comparison{Eq: c.Eq, Ne: c.Ne, Lt: c.Lt, Le: c.Le, Gt: c.Gt, Ge: c.Ge}
+	if c.In != nil {
+		out.In = *c.In
+	}
+	if c.Glob != nil {
+		out.Glob = *c.Glob
+	}
+	return out
+}
+
+// parseSize parses a human-readable byte size: a bare number is bytes, or a
+// number with a kb/mb/gb/tb suffix (binary multiples, case-insensitive, optional
+// trailing "b").
+func parseSize(s string) (int64, error) {
+	s = strings.TrimSpace(strings.ToLower(s))
+	if s == "" {
+		return 0, nil
+	}
+	mult := int64(1)
+	for _, u := range []struct {
+		suffix string
+		mult   int64
+	}{{"tb", 1 << 40}, {"gb", 1 << 30}, {"mb", 1 << 20}, {"kb", 1 << 10}} {
+		if strings.HasSuffix(s, u.suffix) {
+			mult, s = u.mult, strings.TrimSpace(strings.TrimSuffix(s, u.suffix))
+			break
+		}
+	}
+	if mult == 1 {
+		s = strings.TrimSpace(strings.TrimSuffix(s, "b")) // bare bytes, e.g. "4096b"
+	}
+	n, err := strconv.ParseInt(s, 10, 64)
+	if err != nil || n < 0 {
+		return 0, fmt.Errorf("invalid size %q", s)
+	}
+	return n * mult, nil
+}
+
+// deref reads an optional wire array as a plain slice.
+func deref[T any](p *[]T) []T {
+	if p == nil {
+		return nil
+	}
+	return *p
 }

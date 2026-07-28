@@ -1,17 +1,17 @@
 // package: sequencer / coordination
-// type:    interface + factory
-// job:     the Sequencer port — rankedb's mechanism for advancing the branch-table head (B_h) — plus the factory that builds a backend
-// limits:  contract + dispatch; wraps ranke-go's BranchTableHead, which only *holds* B_h (-> adapters/sequencer/...)
+// type:    factory
+// job:     the Sequencer port — build the ranke-go sequencer backend named in a config section
+// limits:  wiring only; advancing the head, the six merge steps and the head history are ranke-go's (-> github.com/flocko-motion/ranke-go)
 //
-// Package sequencer defines rankedb's Sequencer and builds it from config. The
-// foundation paper fixes what a branch-table head IS but leaves its MANAGEMENT
-// open: ranke-go's BranchTableHead only loads, saves, and closes the single
-// mutable Id. The Sequencer is what rankedb adds on top — the thing that
-// *handles* B_h: it serialises concurrent contributions onto one authoritative
-// head, and keeps the history of past heads so a claim that failed to persist can
-// be rolled back to the last working state (paper 2 §Sequencer). It is
-// deliberately a rankedb concern, not a library one: the library knows the
-// mechanics of having a head, the server owns the policy of advancing it.
+// Package sequencer is ranke-db's sequencer port. The Sequencer is a Ranke-
+// Archive's single writer: it advances the head k → k′ and keeps the history of
+// past heads so a claim that failed to persist can be rolled back (paper 2
+// §Sequencer). That mechanism now lives in ranke-go — together with the narrow
+// head-history port the paper describes (ranke.History, with in-memory and
+// file backends) — so the port type here IS the library's contract and this
+// package only selects a backend from the configuration and hands it its
+// dependencies: the storage Universe it persists branch tables into, and the
+// signing identity it attests each merge with.
 package sequencer
 
 import (
@@ -24,26 +24,29 @@ import (
 	"github.com/flocko-motion/rankedb/config/scope"
 )
 
-// Sequencer advances and serves the branch-table head. After a contribution's
-// claims are verified and persisted, it mints a new branch-table claim
-// referencing the addition and the prior table, then advances B_h to it —
-// retaining the previous heads so a failed write can be rolled back.
-type Sequencer interface {
-	// BTH returns the id of the latest branch table (n == 0) or a historical one
-	// (n < 0), or a nil Id when the archive has no branches yet.
-	BTH(ctx context.Context, n int) (ranke.Id, error)
+// Sequencer is the sequencer port's product: ranke-go's Sequencer contract. The
+// server reaches the archive through it — immutable snapshots to read from, and
+// merges that advance the head to write.
+type Sequencer = ranke.Sequencer
 
-	// BTHLen reports the length of the branch-table-head history.
-	BTHLen(ctx context.Context) (int, error)
-
-	// Add appends a new branch-table id to the top of the history, advancing B_h.
-	Add(ctx context.Context, id ranke.Id) error
-}
-
-// New builds the sequencer over the branch-table-head backend named in cfg, wired
-// to the storage Universe it persists branch tables into and the signing identity
-// it attests each merge with (its bootstrap dependencies). Stub: not yet
-// implemented.
+// New builds the sequencer backend named by the section's "type", wired to the
+// storage Universe it persists branch tables into and the signing identity it
+// attests each merge with.
+//
+// No backend binds yet. ranke-go's writers today are adapter/sequencer/dev — a
+// deliberately serial reference writer that mints a fresh k₀ on every
+// construction, so it cannot reopen an existing archive — and
+// adapter/sequencer/simple, an empty placeholder; neither implements
+// ranke.Sequencer, whose write path (NewContribution + Merge) is still marked a
+// draft upstream. The full sequencer is in the works there, and this factory is
+// where it binds: one case, no core changes.
 func New(ctx context.Context, cfg scope.Section, storage ranke.Universe, sig signer.Signer) (Sequencer, error) {
-	return nil, fmt.Errorf("sequencer: backend not yet implemented")
+	if !cfg.HasValue("type") {
+		return nil, fmt.Errorf("sequencer: missing type")
+	}
+	t, err := cfg.Get(ctx, "type")
+	if err != nil {
+		return nil, err
+	}
+	return nil, fmt.Errorf("sequencer: no backend yet for type %q — ranke-go's sequencer is being completed upstream; omit the section to launch read-only", t)
 }

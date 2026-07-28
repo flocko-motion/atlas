@@ -23,10 +23,17 @@ The source of truth is the **`ranke-graph`** paper repo (Typst `.typ`). **Read i
 designing — do not reconstruct the model from memory or from this file.** Fetch the raw
 sources directly (WebFetch), or `make docs` to pull copies into `docs/papers/` (gitignored):
 
+- **normative specification — the rules an implementation FOLLOWS** (cite rule ids like `R-CEIL`):
+  `https://raw.githubusercontent.com/flocko-motion/ranke-graph/refs/heads/main/spec/ranke-spec.typ`
 - **ranke-db — architecture & data model** (read this for the server):
   `https://raw.githubusercontent.com/flocko-motion/ranke-graph/refs/heads/main/02-ranke-db/ranke-db.typ`
 - **ranke-graph — foundational model & philosophy**:
   `https://raw.githubusercontent.com/flocko-motion/ranke-graph/refs/heads/main/01-ranke-graph/ranke-graph.typ`
+- **glossary — series-wide terminology**:
+  `https://raw.githubusercontent.com/flocko-motion/ranke-graph/refs/heads/main/glossary/ranke-glossary.typ`
+
+The papers govern meaning; the spec must never contradict them (Paper 01 wins for ADT rules,
+Paper 02 for RankeDB rules). `make docs` pulls **all** of them — papers, spec, glossary, shared.
 
 **Never diverge from the papers** — to change a concept, get consensus and update the paper
 first. The paper is the user's to write; do not edit it.
@@ -111,6 +118,13 @@ Never hand-edit `*.gen.*` or the generated client/references — change the spec
 - **`make generate`** regenerates everything from the OpenAPI spec into `openapi/` (Go server,
   TS client, HTML + Markdown references) and refreshes the `docs/openapi/` symlinks.
 - **`make check-tools`** reports any missing generation tool (go + node) with install hints.
+- **`make upgrade`** bumps the dependencies in one shot — every dep (`go get -u -t ./...`), the
+  tool deps, then **ranke-go last** so a pin sticks — tidies, and runs `verify`, so a breaking
+  upstream change surfaces here. The **`go` directive is not swept along**: it asks first and
+  puts back what `go get -u` raises on its own (`GO_VERSION=keep` / `=1.26.5` to skip the
+  prompt). Pin the library with `RANKE_GO_VERSION=vX.Y.Z`; revert with
+  `git checkout go.mod go.sum`.
+- **`make docs`** pulls the upstream papers, spec and glossary into `docs/papers/`.
 
 ## Layout
 

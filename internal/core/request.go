@@ -85,8 +85,9 @@ type Request struct {
 	Op Operation
 	// Branch is the target branch, or Universe for a privileged by-id read.
 	Branch string
-	// Query is the read AST (OpClaimQuery).
-	Query *Query
+	// Query is the read AST (OpClaimQuery) — ranke-go's RQL, which the endpoint
+	// maps the wire request onto and the Universe answers directly.
+	Query *ranke.Query
 	// Body is the signed-CBOR claims to merge (OpClaimContribute).
 	Body io.Reader
 	// ClaimID targets one claim (OpClaimGet, OpClaimContent) — content is addressed
