@@ -1,0 +1,34 @@
+{
+  "name": "ranke-explorer",
+  "private": true,
+  "type": "module",
+  "description": "Ranke Explorer \u2014 a pure browser client for a ranke-db archive",
+  "scripts": {
+    "bench": "node --expose-gc --max-old-space-size=4096 src/bench/graph-bench.ts",
+    "bench:render": "node src/bench/browser-bench.ts",
+    "dev": "vite",
+    "build": "vite build",
+    "build:single": "vite build && node scripts/inline.mjs"
+  },
+  "dependencies": {
+    "graphology": "^0.26.0",
+    "graphology-layout": "^0.6.1",
+    "graphology-layout-forceatlas2": "^0.10.1",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "sigma": "^3.0.2",
+    "zustand": "^5.0.14"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^5.2.0",
+    "playwright": "^1.50.0",
+    "typescript": "^5.7.0",
+    "vite": "^7.0.0"
+  },
+  "allowScripts": {
+    "esbuild@0.28.1": true
+  }
+}

@@ -137,15 +137,21 @@ Classical single-module Go repo at the repo root (module `github.com/flocko-moti
   backends sit in subpackages)
 - `docs/`, `openspec/` — docs & specs
 
-There is **no frontend in this repo** — any UI is an app-layer concern living in its own
-repo, talking to the server through the REST API.
+- `frontend/` — the **Ranke Explorer**: a pure browser client (Vite + React + TypeScript,
+  graphology + Sigma v3 + zustand). Static bundle, no application server, no proxy, no
+  database of its own; it talks straight to a ranke-db REST endpoint, holds several
+  instances at once, and works with none at all against mock data. Its own
+  `package.json` and its own `Makefile`, not wired into the root one: `make -C frontend run`
+  for the dev server, `make -C frontend` to build the distributable.
 
-- `spikes/<name>/` — **throwaway** experiments kept for the numbers they produced, not for
-  their code. Self-contained (own `package.json` if any), never imported by the server,
-  never wired into `make`, and deletable without consequence. Browser code may appear here;
-  that does not make it a frontend. Read a spike's `README.md` for its verdict — that is the
-  part worth keeping.
+  Layering is strict and one-way: `core/` is **headless** (store, graph, layouts, mock
+  data, connections — no React, no DOM, no Sigma), `render/` owns the Sigma instance at
+  module scope, and `ui/` is pure interface (React components that read state and
+  dispatch actions, holding no graph data). Node and edge data must never enter React
+  state, context or props.
 
-Status: mid-refactor on `refactor/hexagonal` — the pre-hexagonal server (its explorer
-frontend, tenants and multi-stack) is purged; the spec + `make generate`/`verify` pipeline
-is in place; `core`/adapters/`cmd` are being built.
+Status: mid-refactor on `refactor/hexagonal` — the pre-hexagonal server (tenants,
+multi-stack, and the schemaf-era explorer) is purged; the spec + `make generate`/`verify`
+pipeline is in place; `core`/adapters/`cmd` are being built. The explorer is rebuilt from
+scratch under `frontend/` (epic `td-976f37`) and carries no API wiring yet — the REST query
+contract (`add-rest-api`) has not merged.

@@ -1,0 +1,447 @@
+{
+  "what": "graphology build + layout cost for a Ranke-Graph shaped archive",
+  "caveat": "Heap deltas under ~10 MiB sit in the allocator noise floor; read the 100k row. Layout and build are pure JS on V8, so they transfer to the browser; paint does not.",
+  "node": "v24.18.0",
+  "platform": "linux/x64",
+  "cpu": "AMD Ryzen 7 PRO 5850U with Radeon Graphics",
+  "cores": 16,
+  "heapLimitMB": 4192,
+  "seed": 24301,
+  "fa2ProbeIterations": 6,
+  "gcExposed": true,
+  "claimsPerContribution": 10,
+  "results": [
+    {
+      "requested": 1000,
+      "claims": 1000,
+      "byClass": {
+        "contribution": 114,
+        "source": 185,
+        "derivation": 398,
+        "entity": 181,
+        "relation": 122
+      },
+      "contributions": 55,
+      "depth": {
+        "height": 60,
+        "meanDepth": 7.516,
+        "p95Depth": 28,
+        "layers": 61,
+        "widestLayer": 185,
+        "aspect": 0.32432432432432434,
+        "computeMs": 4.346787000000177
+      },
+      "layeredMs": 3.004414999999881,
+      "history": {
+        "rows": 55,
+        "widestRow": 197,
+        "meanRow": 18.181818181818183,
+        "aspect": 0.27918781725888325
+      },
+      "historyMs": 1.693651999999929,
+      "generateMs": 5.908873000000085,
+      "heapClaimsMB": 0.933135986328125,
+      "payloadMB": 0.5709972381591797,
+      "payloadParseMs": 2.3992470000000594,
+      "payloadStringifyMs": 2.7844820000000254,
+      "buildLeanMs": 27.729479999999967,
+      "buildFullMs": 26.045806999999968,
+      "heapLeanMB": 1.4179916381835938,
+      "heapFullMB": 1.5039138793945312,
+      "mergedEdges": 11,
+      "layout": {
+        "randomMs": 1.543831000000182,
+        "circularMs": 0.5767430000000786,
+        "circlepackMs": 22.33654700000011
+      },
+      "profiles": [
+        {
+          "profile": "all-edges",
+          "edges": 3775,
+          "degree": {
+            "max": 268,
+            "mean": 7.55,
+            "p50": 5,
+            "p99": 22,
+            "hubs": 7
+          },
+          "fa2BarnesHut": {
+            "setupMs": 20.39429980000009,
+            "msPerIter": 12.632062199999973,
+            "est200Ms": 2546.806739799995,
+            "est500Ms": 6336.425399799987
+          },
+          "fa2Plain": {
+            "setupMs": 2.0008820000001037,
+            "msPerIter": 10.942316999999946,
+            "est200Ms": 2190.4642819999895,
+            "est500Ms": 5473.159381999973
+          },
+          "fa2FromCirclepack": {
+            "setupMs": 1.1935990000001313,
+            "msPerIter": 5.425136999999995,
+            "est200Ms": 1086.2209989999992,
+            "est500Ms": 2713.7620989999978
+          }
+        },
+        {
+          "profile": "no-contributor-edges",
+          "edges": 2779,
+          "degree": {
+            "max": 198,
+            "mean": 5.558,
+            "p50": 4,
+            "p99": 15,
+            "hubs": 3
+          },
+          "fa2BarnesHut": {
+            "setupMs": 1.9130350000000362,
+            "msPerIter": 6.390536999999995,
+            "est200Ms": 1280.020434999999,
+            "est500Ms": 3197.1815349999974
+          },
+          "fa2Plain": {
+            "setupMs": 1.2474415000002068,
+            "msPerIter": 8.966529499999922,
+            "est200Ms": 1794.5533414999845,
+            "est500Ms": 4484.512191499962
+          },
+          "fa2FromCirclepack": null
+        }
+      ]
+    },
+    {
+      "requested": 10000,
+      "claims": 10002,
+      "byClass": {
+        "contribution": 1422,
+        "source": 1763,
+        "derivation": 3860,
+        "entity": 1758,
+        "relation": 1199
+      },
+      "contributions": 709,
+      "depth": {
+        "height": 714,
+        "meanDepth": 43.11867626474705,
+        "p95Depth": 350,
+        "layers": 715,
+        "widestLayer": 1763,
+        "aspect": 0.40499149177538285,
+        "computeMs": 26.54187899999988
+      },
+      "layeredMs": 7.5519290000002,
+      "history": {
+        "rows": 709,
+        "widestRow": 296,
+        "meanRow": 14.10719322990127,
+        "aspect": 2.39527027027027
+      },
+      "historyMs": 10.766508999999587,
+      "generateMs": 33.68760499999985,
+      "heapClaimsMB": 9.795883178710938,
+      "payloadMB": 5.687978744506836,
+      "payloadParseMs": 22.39699100000007,
+      "payloadStringifyMs": 49.050829999999905,
+      "buildLeanMs": 207.5330610000001,
+      "buildFullMs": 205.17063200000007,
+      "heapLeanMB": 15.218101501464844,
+      "heapFullMB": 15.698081970214844,
+      "mergedEdges": 20,
+      "layout": {
+        "randomMs": 1.8893499999999221,
+        "circularMs": 2.4651520000002165,
+        "circlepackMs": 153.16866600000003
+      },
+      "profiles": [
+        {
+          "profile": "all-edges",
+          "edges": 37549,
+          "degree": {
+            "max": 2549,
+            "mean": 7.508298340331933,
+            "p50": 5,
+            "p99": 17,
+            "hubs": 20
+          },
+          "fa2BarnesHut": {
+            "setupMs": 62.69124499999998,
+            "msPerIter": 128.40922,
+            "est200Ms": 25744.535245,
+            "est500Ms": 64267.301245
+          },
+          "fa2Plain": {
+            "setupMs": 285.16861350000045,
+            "msPerIter": 820.6924304999998,
+            "est200Ms": 164423.65471349994,
+            "est500Ms": 410631.3838634999
+          },
+          "fa2FromCirclepack": {
+            "setupMs": 0,
+            "msPerIter": 92.75298419999963,
+            "est200Ms": 18550.596839999926,
+            "est500Ms": 46376.492099999814
+          }
+        },
+        {
+          "profile": "no-contributor-edges",
+          "edges": 27551,
+          "degree": {
+            "max": 297,
+            "mean": 5.509098180363927,
+            "p50": 4,
+            "p99": 16,
+            "hubs": 16
+          },
+          "fa2BarnesHut": {
+            "setupMs": 20.755580200000622,
+            "msPerIter": 97.8302077999997,
+            "est200Ms": 19586.79714019994,
+            "est500Ms": 48935.85948019985
+          },
+          "fa2Plain": {
+            "setupMs": 52.948607249998986,
+            "msPerIter": 859.3892997500002,
+            "est200Ms": 171930.80855725004,
+            "est500Ms": 429747.5984822501
+          },
+          "fa2FromCirclepack": null
+        }
+      ]
+    },
+    {
+      "requested": 100000,
+      "claims": 100002,
+      "byClass": {
+        "contribution": 13878,
+        "source": 17659,
+        "derivation": 38755,
+        "entity": 17655,
+        "relation": 12055
+      },
+      "contributions": 6937,
+      "depth": {
+        "height": 6942,
+        "meanDepth": 360.2786944261115,
+        "p95Depth": 3288,
+        "layers": 6943,
+        "widestLayer": 17659,
+        "aspect": 0.3931139928648281,
+        "computeMs": 265.5741420000013
+      },
+      "layeredMs": 83.22222500000134,
+      "history": {
+        "rows": 6937,
+        "widestRow": 299,
+        "meanRow": 14.415741675075681,
+        "aspect": 23.20066889632107
+      },
+      "historyMs": 91.0609629999999,
+      "generateMs": 584.1572239999987,
+      "heapClaimsMB": 97.43085479736328,
+      "payloadMB": 57.17235469818115,
+      "payloadParseMs": 288.18834199999765,
+      "payloadStringifyMs": 500.8304219999991,
+      "buildLeanMs": 2274.483118999997,
+      "buildFullMs": 1977.352544999998,
+      "heapLeanMB": 137.57362365722656,
+      "heapFullMB": 140.60121154785156,
+      "mergedEdges": 46,
+      "layout": {
+        "randomMs": 9.025007000000187,
+        "circularMs": 7.668848000001162,
+        "circlepackMs": 3915.719670000002
+      },
+      "profiles": [
+        {
+          "profile": "all-edges",
+          "edges": 376634,
+          "degree": {
+            "max": 25120,
+            "mean": 7.532529349413012,
+            "p50": 5,
+            "p99": 16,
+            "hubs": 178
+          },
+          "fa2BarnesHut": {
+            "setupMs": 0,
+            "msPerIter": 1502.2568294000005,
+            "est200Ms": 300451.3658800001,
+            "est500Ms": 751128.4147000002
+          },
+          "fa2Plain": null,
+          "fa2FromCirclepack": {
+            "setupMs": 0,
+            "msPerIter": 1013.8986453999999,
+            "est200Ms": 202779.72907999996,
+            "est500Ms": 506949.3226999999
+          }
+        },
+        {
+          "profile": "no-contributor-edges",
+          "edges": 276636,
+          "degree": {
+            "max": 355,
+            "mean": 5.532609347813044,
+            "p50": 4,
+            "p99": 15,
+            "hubs": 174
+          },
+          "fa2BarnesHut": {
+            "setupMs": 36.22242520000145,
+            "msPerIter": 1455.2843917999999,
+            "est200Ms": 291093.10078519996,
+            "est500Ms": 727678.4183252
+          },
+          "fa2Plain": null,
+          "fa2FromCirclepack": null
+        }
+      ]
+    }
+  ],
+  "granularitySweep": {
+    "atClaims": 100000,
+    "results": [
+      {
+        "claimsPerContribution": 3,
+        "claims": 100002,
+        "contributions": 28952,
+        "edges": 311783,
+        "bookkeepingShare": 0.5790684186316274,
+        "depth": {
+          "height": 28954,
+          "meanDepth": 6166.969710605787,
+          "p95Depth": 23954,
+          "layers": 28955,
+          "widestLayer": 8633,
+          "aspect": 3.353874666975559,
+          "computeMs": 260.26210200000787
+        },
+        "history": {
+          "rows": 28952,
+          "widestRow": 39,
+          "meanRow": 3.4540618955512574,
+          "aspect": 742.3589743589744
+        },
+        "maxDegree": 25174,
+        "buildMs": 1542.801483999996,
+        "heapGraphMB": 187.52249908447266,
+        "layeredMs": 101.33676999999443,
+        "randomMs": 65.9073619999981,
+        "fa2MsPerIter": 1357.9394359999976
+      },
+      {
+        "claimsPerContribution": 10,
+        "claims": 100002,
+        "contributions": 6937,
+        "edges": 376634,
+        "bookkeepingShare": 0.13877722445551088,
+        "depth": {
+          "height": 6942,
+          "meanDepth": 360.2786944261115,
+          "p95Depth": 3288,
+          "layers": 6943,
+          "widestLayer": 17659,
+          "aspect": 0.3931139928648281,
+          "computeMs": 249.35370599999442
+        },
+        "history": {
+          "rows": 6937,
+          "widestRow": 299,
+          "meanRow": 14.415741675075681,
+          "aspect": 23.20066889632107
+        },
+        "maxDegree": 25120,
+        "buildMs": 3404.203963000007,
+        "heapGraphMB": 157.2050552368164,
+        "layeredMs": 81.92637999998988,
+        "randomMs": 18.140924999999697,
+        "fa2MsPerIter": 1405.7421413999982
+      },
+      {
+        "claimsPerContribution": 30,
+        "claims": 100002,
+        "contributions": 2368,
+        "edges": 389743,
+        "bookkeepingShare": 0.04739905201895962,
+        "depth": {
+          "height": 2376,
+          "meanDepth": 48.88187236255275,
+          "p95Depth": 29,
+          "layers": 2377,
+          "widestLayer": 19532,
+          "aspect": 0.12164652877329511,
+          "computeMs": 319.2466470000072
+        },
+        "history": {
+          "rows": 2368,
+          "widestRow": 1031,
+          "meanRow": 42.23057432432432,
+          "aspect": 2.296799224054316
+        },
+        "maxDegree": 25123,
+        "buildMs": 3803.337076999989,
+        "heapGraphMB": 164.71482849121094,
+        "layeredMs": 79.84996800000954,
+        "randomMs": 17.574611000003642,
+        "fa2MsPerIter": 1478.822974000001
+      },
+      {
+        "claimsPerContribution": 100,
+        "claims": 100002,
+        "contributions": 731,
+        "edges": 394619,
+        "bookkeepingShare": 0.014659706805863882,
+        "depth": {
+          "height": 742,
+          "meanDepth": 10.883692326153477,
+          "p95Depth": 22,
+          "layers": 743,
+          "widestLayer": 20204,
+          "aspect": 0.03672540091071075,
+          "computeMs": 298.0677949999954
+        },
+        "history": {
+          "rows": 731,
+          "widestRow": 3630,
+          "meanRow": 136.8016415868673,
+          "aspect": 0.20137741046831956
+        },
+        "maxDegree": 25213,
+        "buildMs": 4003.4534529999946,
+        "heapGraphMB": 169.9963150024414,
+        "layeredMs": 92.96827700000722,
+        "randomMs": 24.04207199999655,
+        "fa2MsPerIter": 1530.753549399998
+      },
+      {
+        "claimsPerContribution": 1000,
+        "claims": 100002,
+        "contributions": 39,
+        "edges": 396441,
+        "bookkeepingShare": 0.0008199836003279934,
+        "depth": {
+          "height": 56,
+          "meanDepth": 6.927471450570988,
+          "p95Depth": 21,
+          "layers": 57,
+          "widestLayer": 20487,
+          "aspect": 0.0027334407185044176,
+          "computeMs": 304.80582499998854
+        },
+        "history": {
+          "rows": 39,
+          "widestRow": 36952,
+          "meanRow": 2564.153846153846,
+          "aspect": 0.0010554232517861009
+        },
+        "maxDegree": 36953,
+        "buildMs": 3914.4363799999846,
+        "heapGraphMB": 170.1164779663086,
+        "layeredMs": 86.5887399999774,
+        "randomMs": 18.575542000005953,
+        "fa2MsPerIter": 1456.5917759999982
+      }
+    ]
+  }
+}

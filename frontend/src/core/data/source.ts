@@ -1,0 +1,123 @@
+/**
+ * The data-source port. Everything upstream of this file is indifferent to where
+ * claims come from.
+ *
+ * Two implementations: `MockSource`, which generates a Ranke-shaped archive in the
+ * browser, and `RestSource`, which talks to a ranke-db instance. Both are
+ * *connections* in the UI — a mock connection's "server details" are the
+ * generator's parameters, which is the whole trick: configuring the generator and
+ * configuring a server are the same act, so the app has one data path rather than a
+ * real one and a test one.
+ *
+ * `RestSource.fetch` is deliberately unimplemented: the REST query contract
+ * (`add-rest-api`) has not merged, and guessing at it would bake in a shape we would
+ * have to unpick. Its `health` works, because `/health` is settled.
+ */
+
+import { generate } from '../mock/generate.ts';
+import type { MockClaim } from '../mock/model.ts';
+import { authHeaders, endpoint, probe } from '../connections.ts';
+import type { Connection, MockParams, ProbeResult } from '../connections.ts';
+
+/** What a read returns: claims, and what the source can say about them. */
+export interface ClaimPage {
+  claims: MockClaim[];
+  contributions: number;
+  /** Time the source spent producing the page. */
+  elapsedMs: number;
+  /** How the page was obtained, for the log. */
+  origin: string;
+}
+
+export interface FetchRequest {
+  /** Cap on claims returned — `limit.results` in the query contract. */
+  limit: number;
+}
+
+export interface DataSource {
+  readonly kind: 'mock' | 'rest';
+  /** One line naming what this source is, shown in the UI. */
+  describe(): string;
+  health(): Promise<ProbeResult>;
+  fetch(request: FetchRequest): Promise<ClaimPage>;
+}
+
+/** NotWiredError marks a capability the server contract has not settled yet. */
+export class NotWiredError extends Error {
+  constructor(what: string) {
+    super(
+      `${what} is not wired yet: the REST query contract (add-rest-api) has not merged, ` +
+        'so the explorer imports no generated client. Use a mock source, or wait for the API.',
+    );
+    this.name = 'NotWiredError';
+  }
+}
+
+/** MockSource generates an archive locally. Its parameters are its server details. */
+export class MockSource implements DataSource {
+  readonly kind = 'mock' as const;
+
+  constructor(private params: MockParams) {}
+
+  describe(): string {
+    return `generated · seed ${this.params.seed}, ~${this.params.claimsPerContribution} claims per contribution`;
+  }
+
+  /** A generator is always healthy; reporting so keeps the UI uniform. */
+  async health(): Promise<ProbeResult> {
+    return { state: 'ok', latencyMs: 0, detail: this.describe() };
+  }
+
+  async fetch(request: FetchRequest): Promise<ClaimPage> {
+    // The limit is the query's; the shape is the connection's.
+    const claims = Math.min(this.params.claims, request.limit);
+    const archive = generate(claims, {
+      seed: this.params.seed,
+      claimsPerContribution: this.params.claimsPerContribution,
+    });
+    return {
+      claims: archive.claims,
+      contributions: archive.stats.contributions,
+      elapsedMs: archive.stats.generateMs,
+      origin: 'generator',
+    };
+  }
+}
+
+/** RestSource talks to a real instance. Health only, for now. */
+export class RestSource implements DataSource {
+  readonly kind = 'rest' as const;
+
+  constructor(
+    private connection: Connection,
+    private secret: string,
+  ) {}
+
+  describe(): string {
+    return `${this.connection.baseUrl} · ${this.connection.authKind}`;
+  }
+
+  health(): Promise<ProbeResult> {
+    return probe(this.connection, this.secret);
+  }
+
+  /** headOf reads a branch head — the one moving target in an archive. */
+  async headOf(branch: string): Promise<string> {
+    const response = await fetch(endpoint(this.connection, `/${branch}/head`), {
+      headers: authHeaders(this.connection, this.secret),
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status} reading ${branch} head`);
+    return (await response.text()).trim();
+  }
+
+  async fetch(_request: FetchRequest): Promise<ClaimPage> {
+    throw new NotWiredError('reading claims from a server');
+  }
+}
+
+/** sourceFor builds the source a connection stands for. */
+export function sourceFor(connection: Connection, secret: string): DataSource {
+  return connection.kind === 'mock'
+    ? new MockSource(connection.mock)
+    : new RestSource(connection, secret);
+}
