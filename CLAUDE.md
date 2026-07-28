@@ -132,9 +132,14 @@ Classical single-module Go repo at the repo root (module `github.com/flocko-moti
 
 - `openapi/` — the API spec (source of truth) **and** its generated artifacts (Go server `openapi.gen.go`, TS client `openapi.gen.ts`, `openapi.html`, `openapi.md`; the two references symlinked under `docs/openapi/`)
 - `cmd/ranke-db/` — the binary (`run <config>`, `verify <config>`; later `tui`/config edit)
-- `core/` · `config/` · `access/` · `port/` · `adapter/<port>/` — the hexagon
-- `frontend/` — kept, but **no longer part of ranke-db** (possible future app-layer tooling)
+- `internal/core/` (+ `internal/core/access/`) · `config/` · `adapters/<port>/` — the hexagon
+  (each `adapters/<port>/<port>.go` holds the port contract + its `New` factory; the
+  backends sit in subpackages)
 - `docs/`, `openspec/` — docs & specs
 
-Status: mid-refactor on `refactor/hexagonal` — schemaf/tenants/multi-stack purged; the
-spec + `make generate`/`verify` pipeline is in place; `core`/adapters/`cmd` are being built.
+There is **no frontend in this repo** — any UI is an app-layer concern living in its own
+repo, talking to the server through the REST API.
+
+Status: mid-refactor on `refactor/hexagonal` — the pre-hexagonal server (its explorer
+frontend, tenants and multi-stack) is purged; the spec + `make generate`/`verify` pipeline
+is in place; `core`/adapters/`cmd` are being built.
