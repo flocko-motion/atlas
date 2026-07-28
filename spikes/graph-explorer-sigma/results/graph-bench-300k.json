@@ -1,0 +1,61 @@
+{
+  "what": "graphology build + layout cost for a Ranke-Graph shaped archive",
+  "caveat": "Heap deltas under ~10 MiB sit in the allocator noise floor; read the 100k row. Layout and build are pure JS on V8, so they transfer to the browser; paint does not.",
+  "node": "v24.18.0",
+  "platform": "linux/x64",
+  "cpu": "AMD Ryzen 7 PRO 5850U with Radeon Graphics",
+  "cores": 16,
+  "heapLimitMB": 4192,
+  "seed": 24301,
+  "fa2ProbeIterations": 3,
+  "gcExposed": true,
+  "results": [
+    {
+      "requested": 300000,
+      "claims": 299964,
+      "byClass": {
+        "contribution": 4505,
+        "source": 60004,
+        "derivation": 131999,
+        "entity": 59999,
+        "relation": 43457
+      },
+      "generateMs": 1396.1089120000001,
+      "heapClaimsMB": 288.98851776123047,
+      "payloadMB": 157.33325672149658,
+      "payloadParseMs": 716.462442,
+      "payloadStringifyMs": 1231.295408,
+      "buildLeanMs": 4434.898066,
+      "buildFullMs": 4702.110432,
+      "heapLeanMB": 368.74222564697266,
+      "heapFullMB": 386.97045135498047,
+      "mergedEdges": 94,
+      "layout": {
+        "randomMs": 206.07210499999928,
+        "circularMs": 24.579258000001573,
+        "circlepackMs": 21549.285722000004
+      },
+      "profiles": [
+        {
+          "profile": "all-edges",
+          "edges": 1028550,
+          "degree": {
+            "max": 75388,
+            "mean": 6.85782293875265,
+            "p50": 5,
+            "p99": 33,
+            "hubs": 27
+          },
+          "fa2BarnesHut": {
+            "setupMs": 0,
+            "msPerIter": 6681.049545999995,
+            "est200Ms": 1336209.909199999,
+            "est500Ms": 3340524.7729999973
+          },
+          "fa2Plain": null,
+          "fa2FromCirclepack": null
+        }
+      ]
+    }
+  ]
+}

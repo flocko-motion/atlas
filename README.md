@@ -22,6 +22,7 @@ exactly one configuration supplied at launch.
 | `adapters/` | One directory per adapter port: `storage`, `sequencer`, `signer`, `vault`, `auth`, `endpoints` |
 | `examples/` | Launchable example configurations |
 | `docs/`, `openspec/` | Documentation and capability specs |
+| `spikes/` | Throwaway experiments, kept for their measured results (see each spike's `README.md`) |
 
 ## Building
 
