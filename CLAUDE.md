@@ -140,6 +140,12 @@ Classical single-module Go repo at the repo root (module `github.com/flocko-moti
 There is **no frontend in this repo** — any UI is an app-layer concern living in its own
 repo, talking to the server through the REST API.
 
+- `spikes/<name>/` — **throwaway** experiments kept for the numbers they produced, not for
+  their code. Self-contained (own `package.json` if any), never imported by the server,
+  never wired into `make`, and deletable without consequence. Browser code may appear here;
+  that does not make it a frontend. Read a spike's `README.md` for its verdict — that is the
+  part worth keeping.
+
 Status: mid-refactor on `refactor/hexagonal` — the pre-hexagonal server (its explorer
 frontend, tenants and multi-stack) is purged; the spec + `make generate`/`verify` pipeline
 is in place; `core`/adapters/`cmd` are being built.

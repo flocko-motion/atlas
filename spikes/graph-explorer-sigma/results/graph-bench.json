@@ -1,0 +1,247 @@
+{
+  "what": "graphology build + layout cost for a Ranke-Graph shaped archive",
+  "caveat": "Heap deltas under ~10 MiB sit in the allocator noise floor; read the 100k row. Layout and build are pure JS on V8, so they transfer to the browser; paint does not.",
+  "node": "v24.18.0",
+  "platform": "linux/x64",
+  "cpu": "AMD Ryzen 7 PRO 5850U with Radeon Graphics",
+  "cores": 16,
+  "heapLimitMB": 4192,
+  "seed": 24301,
+  "fa2ProbeIterations": 6,
+  "gcExposed": true,
+  "results": [
+    {
+      "requested": 1000,
+      "claims": 1000,
+      "byClass": {
+        "contribution": 20,
+        "source": 204,
+        "derivation": 439,
+        "entity": 199,
+        "relation": 138
+      },
+      "generateMs": 4.4325280000000475,
+      "heapClaimsMB": 0.9118118286132812,
+      "payloadMB": 0.5151424407958984,
+      "payloadParseMs": 1.691707999999835,
+      "payloadStringifyMs": 1.828616000000011,
+      "buildLeanMs": 7.06163800000013,
+      "buildFullMs": 11.205182999999806,
+      "heapLeanMB": 1.3972091674804688,
+      "heapFullMB": 1.4090957641601562,
+      "mergedEdges": 16,
+      "layout": {
+        "randomMs": 0.7906150000001162,
+        "circularMs": 0.2231090000000222,
+        "circlepackMs": 12.438270000000102
+      },
+      "profiles": [
+        {
+          "profile": "all-edges",
+          "edges": 3339,
+          "degree": {
+            "max": 266,
+            "mean": 6.678,
+            "p50": 5,
+            "p99": 34,
+            "hubs": 4
+          },
+          "fa2BarnesHut": {
+            "setupMs": 13.063012000000025,
+            "msPerIter": 7.368275999999969,
+            "est200Ms": 1486.7182119999939,
+            "est500Ms": 3697.2010119999845
+          },
+          "fa2Plain": {
+            "setupMs": 3.3818134999999074,
+            "msPerIter": 6.0799935000000005,
+            "est200Ms": 1219.3805135,
+            "est500Ms": 3043.3785635000004
+          },
+          "fa2FromCirclepack": {
+            "setupMs": 0.5363959999997858,
+            "msPerIter": 4.027469000000065,
+            "est200Ms": 806.0301960000127,
+            "est500Ms": 2014.270896000032
+          }
+        },
+        {
+          "profile": "no-contributor-edges",
+          "edges": 2343,
+          "degree": {
+            "max": 33,
+            "mean": 4.686,
+            "p50": 4,
+            "p99": 32,
+            "hubs": 0
+          },
+          "fa2BarnesHut": {
+            "setupMs": 0.6559227999997805,
+            "msPerIter": 4.244715200000064,
+            "est200Ms": 849.5989628000125,
+            "est500Ms": 2123.0135228000318
+          },
+          "fa2Plain": {
+            "setupMs": 0.483572749999837,
+            "msPerIter": 5.98126325000004,
+            "est200Ms": 1196.736222750008,
+            "est500Ms": 2991.11519775002
+          },
+          "fa2FromCirclepack": null
+        }
+      ]
+    },
+    {
+      "requested": 10000,
+      "claims": 9985,
+      "byClass": {
+        "contribution": 155,
+        "source": 2004,
+        "derivation": 4399,
+        "entity": 1999,
+        "relation": 1428
+      },
+      "generateMs": 30.76173700000004,
+      "heapClaimsMB": 9.620437622070312,
+      "payloadMB": 5.218278884887695,
+      "payloadParseMs": 13.807722000000012,
+      "payloadStringifyMs": 34.27542900000003,
+      "buildLeanMs": 118.74233100000015,
+      "buildFullMs": 126.96732300000008,
+      "heapLeanMB": 13.930404663085938,
+      "heapFullMB": 14.733329772949219,
+      "mergedEdges": 24,
+      "layout": {
+        "randomMs": 3.9930719999999837,
+        "circularMs": 3.6521620000000894,
+        "circlepackMs": 111.04117100000008
+      },
+      "profiles": [
+        {
+          "profile": "all-edges",
+          "edges": 34161,
+          "degree": {
+            "max": 2558,
+            "mean": 6.842463695543315,
+            "p50": 5,
+            "p99": 33,
+            "hubs": 5
+          },
+          "fa2BarnesHut": {
+            "setupMs": 36.22332999999999,
+            "msPerIter": 79.944182,
+            "est200Ms": 16025.05973,
+            "est500Ms": 40008.31433
+          },
+          "fa2Plain": {
+            "setupMs": 12.376863749999757,
+            "msPerIter": 606.1372872500001,
+            "est200Ms": 121239.83431375002,
+            "est500Ms": 303081.02048875
+          },
+          "fa2FromCirclepack": {
+            "setupMs": 0,
+            "msPerIter": 70.47687420000003,
+            "est200Ms": 14095.374840000006,
+            "est500Ms": 35238.43710000001
+          }
+        },
+        {
+          "profile": "no-contributor-edges",
+          "edges": 24180,
+          "degree": {
+            "max": 164,
+            "mean": 4.843264897346019,
+            "p50": 4,
+            "p99": 32,
+            "hubs": 1
+          },
+          "fa2BarnesHut": {
+            "setupMs": 38.04274099999966,
+            "msPerIter": 63.688638000000175,
+            "est200Ms": 12775.770341000034,
+            "est500Ms": 31882.361741000088
+          },
+          "fa2Plain": {
+            "setupMs": 7.172054750001507,
+            "msPerIter": 613.3257432499997,
+            "est200Ms": 122672.32070474995,
+            "est500Ms": 306670.0436797499
+          },
+          "fa2FromCirclepack": null
+        }
+      ]
+    },
+    {
+      "requested": 100000,
+      "claims": 99968,
+      "byClass": {
+        "contribution": 1505,
+        "source": 20004,
+        "derivation": 43999,
+        "entity": 19999,
+        "relation": 14461
+      },
+      "generateMs": 435.5616489999993,
+      "heapClaimsMB": 95.76070404052734,
+      "payloadMB": 52.36075973510742,
+      "payloadParseMs": 205.57846300000165,
+      "payloadStringifyMs": 388.3415589999986,
+      "buildLeanMs": 1293.9070600000014,
+      "buildFullMs": 1428.896627,
+      "heapLeanMB": 125.45614624023438,
+      "heapFullMB": 131.5416259765625,
+      "mergedEdges": 52,
+      "layout": {
+        "randomMs": 20.72289600000113,
+        "circularMs": 16.715444999999818,
+        "circlepackMs": 3193.8878179999974
+      },
+      "profiles": [
+        {
+          "profile": "all-edges",
+          "edges": 342632,
+          "degree": {
+            "max": 25235,
+            "mean": 6.854833546734955,
+            "p50": 5,
+            "p99": 33,
+            "hubs": 15
+          },
+          "fa2BarnesHut": {
+            "setupMs": 0,
+            "msPerIter": 1320.0622899999994,
+            "est200Ms": 264012.45799999987,
+            "est500Ms": 660031.1449999997
+          },
+          "fa2Plain": null,
+          "fa2FromCirclepack": {
+            "setupMs": 15.627807999998936,
+            "msPerIter": 919.2217330000007,
+            "est200Ms": 183859.97440800013,
+            "est500Ms": 459626.4943080004
+          }
+        },
+        {
+          "profile": "no-contributor-edges",
+          "edges": 242668,
+          "degree": {
+            "max": 479,
+            "mean": 4.85491357234315,
+            "p50": 4,
+            "p99": 32,
+            "hubs": 11
+          },
+          "fa2BarnesHut": {
+            "setupMs": 1119.805040599998,
+            "msPerIter": 1074.3581244000002,
+            "est200Ms": 215991.42992060006,
+            "est500Ms": 538298.8672406
+          },
+          "fa2Plain": null,
+          "fa2FromCirclepack": null
+        }
+      ]
+    }
+  ]
+}
