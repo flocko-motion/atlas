@@ -37,12 +37,12 @@ export interface DataSource {
   fetch(request: FetchRequest): Promise<ClaimPage>;
 }
 
-/** NotWiredError marks a capability the server contract has not settled yet. */
+/** NotWiredError marks a capability the explorer has not bound to the contract yet. */
 export class NotWiredError extends Error {
   constructor(what: string) {
     super(
-      `${what} is not wired yet: the REST query contract (add-rest-api) has not merged, ` +
-        'so the explorer imports no generated client. Use a mock source, or wait for the API.',
+      `${what} is not wired yet: the REST query contract has merged, but the explorer ` +
+        'imports no generated client from it so far. Use a mock source for now.',
     );
     this.name = 'NotWiredError';
   }
