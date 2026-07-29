@@ -77,7 +77,7 @@ export function QueryPane() {
         accumulates — which is what a session of queries does.
         {isMock
           ? ''
-          : ' Reading claims from a server is not wired yet: the REST query contract (add-rest-api) has not merged.'}
+          : ' Reading claims from a server is not wired yet: the REST query contract has merged, but the explorer binds to no generated client so far.'}
       </p>
     </div>
   );

@@ -45,7 +45,7 @@ export function SelectionPane() {
 
       <h2>references</h2>
       {detail.references.length === 0 ? (
-        <Empty>An initial claim — it references nothing.</Empty>
+        <Empty>An initial node — it references nothing.</Empty>
       ) : (
         <ul className="refs">
           {detail.references.slice(0, 40).map((ref) => (

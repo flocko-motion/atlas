@@ -220,9 +220,9 @@ export function ConnectionsPane() {
       </div>
 
       <p className="note">
-        Reading claims from a server is not wired yet — the REST query contract
-        (<code>add-rest-api</code>) has not merged, so the explorer imports no generated
-        client. Servers can be configured and health-checked today; mock archives are
+        Reading claims from a server is not wired yet — the REST query contract has
+        merged (<code>rest-api</code>), but the explorer imports no generated client from
+        it so far. Servers can be configured and health-checked today; mock archives are
         fully readable.
       </p>
     </div>
