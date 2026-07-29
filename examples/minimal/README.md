@@ -32,9 +32,10 @@ shut down) as a self-test.
 
 ## What a running instance answers today
 
-The REST routes are mounted, but the core behind them is still being built, so
-every one of them answers `501 {"code":"unimplemented","error":"core: not
-implemented"}`:
+The stack assembles fully — storage, sequencer, signer, and one REST endpoint —
+and `verify --level connect` proves it. The REST routes are mounted too, but the
+core behind them is still being written, so every one of them answers
+`501 {"code":"unimplemented","error":"core: not implemented"}`:
 
 | Route | Status |
 |---|---|
@@ -42,7 +43,15 @@ implemented"}`:
 | `GET /{branch}/head`, `GET /{branch}/claim/{id}` | mounted → 501 |
 | `POST /query`, `POST /contribute` | mounted → 501 |
 
-Writing is doubly unavailable: besides the core, the sequencer port has no
-backend (`adapters/sequencer`), because ranke-go's write path — `NewContribution`
-and `Merge` — is still a draft upstream. So an instance cannot yet be seeded with
-claims by any route, over HTTP or otherwise.
+The single remaining gap is `internal/core`'s `execute`, which returns
+`ErrNotImplemented` for every operation. Authentication and authorisation already
+run in front of it, and the sequencer behind it is live — so an instance cannot yet
+be seeded with claims, but nothing structural is missing any more.
+
+### The sequencer section
+
+`"sequencer": {"type": "dev", "history": {"type": "mem"}}` binds ranke-go's serial
+reference writer with an in-memory head timeline — right for a dev server that
+persists nothing. `"concurrent"` selects the optimistic-concurrency writer, and
+`"history": {"type": "file", "path": "..."}` persists the head timeline, which is
+what lets a restart reopen an archive rather than bootstrap a fresh one.
