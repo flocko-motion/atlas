@@ -22,29 +22,24 @@ import (
 	"github.com/flocko-motion/rankedb/internal/core/access"
 )
 
-// Sentinel errors the pipeline returns, with the status an endpoint maps each to.
-// A missing or invalid credential (401) is auth.ErrUnauthenticated, returned by
-// the authenticate stage before these apply.
+// Sentinel errors the pipeline returns, with the status an endpoint maps each to. A
+// bad credential (401) is auth.ErrUnauthenticated, raised before these apply.
 var (
 	// ErrForbidden — an authenticated principal lacks a grant for the action (403).
 	// Distinct from auth.ErrUnauthenticated: identity was established, authority not.
 	ErrForbidden = errors.New("core: forbidden")
-	// ErrNotFound — an unknown branch, claim, or content, or one outside the named
-	// branch's closure; the two are indistinguishable (404).
+	// ErrNotFound — unknown, or outside the named scope's closure; indistinguishable (404).
 	ErrNotFound = errors.New("core: not found")
 	// ErrConflict — a contribution clashes with the branch's current head (409).
 	ErrConflict = errors.New("core: head conflict")
 	// ErrBusy — too many verification runs are active to start another (429).
 	ErrBusy = errors.New("core: verification run limit reached")
-	// ErrNotImplemented — a capability the stack does not (yet) offer (501). Every
-	// execute path returns it until the engine behind it is built.
+	// ErrNotImplemented — a capability the stack does not yet offer (501).
 	ErrNotImplemented = errors.New("core: not implemented")
 )
 
-// Category is a transport-neutral, machine-readable classification of a failure.
-// Core never names an HTTP status; an endpoint maps a Category to its transport's
-// status (an HTTP code, an MCP error) and echoes the Category as the response's
-// machine-readable code. Defined once here so every transport classifies alike.
+// Category classifies a failure transport-neutrally: core names no HTTP status, an
+// endpoint maps the Category to its own and echoes it as the machine-readable code.
 type Category string
 
 const (
@@ -58,9 +53,8 @@ const (
 	CatInternal        Category = "internal"        // anything else
 )
 
-// Categorize classifies an error into its Category by walking the sentinel chain,
-// so an endpoint has one place to translate to its transport. A nil error yields
-// the empty category (callers only classify a non-nil error).
+// Categorize walks the sentinel chain to a Category, so an endpoint translates in one
+// place. A nil error yields the empty category.
 func Categorize(err error) Category {
 	switch {
 	case err == nil:
@@ -98,11 +92,8 @@ func New(a *auth.Set, chk *access.Checker, seq sequencer.Sequencer, store storag
 	return &Core{auth: a, access: chk, seq: seq, store: store}
 }
 
-// Handle runs a request through the pipeline: authenticate → authorize → execute,
-// enriching the request in place and returning the response as a Stream. A
-// pre-stream failure (auth, access, bad input) comes back as the error with no
-// stream; success returns a Stream the endpoint frames. The Report shows how far
-// it got.
+// Handle runs a request through authenticate → authorize → execute, enriching it in
+// place. A pre-stream failure returns the error alone; success returns a Stream.
 func (c *Core) Handle(ctx context.Context, req *Request) (Stream, error) {
 	if err := c.authenticate(ctx, req); err != nil {
 		return nil, err
@@ -124,9 +115,8 @@ func (c *Core) authenticate(ctx context.Context, req *Request) error {
 	return nil
 }
 
-// authorize confirms the principal holds the operation's right on the branch. An
-// operation whose Right is 0 needs no grant (health, verification) and passes on
-// identity alone.
+// authorize confirms the principal holds the operation's right on the branch; a Right
+// of 0 needs no grant and passes on identity alone.
 func (c *Core) authorize(req *Request) error {
 	right := req.Op.Right()
 	if right == 0 {
@@ -140,9 +130,8 @@ func (c *Core) authorize(req *Request) error {
 	return nil
 }
 
-// execute runs the operation against the ports and returns its response stream.
-// Scaffold: the query, contribution, read, and verification engines over storage
-// and the sequencer land here, each producing a Stream of Items.
+// execute runs the operation against the ports. Scaffold: the query, contribution and
+// verification engines land here, each producing a Stream.
 func (c *Core) execute(ctx context.Context, req *Request) (Stream, error) {
 	req.Report.step("execute %v: not yet implemented", req.Op)
 	return nil, ErrNotImplemented

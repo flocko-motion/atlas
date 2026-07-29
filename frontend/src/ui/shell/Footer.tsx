@@ -1,9 +1,11 @@
 /**
- * The footer: essential status, and enough of a breakdown to attribute a bad frame.
+ * package: ui / shell
+ * type:    view
+ * job:     show essential status, and enough breakdown to attribute a bad frame
+ * limits:  a diagnostic, not a gate; it reads state only (-> core/store)
  *
- * It is a diagnostic, not a gate. When interaction degrades, the readout should say
- * which cost dominates — the edges being drawn, the last full refresh, or a stalled
- * main thread — rather than prompting a guess.
+ * When interaction degrades the readout should say which cost dominates — edges drawn,
+ * the last full refresh, or a stalled main thread — rather than prompting a guess.
  */
 
 import { activeView, useExplorer } from '../../core/store.ts';

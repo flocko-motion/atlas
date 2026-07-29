@@ -1,9 +1,11 @@
 /**
- * The query pane: what to read from the active source, and the button that runs it.
+ * package: ui / panes
+ * type:    view
+ * job:     show what to read from the active source, and run it
+ * limits:  presentation; the query and the run are core's (-> core/query, core/session)
  *
- * Against a mock archive the query is honoured directly by the generator. Against a
- * real instance it is the shape of the REST read — which is not wired, because the
- * contract has not merged, so the pane says so rather than pretending.
+ * A mock archive honours the query directly. Against a real instance it is the shape of
+ * the REST read, which is not wired yet — the pane says so rather than pretending.
  */
 
 import { activeConnection, useConnections } from '../../core/connections.ts';

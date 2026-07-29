@@ -31,13 +31,8 @@ import (
 	"github.com/flocko-motion/rankedb/internal/core/access"
 )
 
-// Config is the parsed launch artifact. The driven ports (signer, storage,
-// sequencer, vault) and the account roster are shared by the whole instance —
-// there is one archive and one signing identity. Authentication and admission are
-// per endpoint: each endpoint block carries its own transport, its own auth
-// backends, and the set of accounts it admits. Each adapter section is an open
-// key/value map, so the schema fixes only which ports exist, not which settings
-// each backend takes; values may be env()/vault() placeholders until read.
+// Config is the parsed launch artifact: driven ports and accounts shared by the
+// instance, authentication and admission per endpoint, each section an open map.
 type Config struct {
 	Signer    section                  `json:"signer"`
 	Vault     section                  `json:"vault"`
@@ -46,69 +41,54 @@ type Config struct {
 	Accounts  map[string]accountConfig `json:"accounts"`
 	Endpoints []endpointConfig         `json:"endpoints"`
 
-	// box is the shared secret-store holder, seeded from Vault at parse. It is
-	// assembled state, not JSON (unexported), and the only place a section reaches
-	// the vault — built lazily on first vault() use.
+	// box is the shared secret-store holder, seeded from Vault at parse: the only
+	// place a section reaches the vault, built lazily on first vault() use.
 	box *vaultBox
 }
 
-// accountConfig is one system account: its CRUD grants over branch globs. It
-// carries no credential material — how a request authenticates AS this account is
-// an endpoint's auth backend (which maps a token to this name); accounts hold only
-// authorization. Grants carry no env()/vault() delegation — pure policy, validated
-// at parse.
+// accountConfig is one system account: CRUD grants over branch globs, no credential
+// material. Grants are pure policy — no env()/vault() delegation — validated at parse.
 type accountConfig struct {
 	Grants []string `json:"grants"`
 }
 
-// endpointConfig is one endpoint: a transport, the auth backends it accepts, and
-// the admit list of account names it serves. Admission is the isolation boundary —
-// an account absent from admit is unreachable here, even if some backend minted
-// its name, because this endpoint's access checker is built from the admitted
-// subset only.
+// endpointConfig is one endpoint: a transport, its auth backends, and the accounts it
+// admits. Admission isolates: its access checker is built from the admitted subset.
 type endpointConfig struct {
 	Transport section   `json:"transport"`
 	Auth      []section `json:"auth"`
 	Admit     []string  `json:"admit"`
 }
 
-// section is one adapter's raw config: keys to undecoded JSON values, resolved
-// per value into a scope when the adapter reads them.
+// section is one adapter's raw config: undecoded JSON, resolved per value on read.
 type section map[string]json.RawMessage
 
-// App is the assembled stack Run produces: the shared driven ports and the
-// endpoints, each of which internally holds its own core (auth + admitted-account
-// access + the shared driven ports).
+// App is the assembled stack Run produces: the shared driven ports and the endpoints,
+// each holding its own core over them.
 type App struct {
 	Storage   storage.Storage
 	Signer    signer.Signer
 	Sequencer sequencer.Sequencer
 	Endpoints []endpoints.Endpoints
-	// The secret store is omitted on purpose: it lives in the config's section box,
-	// built lazily to resolve vault() references, and nobody downstream holds it.
+	// The secret store is omitted on purpose: it lives in the section box, and nobody
+	// downstream holds it.
 }
 
 // Level is the depth of a Verify check.
 type Level int
 
 const (
-	// LevelSyntax parses and shape-checks the config offline — no environment,
-	// no vault, no assembly.
+	// LevelSyntax parses and shape-checks offline — no environment, vault or assembly.
 	LevelSyntax Level = iota
-	// LevelResolve additionally resolves every env()/vault() reference, catching
-	// an unset variable or a missing vault key without assembling any adapter.
+	// LevelResolve also resolves every env()/vault() reference, assembling nothing.
 	LevelResolve
-	// LevelConnect additionally assembles the adapters — dialing storage, vault,
-	// and the sequencer — then discards them without serving, so a bad backend
+	// LevelConnect also assembles the adapters and discards them, so a bad backend
 	// surfaces before Run does.
 	LevelConnect
 )
 
-// Verify checks an (optionally age-encrypted) config to the given level. It
-// decrypts with pass when the bytes are encrypted, then: LevelSyntax parses and
-// shape-checks; LevelResolve resolves every env()/vault() reference (building the
-// vault lazily, only if referenced); LevelConnect also assembles the adapters —
-// reaching every backend actually used — and discards them without serving.
+// Verify checks an (optionally age-encrypted) config to the given level, decrypting
+// with pass when the bytes are encrypted. See Level for what each depth reaches.
 func Verify(ctx context.Context, cfg io.Reader, pass PassphraseSource, level Level) error {
 	c, err := decode(cfg, pass)
 	if err != nil {
@@ -128,9 +108,8 @@ func Verify(ctx context.Context, cfg io.Reader, pass PassphraseSource, level Lev
 	return err
 }
 
-// Run decrypts with pass when needed, parses, and assembles the adapter stack,
-// returning the live App. The vault builds lazily as sections resolve vault()
-// references during assembly.
+// Run decrypts with pass when needed, parses, and assembles the stack. The vault
+// builds lazily as sections resolve vault() references.
 func Run(ctx context.Context, cfg io.Reader, pass PassphraseSource) (*App, error) {
 	c, err := decode(cfg, pass)
 	if err != nil {
@@ -167,9 +146,8 @@ func load(r io.Reader) (*Config, error) {
 	if _, err := access.New(c.accountSpecs()); err != nil {
 		return nil, fmt.Errorf("config: %w", err)
 	}
-	// Referential integrity, also offline: every admitted name must be a defined
-	// account, so a typo in an admit list fails syntax rather than silently
-	// admitting no one.
+	// Referential integrity, also offline: a typo in an admit list fails the syntax
+	// check rather than silently admitting no one.
 	for i, ec := range c.Endpoints {
 		for _, name := range ec.Admit {
 			if _, ok := c.Accounts[name]; !ok {
@@ -177,15 +155,13 @@ func load(r io.Reader) (*Config, error) {
 			}
 		}
 	}
-	// Seed the shared secret-store holder from the vault section; it builds the
-	// store lazily, only if some section resolves a vault() reference, and caches
-	// each resolved secret for vaultTTL.
+	// Seed the secret-store holder: it builds lazily on the first vault() reference and
+	// caches each resolved secret for vaultTTL.
 	c.box = newVaultBox(c.Vault)
 	return &c, nil
 }
 
-// accountSpecs flattens the account roster to the name→grant-specs map the access
-// checker consumes.
+// accountSpecs flattens the roster to the map the access checker consumes.
 func (c *Config) accountSpecs() map[string][]string {
 	specs := make(map[string][]string, len(c.Accounts))
 	for name, ac := range c.Accounts {
@@ -194,14 +170,8 @@ func (c *Config) accountSpecs() map[string][]string {
 	return specs
 }
 
-// build assembles the stack in dependency order: the shared driven ports first
-// (storage, signer, then the sequencer that needs both), then each endpoint —
-// which gets its own core composing its auth backends and its admitted-account
-// access checker over the shared driven ports. Each adapter is handed only its
-// own section as a scope.Section, whose env()/vault() delegations resolve lazily
-// when read (the vault builds on the first vault() reference). An absent section
-// yields a nil/empty adapter, so a partial config (storage-only) assembles just
-// what it carries.
+// build assembles in dependency order: storage, signer, the sequencer that needs
+// both, then each endpoint's own core. An absent section yields a nil adapter.
 func (c *Config) build(ctx context.Context) (*App, error) {
 	var app App
 
@@ -245,8 +215,7 @@ func (c *Config) build(ctx context.Context) (*App, error) {
 }
 
 // buildEndpoint composes one endpoint's core: its auth backends indexed for scheme
-// dispatch, and an access checker built from only the accounts it admits (so an
-// un-admitted account is simply absent and denied), over the shared driven ports.
+// dispatch, and a checker over the accounts it admits alone.
 func (c *Config) buildEndpoint(ctx context.Context, ec endpointConfig, store storage.Storage, seq sequencer.Sequencer) (*core.Core, error) {
 	var auths []auth.Auth
 	for j, a := range ec.Auth {
@@ -273,11 +242,8 @@ func (c *Config) buildEndpoint(ctx context.Context, ec endpointConfig, store sto
 	return core.New(set, chk, seq, store), nil
 }
 
-// resolveAll resolves every env()/vault() reference in the config, assembling no
-// adapter — the LevelResolve verification pass. It fails on the first unresolvable
-// reference (an unset env var, a missing vault key). The vault section is not
-// resolved on its own: it is dialed only if some other section references vault(),
-// so resolve checks only what is actually used.
+// resolveAll resolves every env()/vault() reference and assembles nothing, failing on
+// the first unresolvable one. The vault is dialed only if a section references it.
 func (c *Config) resolveAll(ctx context.Context) error {
 	singles := []struct {
 		name string

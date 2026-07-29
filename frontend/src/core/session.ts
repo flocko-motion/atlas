@@ -1,9 +1,11 @@
 /**
- * Session actions — everything the user can initiate, expressed without a UI.
+ * package: core / session
+ * type:    logic
+ * job:     the actions a user can initiate, expressed without a UI
+ * limits:  headless; the UI only dispatches them (-> ui)
  *
- * The UI calls these and renders the resulting state; it never manipulates the
- * graph, the layout or the store directly. That is the whole of the separation:
- * a component may read state and dispatch an action, and nothing else.
+ * The UI calls these and renders the resulting state, never touching the graph, the
+ * layout or the store directly: a component may read state and dispatch, nothing else.
  */
 
 import { activeConnection, useConnections } from './connections.ts';
@@ -49,12 +51,9 @@ export function shapeOf() {
 }
 
 /**
- * load reads from the active source, merges the result into the union and lays the
- * union out. It does not know whether the claims came from a generator or a server —
- * that is the point of the data-source port.
- *
- * Merging rather than replacing is the accumulation the design calls for: a claim
- * reached twice resolves to one node, so the union grows by union and not by sum.
+ * load reads from the active source, merges into the union and lays it out, indifferent
+ * to whether a generator or a server answered. Merging is the accumulation the design
+ * calls for: a claim reached twice is one node, so the union grows by union, not sum.
  */
 export async function load(req: LoadRequest = {}): Promise<void> {
   const store = useExplorer.getState();

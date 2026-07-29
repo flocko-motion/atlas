@@ -1,11 +1,12 @@
 /**
- * The union graph — every claim loaded this session, in one graphology instance.
+ * package: core / graph
+ * type:    data
+ * job:     hold every claim loaded this session in one graphology instance
+ * limits:  headless storage; neither layout nor rendering (-> core/layout, render)
  *
- * It lives at module scope, deliberately outside any framework state: React holds
- * a handle to it and never the data. A claim's id is its content address, so a
- * claim reached by two different queries merges to one node with no
- * reconciliation, and the store's size is the union of what was fetched rather
- * than the sum.
+ * Module scope, deliberately outside framework state: React holds a handle, never the
+ * data. An id is a content address, so a claim reached twice merges to one node — the
+ * size is the union, not the sum.
  */
 
 import { DirectedGraph } from 'graphology';

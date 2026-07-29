@@ -1,4 +1,9 @@
 /**
+ * package: main / entry
+ * type:    entry
+ * job:     mount React, which renders the shell
+ * limits:  wiring only; the store and the renderer own their own lifecycles
+ *
  * Entry point. Mounts React, which renders the shell; the graph store and the
  * Sigma instance are created by core and render/, outside React entirely.
  */

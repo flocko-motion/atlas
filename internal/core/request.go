@@ -21,19 +21,15 @@ import (
 )
 
 // The reserved pseudo-branches, re-exported from access so a request targets them
-// through core alone (Branch = core.Universe / core.Branches). Universe is the
-// privileged by-id read across the whole graph; Branches is the branch table.
+// through core alone: Universe is the privileged by-id read, Branches the branch table.
 const (
 	Universe = access.Universe
 	Branches = access.Branches
 )
 
-// Operation is what a request asks the server to do, named Subject+Verb so it
-// sorts hierarchically and disambiguates (OpClaimDelete vs OpVerificationDelete).
-// It fixes the access right the authorize stage checks — 0 means no grant is
-// required (health, verification) — and selects the execute branch. A read of a
-// claim by id is one op whether the branch is a name or $universe; the pseudo-
-// branch generalises the scope, so there is no separate universe op.
+// Operation is what a request asks for, named Subject+Verb so it sorts hierarchically.
+// It fixes the right the authorize stage checks (0 = none) and selects the execute
+// branch; the pseudo-branches generalise scope, so there is no separate universe op.
 type Operation int
 
 const (
@@ -54,10 +50,8 @@ const (
 	OpVerificationDelete                  // delete a run                           (no grant)
 )
 
-// Right is the access right this operation requires, or 0 when it needs no grant.
-// The reads require R; contribute/update/delete their CRUD letter; the operational
-// and verification ops need none (verification's independence from grants is a
-// core-access invariant).
+// Right is the right this operation requires, or 0 for none. Reads need R, writes
+// their CRUD letter; verification needs none, a core-access invariant.
 func (o Operation) Right() access.Right {
 	switch o {
 	case OpClaimQuery, OpClaimGet, OpClaimContent, OpBranchHead, OpBranchList:
@@ -70,29 +64,24 @@ func (o Operation) Right() access.Right {
 	return 0
 }
 
-// Request is the single object that flows through the server, enriched at each
-// stage. Its ingress fields are op-specific — an operation reads only the ones it
-// needs — and the endpoint fills them from the wire. The response is not a field:
-// Handle returns a Stream.
+// Request is the single object that flows through the server, enriched at each stage.
+// Ingress fields are op-specific; the response is not a field — Handle returns a Stream.
 type Request struct {
 	// --- ingress: filled by the endpoint from the wire ---
 
-	// Credential is the one auth token the transport extracted, or the zero value
-	// if none was presented (→ NoAuth). An endpoint that finds more than one scheme
-	// rejects the request itself, before building this.
+	// Credential is the one token the transport extracted, or the zero value (→ NoAuth);
+	// more than one scheme is rejected by the endpoint before this is built.
 	Credential auth.Credential
 	// Op is what the caller wants; it fixes the required access right.
 	Op Operation
 	// Branch is the target branch, or Universe for a privileged by-id read.
 	Branch string
-	// Query is the read AST (OpClaimQuery) — ranke-go's RQL, which the endpoint
-	// maps the wire request onto and the Universe answers directly.
+	// Query is the read AST (OpClaimQuery) — ranke-go's RQL, answered by the Universe.
 	Query *ranke.Query
 	// Body is the signed-CBOR claims to merge (OpClaimContribute).
 	Body io.Reader
-	// ClaimID targets one claim (OpClaimGet, OpClaimContent) — content is addressed
-	// by the claim that holds it, so it inherits the claim's branch/access scope and
-	// hides whether the bytes are inline or an external blob.
+	// ClaimID targets one claim (OpClaimGet, OpClaimContent). Content is addressed by
+	// its claim, inheriting that scope and hiding whether the bytes are inline.
 	ClaimID ranke.Id
 	// VerConfig parameters a run (OpVerificationStart).
 	VerConfig *VerificationConfig

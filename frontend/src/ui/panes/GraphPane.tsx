@@ -1,4 +1,9 @@
 /**
+ * package: ui / panes
+ * type:    view
+ * job:     show what the union graph currently is — size, shape, degree spread
+ * limits:  presentation; the measuring is core's (-> core/graph/shape)
+ *
  * The graph pane: what the union currently is — its size, shape and degree spread.
  *
  * Shape is recomputed on demand rather than kept in the store: it is derived data,

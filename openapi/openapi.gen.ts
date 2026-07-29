@@ -10,78 +10,130 @@
  * ---------------------------------------------------------------
  */
 
-/** A tree-structured read — generate, filter, shape, bound. */
+/**
+ * A RankeQL read (§RankeQL), evaluated in a fixed logical order: `select`
+ * generates the result set, `where` filters it, `order` sorts it, `limit`
+ * truncates it, and `output` shapes and encodes each surviving claim. An engine
+ * may reorder or lower those steps as long as the delivered result set is
+ * identical.
+ */
 export interface Query {
   /**
-   * A generator: a starting point and a traversal. `branch` roots at a branch's
-   * current head and confines the query to it; `claim` optionally roots at a
-   * claim id within the branch; `claim` **without** `branch` is a privileged
-   * Universe read. Without `path`, the generator follows every edge outward to
-   * the full closure.
+   * A generator in four orthogonal parts: `branch` is the **scope**, `head` the
+   * **closure** read, `claim` where the walk **starts**, and `path` the
+   * **traversal**. Scope and start are independent because a walk runs both ways:
+   * a `uses` step reaches the claims that *cite* the current one, which lie above
+   * it, so it is the closure — not the start — that decides a reverse step's
+   * answer.
    */
   select: Select;
   /**
-   * A boolean tree of comparisons. `and`/`or`/`not` combine subtrees (`or` also
-   * unions result sets); otherwise the object is a field→comparison map, each
-   * field tested by one comparator.
+   * A boolean tree. Each node is exactly one of the `and`/`or`/`not` combinators
+   * over sub-trees, or a **leaf** naming a `field` and its `test`. Within a
+   * `where`, `or` is boolean; across generators it unions whole result sets. A leaf
+   * may name any field a claim carries, including the derived `height` (the level a
+   * claim sits at above its sources, compared numerically).
    */
   where?: Where;
-  /** Shapes each result and fixes the wire serialization. */
+  /**
+   * Shapes each result along orthogonal axes and fixes the per-claim
+   * serialization. `detail: claims` + `form: original` + `encoding: cbor`
+   * reproduces the canonical bytes a claim's id is computed over — the only
+   * combination directly verifiable against that id.
+   */
   output?: Output;
   /**
-   * A named sort. Without it, results order by `(created_at, id)`; claims lacking
-   * the named field sort last.
+   * Sort keys in priority order; absent or empty leaves the natural
+   * `(created_at, id)` order.
    */
-  order?: Order;
-  /** Bounds the read. */
+  order?: OrderKey[];
+  /** Bounds the read; each field's `0` means unbounded. */
   limit?: Limit;
   /**
-   * Tunes and inspects how the query runs (paper 02 §Filtered Reads). Queries are
-   * declarative; the planner lowers each to the most capable engine the storage
-   * stack offers, so these controls affect execution and diagnostics only, never
-   * the result set.
+   * Where the query runs and how it reports on itself (paper 02 §Filtered Reads).
+   * Queries are declarative; the planner lowers each to the most capable engine the
+   * storage stack offers, so these controls affect execution and diagnostics only,
+   * never the result set.
    */
   execution?: Execution;
 }
 
 /**
- * A generator: a starting point and a traversal. `branch` roots at a branch's
- * current head and confines the query to it; `claim` optionally roots at a
- * claim id within the branch; `claim` **without** `branch` is a privileged
- * Universe read. Without `path`, the generator follows every edge outward to
- * the full closure.
+ * A generator in four orthogonal parts: `branch` is the **scope**, `head` the
+ * **closure** read, `claim` where the walk **starts**, and `path` the
+ * **traversal**. Scope and start are independent because a walk runs both ways:
+ * a `uses` step reaches the claims that *cite* the current one, which lie above
+ * it, so it is the closure — not the start — that decides a reverse step's
+ * answer.
  */
 export interface Select {
-  /** Branch name to root at (its current head). */
-  branch?: string;
-  /** Claim id to root at; without `branch`, a privileged Universe read. */
+  /**
+   * The mandatory scope: a branch name (confines the query to that branch),
+   * `$archive` (the whole Ranke-Archive), or `$universe` (no confinement —
+   * privileged). An empty value is not allowed.
+   */
+  branch: string;
+  /**
+   * The closure read: the query sees the closure of this claim and nothing
+   * else. **Required** under `$universe`, which confines nothing and so offers
+   * no head to fall back on; optional under every other scope, where the
+   * scope's own head serves. Given explicitly it must resolve to a claim
+   * within the scope's closure, so it narrows the read and can never widen it
+   * past the grant.
+   */
+  head?: string;
+  /**
+   * Where the walk starts, which must lie inside the closure; absent, the walk
+   * starts at the closure's head. It moves where reading begins, never what is
+   * visible.
+   */
   claim?: string;
-  /** Traversal steps, applied in order. */
+  /**
+   * The traversal: steps applied in order. A step-less `path` returns the full
+   * outward closure of the start claim.
+   */
   path?: PathStep[];
 }
 
-/** One traversal step following typed edges to a bounded depth. */
+/**
+ * One bounded walk: follow `edges` in direction `dir` for between `min` and `max`
+ * hops, optionally constraining what it yields to `nodes` types. `edges` gates
+ * every hop; `nodes` gates only the claims the step yields, never those it passes
+ * through. Each step starts from the **set** of endpoints the previous step
+ * produced — a frontier pipeline — and the no-repeat rule applies within a step
+ * and resets at each step boundary.
+ */
 export interface PathStep {
-  /** Edge types to follow; a leading `-` on an entry excludes that type. */
-  edges: string[];
+  /** Edge-class globs over `class/sub`; a leading `-` on an entry excludes that class. */
+  edges?: string[];
   /**
-   * provenance (outgoing, default), uses (incoming), connections (either).
-   * @default "provenance"
+   * provenance (outgoing, toward references — the default), uses (incoming,
+   * the claims that cite this one), or connections (either).
    */
   dir?: "provenance" | "uses" | "connections";
   /**
-   * Maximum hops for this step.
-   * @min 1
+   * Fewest hops; absent means 1, so a step moves at least one hop. `0` also
+   * yields the step's own starting set, carrying the frontier through
+   * alongside what lies beyond it.
+   * @min 0
    */
-  depth?: number;
-  /** Endpoint node types the step may land on; a leading `-` excludes a type. */
+  min?: number;
+  /**
+   * Most hops; `0` means unbounded for this step (a step of at most zero hops
+   * would move nothing). A `min` above a bounded `max` is rejected.
+   * @min 0
+   */
+  max?: number;
+  /** Node-class globs the step may yield; a leading `-` excludes a class. */
   nodes?: string[];
 }
 
 /**
- * A boolean tree of comparisons. `and`/`or`/`not` combine subtrees (`or` also
- * unions result sets); otherwise the object is a field→comparison map, each
- * field tested by one comparator.
+ * A boolean tree. Each node is exactly one of the `and`/`or`/`not` combinators
+ * over sub-trees, or a **leaf** naming a `field` and its `test`. Within a
+ * `where`, `or` is boolean; across generators it unions whole result sets. A leaf
+ * may name any field a claim carries, including the derived `height` (the level a
+ * claim sits at above its sources, compared numerically).
  */
 export type Where =
   | {
@@ -92,13 +144,23 @@ export type Where =
     }
   | {
       /**
-       * A boolean tree of comparisons. `and`/`or`/`not` combine subtrees (`or` also
-       * unions result sets); otherwise the object is a field→comparison map, each
-       * field tested by one comparator.
+       * A boolean tree. Each node is exactly one of the `and`/`or`/`not` combinators
+       * over sub-trees, or a **leaf** naming a `field` and its `test`. Within a
+       * `where`, `or` is boolean; across generators it unions whole result sets. A leaf
+       * may name any field a claim carries, including the derived `height` (the level a
+       * claim sits at above its sources, compared numerically).
        */
       not: Where;
     }
-  | Record<string, Comparison>;
+  | {
+      /** The field tested — any field a claim carries, or the derived `height`. */
+      field: string;
+      /**
+       * A test on one field. Exactly one operator is expected. `in` takes a set;
+       * `glob` a shell-style wildcard; the rest a scalar.
+       */
+      test: Comparison;
+    };
 
 /**
  * A test on one field. Exactly one operator is expected. `in` takes a set;
@@ -115,38 +177,68 @@ export interface Comparison {
   glob?: string;
 }
 
-/** Shapes each result and fixes the wire serialization. */
+/**
+ * Shapes each result along orthogonal axes and fixes the per-claim
+ * serialization. `detail: claims` + `form: original` + `encoding: cbor`
+ * reproduces the canonical bytes a claim's id is computed over — the only
+ * combination directly verifiable against that id.
+ */
 export interface Output {
   /**
-   * id (just the id), claim (the reached claim), path (the whole route).
-   * @default "claim"
+   * single (each item is one reached endpoint — the default) or path (each item
+   * is the route to it, start-first).
    */
-  detail?: "id" | "claim" | "path";
+  shape?: "single" | "path";
   /**
-   * Cap on inlined content bytes per claim. `false` (default) carries no
-   * content; a byte size (e.g. `4096` or `"4kb"`) inlines up to that much.
-   * @default false
+   * How each element is carried: id (identities only), graph (nodes joined by
+   * the edges between them), or claims (each node with **all** its outgoing
+   * edges — the default, and richer than graph).
    */
-  content?: boolean | number | string;
+  detail?: "id" | "graph" | "claims";
   /**
-   * How to handle content past the `content` cap: cutoff (truncate),
-   * omit (drop the content), reference (return a hash stub in its place).
+   * Which field values each claim carries: original (as written — a
+   * diff-overlaid claim's delta, and the id-defining form) or materialized
+   * (with any `contribution/diff` chain resolved). A property of the values,
+   * so orthogonal to `detail` and `encoding`.
    */
-  overflow?: "cutoff" | "omit" | "reference";
+  form?: "original" | "materialized";
   /**
-   * Wire serialization. json-seq (RFC 7464) is a convenience projection
-   * (content base64-encoded, NOT id-verifiable); cbor-seq (RFC 8742) is the
-   * canonical, verifiable form.
-   * @default "json-seq"
+   * Inline content per claim. Absent, no content is inlined and a claim carries
+   * only its `content_hash`.
    */
-  encoding?: "json-seq" | "cbor-seq";
+  content?: OutputContent;
+  /**
+   * How each claim is serialised — json (text; content base64-encoded) or cbor
+   * (binary). The same information either way, and orthogonal to the other
+   * output fields; the response media type frames the sequence to match
+   * (`application/json-seq` / `application/cbor-seq`).
+   */
+  encoding?: "json" | "cbor";
 }
 
 /**
- * Tunes and inspects how the query runs (paper 02 §Filtered Reads). Queries are
- * declarative; the planner lowers each to the most capable engine the storage
- * stack offers, so these controls affect execution and diagnostics only, never
- * the result set.
+ * Inline content per claim. Absent, no content is inlined and a claim carries
+ * only its `content_hash`.
+ */
+export interface OutputContent {
+  /**
+   * Cap in bytes on the content inlined per claim.
+   * @min 0
+   */
+  max: number;
+  /**
+   * What happens to content past the cap: cutoff (truncate), omit (drop it),
+   * or reference (a `content_hash` stub in its place — the bytes are then
+   * fetched from the claim's content route).
+   */
+  overflow?: "cutoff" | "omit" | "reference";
+}
+
+/**
+ * Where the query runs and how it reports on itself (paper 02 §Filtered Reads).
+ * Queries are declarative; the planner lowers each to the most capable engine the
+ * storage stack offers, so these controls affect execution and diagnostics only,
+ * never the result set.
  */
 export interface Execution {
   /**
@@ -157,52 +249,84 @@ export interface Execution {
    */
   layer?: string;
   /**
-   * When true, the query returns detail on how it ran: the sequence's **final
-   * item** is a QueryReport (identifiable by its shape, always last).
-   * @default false
+   * Execution-report verbosity: info (high-level stages), debug (routing and
+   * lowering), or trace (per-claim detail). Absent, no report is produced; set,
+   * the sequence's **final item** is a QueryReport.
    */
-  report?: boolean;
+  report?: "info" | "debug" | "trace";
 }
 
 /**
- * A named sort. Without it, results order by `(created_at, id)`; claims lacking
- * the named field sort last.
+ * One sort key. Keys apply in priority order, claims lacking a key's field sort
+ * last, and the natural `(created_at, id)` order breaks any remaining ties — so
+ * the sort always resolves to a total order and paging stays stable.
  */
-export interface Order {
+export interface OrderKey {
+  /** The field sorted on — any field a claim carries, or the derived `height`. */
   field: string;
-  /** @default "asc" */
+  /** How the values compare; absent = lexical. */
+  compare?: "numeric" | "lexical";
+  /** Sort direction; absent = asc. */
   dir?: "asc" | "desc";
 }
 
-/** Bounds the read. */
+/** Bounds the read; each field's `0` means unbounded. */
 export interface Limit {
   /**
-   * Maximum number of claims returned.
-   * @min 1
+   * Maximum number of claims returned; `0` = unbounded.
+   * @min 0
    */
   results?: number;
-  /** Wall-clock budget (duration, e.g. `"5s"`); the query is cancelled when exceeded. */
+  /**
+   * Execution budget as a duration (e.g. `"5s"`); the query is cancelled when
+   * exceeded. Absent or `"0"` = no budget.
+   */
   time?: string;
 }
 
 /**
  * Diagnostic report emitted as the **final item** of a `POST /query` sequence
- * when `execution.report` is true. Identifiable by its shape — result items never
- * carry these fields — and always last.
+ * when `execution.report` names a verbosity. Typed distinctly from result items,
+ * so a reader never mistakes it for data, and always last.
  */
 export interface QueryReport {
-  /** The execution engine the query lowered to (e.g. cypher, native-walk). */
-  engine?: string;
-  /** The storage layer the query executed against. */
-  layer?: string;
-  /** The lowered query as executed (e.g. the Cypher text). */
-  lowered?: string;
-  /** Wall-clock execution time in milliseconds. */
+  /**
+   * Wall clock at query start.
+   * @format date-time
+   */
+  startedAt?: string;
+  /** Total execution time in milliseconds. */
   elapsedMs?: number;
   /** Number of result items emitted before this report. */
   results?: number;
   /** True if `limit.results` or `limit.time` cut the read short. */
   truncated?: boolean;
+  /** The ordered, multi-engine execution log, at the requested verbosity. */
+  events?: QueryEvent[];
+}
+
+/**
+ * One entry in a query's execution log — a stage, a routing decision, or a
+ * lowering.
+ */
+export interface QueryEvent {
+  /** Offset from `startedAt` in milliseconds. */
+  atMs?: number;
+  /** Who emitted it (e.g. native, cypher, stack, partition). */
+  engine?: string;
+  /** What it did (e.g. load-root, step, filter, sort, route, lower-cypher). */
+  op?: string;
+  /**
+   * The entry's own level; a report carries everything at or above the
+   * verbosity `execution.report` asked for.
+   */
+  level?: "error" | "warn" | "info" | "debug" | "trace";
+  /** Elapsed time for a timed step; 0 for a point event. */
+  durationMs?: number;
+  /** Human-readable message, or the lowered query text (e.g. the Cypher). */
+  detail?: string;
+  /** Structured extras — layer or shard name, depth, edge and result counts, … */
+  attrs?: Record<string, any>;
 }
 
 /** The outcome of a contribution — the new branch-table head and the appended claim ids. */
@@ -601,37 +725,55 @@ export class HttpClient<SecurityDataType = unknown> {
  *
  * ## Reads are queries
  *
- * The full read surface is `POST /query`: a tree-structured query (`select`
- * generators, `where` filters, `output` shaping, `limit` bounds) as a JSON
- * object. Cypher/GQL is **never** a client route — it is an internal execution
- * engine the planner lowers a query to. A **cacheable GET subset** covers the by-id
- * reads without a query body: `GET /{branch}/head`, `GET /{branch}/claim/{id}`,
+ * The full read surface is `POST /query`, carrying a **RankeQL** query — the
+ * declarative `Query` type the normative spec fixes (§RankeQL) — as a JSON object:
+ * `select` generates the result set, `where` filters it, `order` sorts it, `limit`
+ * truncates it, and `output` shapes and encodes each surviving claim. This contract
+ * *binds* that type to HTTP and defines none of it; the field names, values and
+ * meanings are the spec's. Cypher/GQL is **never** a client route — it is an
+ * internal execution engine the planner lowers a query to.
+ *
+ * A **cacheable GET subset** covers the by-id reads without a query body:
+ * `GET /{branch}/head`, `GET /{branch}/claim/{id}`,
  * `GET /{branch}/claim/{id}/content`, and the privileged `GET /$universe/claim/{id}` /
  * `GET /$universe/claim/{id}/content`. Content is addressed by the **claim** that
  * holds it (not a raw hash), so whether the bytes are inline or a separate blob is
  * hidden and the read is scoped to the claim's branch. Content also rides **inline**
  * in query results via `output.content`; the content route fetches the bytes for a
- * single claim — including the blob an `output.overflow: reference` stub names.
+ * single claim — including the blob an `output.content.overflow: reference` stub
+ * leaves behind.
+ *
+ * ## Scopes and closures
+ *
+ * `select.branch` is the mandatory **scope**: a branch name confines the query to
+ * that branch, `$archive` to the whole Ranke-Archive, and `$universe` applies no
+ * confinement — the privileged by-head-id read, which therefore **requires**
+ * `select.head`. Under every other scope `head` is optional and narrows the read to
+ * that claim's closure, so it can only narrow, never widen past the grant. A closure
+ * is immutable, so pinning `head` gives a paged read a snapshot that cannot shift
+ * while the archive advances.
  *
  * ## Encodings and verifiability
  *
- * A query returns a **streaming sequence** of results, one item each, in the
- * serialization named by `output.encoding`:
+ * A query returns a **streaming sequence** of results, one item each, in the query's
+ * order. `output.encoding` fixes how each item is serialised and the response media
+ * type frames the sequence:
  *
- *   - `json-seq` (RFC 7464, `application/json-seq`) — the default; JSON records,
- *     content base64-encoded when inlined. A **convenience projection**: easy to
- *     read and debug, but **not** independently verifiable.
- *   - `cbor-seq` (RFC 8742, `application/cbor-seq`) — the **canonical** form: each
- *     item is the claim's signed CBOR, re-hashable and signature-checkable against
- *     its id. Use this when verifiability matters.
+ *   - `json` → `application/json-seq` (RFC 7464) — JSON records, content
+ *     base64-encoded when inlined. A **convenience projection**: easy to read and
+ *     debug, but **not** independently verifiable.
+ *   - `cbor` → `application/cbor-seq` (RFC 8742) — binary.
  *
- * Because a claim's id signs its canonical CBOR, only `cbor-seq` round-trips a
- * claim verifiably; the `json-seq` encoding is a rendering for convenience.
+ * Verifiability is a property of the *shaping*, not of the framing alone:
+ * `detail: claims` + `form: original` + `encoding: cbor` reproduces the canonical
+ * serialization a claim's id is computed over, and is the only combination directly
+ * re-hashable and signature-checkable against that id. Every other shaping is a
+ * rendering for convenience.
  *
  * A by-id claim GET returns the claim as its signed CBOR (`application/cbor`); a
  * content GET streams the blob as raw bytes (`application/octet-stream`). In query
- * results content is instead carried inline (base64 in the JSON encodings, raw CBOR
- * byte strings in `cbor-seq`), capped by `output.content`.
+ * results content is instead carried inline (base64 under `json`, byte strings under
+ * `cbor`), capped by `output.content`.
  *
  * ## Credentials and authorization
  *
@@ -687,7 +829,7 @@ export class Api<
   };
   query = {
     /**
-     * @description Runs a `select`/`where`/`output`/`limit` query tree and streams the result set, one item per result, in the serialization chosen by `output.encoding` (default `json-seq`). Results are ordered by `(created_at, id)` unless a named `order` overrides it; to page, carry the last result's order key into the next request's `where`. When `execution.report` is `true`, the **final item** in the sequence is a `QueryReport` (see the schema) — identifiable by its shape and always last — carrying the execution engine/layer, the lowered query, timing, and whether a limit truncated the read. `execution.layer` pins which storage layer runs it. The response media type mirrors `output.encoding`: `application/json-seq` or `application/cbor-seq`. A branch named in `select` that does not exist is `404`; claims outside the branch closure simply do not appear. A branch-less `select.claim` is a privileged Universe read.
+     * @description Runs a RankeQL query (§RankeQL) and streams the result set, one item per result, in the serialization chosen by `output.encoding`. Results carry the natural `(created_at, id)` order unless `order` sorts them, with its keys applied in priority order and that natural order breaking any remaining ties; to page, carry the last result's order key into the next request's `where` (pin `select.head` so the closure cannot shift between pages). When `execution.report` names a verbosity, the **final item** in the sequence is a `QueryReport` (see the schema) — typed distinctly from result items and always last — carrying the execution log, timing, and whether a limit truncated the read. `execution.layer` pins which storage layer runs it. The response media type mirrors `output.encoding`: `application/json-seq` or `application/cbor-seq`. A branch named in `select` that does not exist is `404`; claims outside the scope's closure simply do not appear. `$universe` is the privileged unconfined read and requires `select.head`.
      *
      * @tags read
      * @name Query

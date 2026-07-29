@@ -1,4 +1,9 @@
 /**
+ * package: ui / panes
+ * type:    view
+ * job:     show the claim the user clicked
+ * limits:  presentation; selection state is the store's (-> core/store)
+ *
  * The selection pane: the claim the user clicked.
  *
  * It reads `selection.selected` and never `selection.hovered` — hover drives only a

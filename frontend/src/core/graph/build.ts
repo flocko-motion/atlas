@@ -1,9 +1,12 @@
 /**
- * Claims → graphology. Headless: no renderer, no DOM.
+ * package: core / graph
+ * type:    logic
+ * job:     turn claims into a graphology graph
+ * limits:  headless: no renderer, no DOM (-> render/renderer)
  *
- * `addClaims` merges into an existing graph, because the explorer accumulates —
- * query after query folds into one union keyed by content address. `buildGraph`
- * is the one-shot form the benches use.
+ * `addClaims` merges into an existing graph, because the explorer accumulates: query
+ * after query folds into one union keyed by content address. `buildGraph` is the
+ * one-shot form the benches use.
  */
 
 import { DirectedGraph } from 'graphology';

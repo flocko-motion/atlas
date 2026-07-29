@@ -1,22 +1,12 @@
 /**
- * Deterministic generator for a Ranke-Graph shaped archive.
+ * package: core / mock
+ * type:    logic
+ * job:     generate a deterministic Ranke-Graph shaped archive
+ * limits:  shapes claims; serves no requests (-> core/data/source)
  *
- * The archive is built **contribution by contribution**, because that is what
- * gives a real Ranke-Graph its shape: every contribution mints a
- * `contribution/head` consolidating the previous head plus the claims it just
- * added, and a `contribution/branches` revision carrying a `contribution/diff`
- * to the table before it. Those two chains are the archive's commit history, and
- * they make the graph **tall**: at ~10 claims per contribution, 100k claims are
- * ~10k contributions deep — a ribbon, not a ball.
- *
- * Within a contribution the content is ordinary Ranke: `source/*` roots,
- * `derivation/*` citing recent inputs (locality → clusters), `entity/*` distilled
- * from derivations, `relation/*` joining entities by damped preferential
- * attachment (hubs, but not runaway ones). Claims only ever reference *earlier*
- * claims, so the DAG is acyclic and `created_at` is monotonic, as the ADT requires.
- *
- * Ids are synthetic, but multibase-base32 shaped and 57 chars long, so string
- * keys cost the renderer what real claim ids will cost it.
+ * Built contribution by contribution, which is what makes a Ranke-Graph tall: each mints
+ * a head and a branch-table revision, so 100k claims sit ~10k contributions deep — a
+ * ribbon, not a ball. Ids are synthetic but real-shaped.
  */
 
 import type { ClaimId, MockArchive, MockClaim, MockEdge } from './model.ts';

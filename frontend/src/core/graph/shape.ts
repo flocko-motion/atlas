@@ -1,10 +1,11 @@
 /**
- * What shape the graph is in — height, layers, contribution rows. Headless.
+ * package: core / graph
+ * type:    logic
+ * job:     measure the graph's shape — height, layers, contribution rows
+ * limits:  headless; it measures, it does not position (-> core/layout)
  *
- * These two views of "tall" disagree, and the disagreement decided the explorer's
- * default layout: provenance depth piles content into a few huge layers while only
- * the head/branch-table spine climbs, whereas contribution order separates the
- * archive into one row per contribution.
+ * Two views of "tall" disagree, and that decided the default layout: provenance depth
+ * piles content into a few huge layers, while contribution order gives one row each.
  */
 
 import type { DirectedGraph } from 'graphology';

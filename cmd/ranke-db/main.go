@@ -19,12 +19,11 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"net/http"
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 	"syscall"
-	"time"
 
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
@@ -54,7 +53,7 @@ func rootCmd() *cobra.Command {
 
 // runCmd assembles the stack from a config and serves it.
 func runCmd() *cobra.Command {
-	var addr, ageKey string
+	var ageKey string
 	c := &cobra.Command{
 		Use:   "run [flags] <configfile>|-",
 		Short: "Assemble the adapter stack from a config and serve it",
@@ -76,10 +75,9 @@ func runCmd() *cobra.Command {
 			if err := requireServing(app); err != nil {
 				return err
 			}
-			return serve(addr, app)
+			return serve(app)
 		},
 	}
-	c.Flags().StringVar(&addr, "addr", ":8080", "address to serve on")
 	c.Flags().StringVar(&ageKey, "age-key", "", "age key source: prompt|stdin|env:VAR|file:path")
 	return c
 }
@@ -147,12 +145,9 @@ func parseLevel(s string) (config.Level, error) {
 	}
 }
 
-// passphraseFrom builds a config.PassphraseSource from an operator-chosen spec:
-// "prompt" reads from the terminal without echo, "stdin" reads a line from in,
-// "env:VAR" reads environment variable VAR, and "file:path" reads a file's
-// contents. An empty spec yields a nil source (config assumed plaintext). A
-// literal passphrase as the spec is intentionally unsupported — never pass the
-// key as a command-line argument.
+// passphraseFrom builds a config.PassphraseSource from a spec: prompt, stdin,
+// env:VAR, file:path, or empty for none. A literal passphrase is deliberately
+// unsupported — never pass the key as a command-line argument.
 func passphraseFrom(spec string, in io.Reader) (config.PassphraseSource, error) {
 	switch {
 	case spec == "":
@@ -190,9 +185,8 @@ func passphraseFrom(spec string, in io.Reader) (config.PassphraseSource, error) 
 	}
 }
 
-// promptPassphrase reads a passphrase from the controlling terminal without
-// echo. It opens /dev/tty directly so it works even when stdin is the config
-// pipe.
+// promptPassphrase reads from the controlling terminal without echo, opening /dev/tty
+// directly so it works when stdin is the config pipe.
 func promptPassphrase() (string, error) {
 	tty, err := os.OpenFile("/dev/tty", os.O_RDWR, 0)
 	if err != nil {
@@ -208,11 +202,8 @@ func promptPassphrase() (string, error) {
 	return string(b), nil
 }
 
-// requireServing enforces what a serving instance cannot run without: a signing
-// identity to attest merges, storage to hold the graph, and at least one endpoint
-// to reach it (each endpoint carries its own authenticators — noauth is a choice,
-// there is no silent open-by-default). Run assembles only what is configured; this
-// is where the serving policy lives.
+// requireServing enforces what serving cannot do without: a signer, storage, and an
+// endpoint to reach them. Run assembles only what is configured; the policy lives here.
 func requireServing(app *config.App) error {
 	var missing []string
 	if app.Signer == nil {
@@ -230,44 +221,44 @@ func requireServing(app *config.App) error {
 	return nil
 }
 
-// serve runs the HTTP server until the process is signalled, then shuts it down
-// gracefully. The surface is currently a health endpoint; the API mounts here
-// once the endpoint adapter lands and --addr moves into the endpoints config.
-func serve(addr string, app *config.App) error {
+// serve runs every endpoint the config mounted, concurrently, until the process is
+// signalled. Each listens where its own section says: no flag can disagree.
+func serve(app *config.App) error {
 	logIdentity(app)
-
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		_, _ = io.WriteString(w, "ok\n")
-	})
-	srv := &http.Server{Addr: addr, Handler: mux, ReadHeaderTimeout: 5 * time.Second}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	errc := make(chan error, 1)
-	go func() {
-		slog.Info("ranke-db serving", "addr", addr)
-		errc <- srv.ListenAndServe()
-	}()
+	sctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 
+	errc := make(chan error, len(app.Endpoints))
+	var wg sync.WaitGroup
+	for _, ep := range app.Endpoints {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			errc <- ep.Serve(sctx)
+		}()
+	}
+	slog.Info("ranke-db serving", "endpoints", len(app.Endpoints))
+
+	// The first endpoint to fail takes the process down: a stack serving less than
+	// configured is not the stack the operator asked for.
 	select {
 	case err := <-errc:
-		if err != nil && !errors.Is(err, http.ErrServerClosed) {
-			return err
-		}
-		return nil
+		cancel()
+		wg.Wait()
+		return err
 	case <-ctx.Done():
 		slog.Info("ranke-db shutting down")
-		sctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		return srv.Shutdown(sctx)
+		cancel()
+		wg.Wait()
+		return nil
 	}
 }
 
-// logIdentity reports the signing identity the stack assembled with, so the
-// operator can confirm which key the server attests merges under.
+// logIdentity reports which key the server attests merges under.
 func logIdentity(app *config.App) {
 	pub, err := app.Signer.Public(context.Background())
 	if err != nil {

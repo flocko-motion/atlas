@@ -1,17 +1,12 @@
 /**
- * The data-source port. Everything upstream of this file is indifferent to where
- * claims come from.
+ * package: core / data
+ * type:    interface
+ * job:     the data-source port — where claims come from
+ * limits:  contract only; backends are the mock generator and a REST connection (-> core/mock)
  *
- * Two implementations: `MockSource`, which generates a Ranke-shaped archive in the
- * browser, and `RestSource`, which talks to a ranke-db instance. Both are
- * *connections* in the UI — a mock connection's "server details" are the
- * generator's parameters, which is the whole trick: configuring the generator and
- * configuring a server are the same act, so the app has one data path rather than a
- * real one and a test one.
- *
- * `RestSource.fetch` is deliberately unimplemented: the REST query contract
- * (`add-rest-api`) has not merged, and guessing at it would bake in a shape we would
- * have to unpick. Its `health` works, because `/health` is settled.
+ * A mock's "server details" are the generator's parameters, so configuring either is the
+ * same act: one data path, not a real and a test one. `RestSource.fetch` is not wired to
+ * the query contract yet; `health` works.
  */
 
 import { generate } from '../mock/generate.ts';

@@ -26,18 +26,13 @@ import (
 	"github.com/flocko-motion/rankedb/config/scope"
 )
 
-// vaultTTL is how long a resolved vault secret is cached before it is re-fetched.
-// Short enough that a rotated secret takes effect within a couple of minutes, long
-// enough that a hot path (a per-request verifier) does not hammer the vault.
+// vaultTTL caches a resolved secret long enough to spare a hot path, briefly enough
+// that a rotation takes effect within minutes.
 const vaultTTL = 2 * time.Minute
 
-// vaultBox owns the secret store's lifecycle for one config. It builds the client
-// once on the first vault() reference (so a config that never references vault()
-// never dials one, and a LevelConnect check reaches only the backends used) and
-// caches each resolved secret for vaultTTL. It is shared by every section derived
-// from the config (propagated on navigation), so the client is built once and the
-// cache is process-wide for that config. The vault section itself gets a nil box,
-// since a vault cannot resolve its own secrets.
+// vaultBox owns the secret store's lifecycle for one config: built once on the first
+// vault() reference, cached for vaultTTL, shared by every section derived from that
+// config. The vault section gets a nil box — a vault cannot resolve its own secrets.
 type vaultBox struct {
 	cfg  map[string]json.RawMessage
 	once sync.Once
@@ -61,9 +56,8 @@ func newVaultBox(cfg map[string]json.RawMessage) *vaultBox {
 	return &vaultBox{cfg: cfg, ttl: vaultTTL, now: time.Now, cache: map[string]cached{}}
 }
 
-// get returns the secret store, building it once from the vault section (resolved
-// env-only, via a boxless section). A nil box — the vault section's own leaves —
-// rejects vault() outright.
+// get returns the secret store, building it once from the vault section (env-only). A
+// nil box — the vault's own leaves — rejects vault() outright.
 func (b *vaultBox) get(ctx context.Context) (vault.Vault, error) {
 	if b == nil {
 		return nil, errors.New("vault() is not resolvable here")
@@ -78,12 +72,9 @@ func (b *vaultBox) get(ctx context.Context) (vault.Vault, error) {
 	return b.v, b.err
 }
 
-// secret resolves ref. A fresh cached value is returned as-is; once it expires the
-// store is re-fetched, and the cache is updated only on success. If the re-fetch
-// fails but a previous value is cached, that stale value is served — a vault blip
-// does not break a server that already knows the secret (the outage is silent to
-// callers, so it belongs on a health probe, not in this path). An error is
-// returned only when nothing is cached to fall back to.
+// secret resolves ref, serving a fresh cached value as-is and re-fetching an expired
+// one. A failed re-fetch falls back to the stale value, so a vault blip does not break
+// a server that already knows the secret; only nothing cached is an error.
 func (b *vaultBox) secret(ctx context.Context, ref string) (string, error) {
 	if b == nil {
 		return "", errors.New("vault() is not resolvable here")
@@ -118,9 +109,8 @@ func (b *vaultBox) secret(ctx context.Context, ref string) (string, error) {
 	return val, nil
 }
 
-// section wraps one of the config's raw objects as a scope.Section bound to the
-// config's shared vault box — the single place a section acquires its box, so no
-// builder threads the vault around.
+// section wraps one raw object as a scope.Section bound to the shared vault box — the
+// one place a section acquires it, so no builder threads the vault around.
 func (c *Config) section(raw section) scope.Section {
 	return newSection(raw, c.box)
 }
@@ -131,14 +121,12 @@ type cfgSection struct {
 	box *vaultBox
 }
 
-// newSection wraps a parsed JSON object as a scope.Section whose leaves resolve
-// their vault() delegations through box (nil box → vault() is unresolvable).
+// newSection wraps a parsed object, its leaves resolving vault() through box.
 func newSection(raw map[string]json.RawMessage, box *vaultBox) scope.Section {
 	return cfgSection{raw: raw, box: box}
 }
 
-// GetSection descends into a nested object. A missing or non-object key yields an
-// empty section, so navigation never returns nil.
+// GetSection descends into a nested object; a missing key yields an empty section.
 func (s cfgSection) GetSection(key string) scope.Section {
 	empty := cfgSection{raw: map[string]json.RawMessage{}, box: s.box}
 	raw, ok := s.raw[key]
@@ -152,9 +140,8 @@ func (s cfgSection) GetSection(key string) scope.Section {
 	return cfgSection{raw: m, box: s.box}
 }
 
-// Get resolves the leaf at key. An absent key errors; a non-string leaf (number,
-// bool) yields its literal JSON text; a string leaf is run through env()/vault()
-// expansion, which reaches the environment or vault only now, at use.
+// Get resolves the leaf at key: absent errors, a non-string yields its JSON text, and a
+// string is expanded through env()/vault() — reaching them only now, at use.
 func (s cfgSection) Get(ctx context.Context, key string) (string, error) {
 	raw, ok := s.raw[key]
 	if !ok {

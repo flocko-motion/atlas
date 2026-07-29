@@ -1,3 +1,8 @@
+// package: vite / build
+// type:    config
+// job:     build a single IIFE bundle with its assets inlined
+// limits:  build configuration; the one-file fold is scripts/inline.mjs
+
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vite';
 
