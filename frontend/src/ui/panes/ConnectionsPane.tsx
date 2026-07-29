@@ -1,11 +1,12 @@
 /**
- * The connection pane: where claims come from.
+ * package: ui / panes
+ * type:    view
+ * job:     show and edit where claims come from
+ * limits:  presentation; it reads state and dispatches actions (-> core/session)
  *
- * A source is either a **mock archive** — the generator, whose "server details" are
- * its parameters — or a **ranke-db instance** with a URL and an auth kind. Both are
- * read through the same port, so the explorer has one data path and no special case
- * for testing. Several of either can be configured and switched between; the
- * explorer is a client, not an installation.
+ * A source is a mock archive (generator parameters standing in for server details) or a
+ * ranke-db instance, both read through the same port. Several of either can be
+ * configured: the explorer is a client, not an installation.
  */
 
 import { useState } from 'react';

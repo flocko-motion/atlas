@@ -1,12 +1,12 @@
 /**
- * Layouts — position calculators, nothing more. Headless: they take a graph and
- * write x/y, and know nothing about Sigma, React or the DOM.
+ * package: core / layout
+ * type:    logic
+ * job:     position calculators — take a graph, return coordinates
+ * limits:  headless; they draw nothing (-> render/renderer)
  *
- * `history` is the default because it is what the measurements argued for: 21 ms
- * at 50k, deterministic, and it puts one contribution per row the way a commit log
- * reads. ForceAtlas2 stays available for drill-downs of a few thousand claims,
- * where it costs 13–130 ms per iteration; at archive scale it is ~1 500 ms per
- * iteration and out of the question.
+ * `history` is the default the measurements argued for: 21 ms at 50k, deterministic, one
+ * contribution per row. ForceAtlas2 suits drill-downs of a few thousand claims
+ * (13–130 ms/iter); at archive scale it is ~1 500 ms/iter.
  */
 
 import forceAtlas2 from 'graphology-layout-forceatlas2';

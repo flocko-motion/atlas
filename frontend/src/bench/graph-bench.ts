@@ -1,15 +1,12 @@
 /**
- * Headless half of the spike: everything a 100k-claim explorer does *before* a
- * pixel is drawn — generate, build the graphology graph, price the display
- * attributes, and lay out. All of it is plain JS on V8, the same engine the
- * browser runs it on, so these numbers transfer; only the paint does not
- * (see browser-bench.ts).
+ * package: bench / graph
+ * type:    benchmark
+ * job:     measure everything a 100k-claim explorer does before a frame is drawn
+ * limits:  headless — no renderer (-> browser-bench)
  *
- * Every scale is measured under two edge profiles, because the ADT's
- * `contribution/contributor` edge makes each contributor a star over every claim
- * it signed, and whether a renderer draws those edges changes the problem.
- *
- * Run: npm run bench -- --scales=1000,10000,100000
+ * Same V8 the browser uses, so the numbers transfer but the paint does not. Each scale
+ * runs two edge profiles: `contribution/contributor` stars every contributor over its
+ * claims. Run: npm run bench -- --scales=1000,10000,100000
  */
 
 import forceAtlas2 from 'graphology-layout-forceatlas2';
@@ -35,9 +32,8 @@ const SEED = Number(args.get('seed') ?? 0x5eed);
 const FA2_PROBE = Number(args.get('iters') ?? 6);
 const OUT = args.get('out') ?? new URL('../../results/graph-bench.json', import.meta.url).pathname;
 /**
- * Claims per contribution — the archive's history granularity, which sets its
- * height. Nobody can know what real usage will pick, so it is swept rather than
- * assumed: the sweep runs at one scale and reports cost as a function of it.
+ * Claims per contribution — the history granularity that sets the archive's height.
+ * Real usage is unknowable, so it is swept at one scale rather than assumed.
  */
 const GRANULARITIES = (args.get('granularities') ?? '3,10,30,100,1000').split(',').map(Number);
 const GRANULARITY_SCALE = Number(args.get('granularity-scale') ?? 100000);
@@ -83,10 +79,8 @@ interface Fa2Cost {
 }
 
 /**
- * fa2Cost splits ForceAtlas2 into its two costs. `assign` converts the whole
- * graph to typed arrays on every call, so timing one k-iteration call conflates
- * setup with iteration; timing 1 and k separates them — which matters, because a
- * worker pays setup once and then iterates forever.
+ * fa2Cost splits ForceAtlas2 in two: `assign` rebuilds typed arrays every call, so
+ * timing 1 and k iterations separates setup from iteration.
  */
 function fa2Cost(graph: DirectedGraph, k: number, barnesHut: boolean): Fa2Cost {
   const settings = { ...forceAtlas2.inferSettings(graph), barnesHutOptimize: barnesHut };
@@ -141,9 +135,8 @@ const results: ScaleResult[] = [];
 const granularities: GranularityResult[] = [];
 
 /**
- * warmup runs the whole pipeline once on a throwaway graph. Without it the first
- * scale measured pays V8's JIT compilation — visible as a nonsense 44 ms/iter
- * for a 1k graph that then measures 6 ms/iter on the next pass.
+ * warmup runs the pipeline once on a throwaway graph, so the first scale measured does
+ * not pay V8's JIT — a nonsense 44 ms/iter that becomes 6 ms/iter on the next pass.
  */
 function warmup(): void {
   const archive = generate(2000, SEED ^ 0x1234);
@@ -324,10 +317,9 @@ interface GranularityResult {
 }
 
 /**
- * sweepGranularity measures cost against history granularity at one scale.
- * Claims per contribution is the one parameter nobody can know in advance — it is
- * a usage pattern, not a property of the ADT — and it sets the archive's height.
- * So it is reported as a curve, and the reader looks up whatever their usage is.
+ * sweepGranularity curves cost against history granularity: claims per contribution is
+ * a usage pattern rather than an ADT property, yet it sets the archive's height, so the
+ * reader looks up their own usage.
  */
 function sweepGranularity(): void {
   out(`\n=== granularity sweep at ${GRANULARITY_SCALE.toLocaleString('en-US')} claims ===\n`);

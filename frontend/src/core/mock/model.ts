@@ -1,16 +1,19 @@
-/**
- * Ranke-Graph shaped mock claims — the ADT vocabulary this spike renders.
- *
- * Mirrors paper 01 (`docs/papers/01-ranke-graph/ranke-graph.typ`, §Type Vocabulary):
- * five node classes, three edge classes, edges owned by the claim that references
- * out. Only what a renderer needs is modelled — content bytes are never produced,
- * just their sizes, because the spike measures topology and paint, not payloads.
- */
+// package: core / mock
+// type:    data
+// job:     the ADT vocabulary the mock claims are built from
+// limits:  types only; the generator that uses them is generate.ts
 
 /** A claim id — content-addressed in the real ADT, synthetic but same-shaped here. */
 export type ClaimId = string;
 
-/** NODE_CLASSES are the five node classes of the ADT, with plausible subtypes. */
+/**
+ * NODE_CLASSES are the five node classes of the ADT, with plausible subtypes.
+ *
+ * The vocabulary mirrors paper 01 (`docs/papers/01-ranke-graph/ranke-graph.typ`,
+ * §Type Vocabulary): five node classes, three edge classes, edges owned by the claim
+ * that references out. Only what a renderer needs is modelled — content bytes are
+ * never produced, just their sizes, because the spike measures topology and paint.
+ */
 export const NODE_CLASSES = {
   source: ['email', 'photo', 'letter', 'record', 'transcript', 'dataset'],
   derivation: ['extraction', 'classification', 'summary', 'ocr', 'resolution'],

@@ -1,1 +1,4 @@
+# Generated from openapi/openapi.yaml by `make generate` — never hand-edited, so
+# neither the file-header nor the comment-density rules can be satisfied in place.
 openapi/openapi.gen.go
+openapi/openapi.gen.ts

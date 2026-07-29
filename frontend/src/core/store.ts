@@ -1,15 +1,12 @@
 /**
- * The headless core's state. No React, no DOM, no Sigma.
+ * package: core / store
+ * type:    data
+ * job:     hold the headless core's state
+ * limits:  no React, no DOM, no Sigma; graph data never enters React state (-> ui)
  *
- * Two rules from the explorer design govern this file:
- *
- * 1. **One store holds the union; views are selections over it.** The graphology
- *    instance is the union of every claim loaded this session. A view does not own
- *    a graph — it owns a predicate. Switching views is a reducer swap, never a
- *    mutation of the graph.
- * 2. **Graph data never enters framework state.** The graph itself lives in
- *    `core/graph/universe.ts` at module scope; this store holds only ids, labels
- *    and counts, which is what the UI is allowed to see.
+ * One store holds the union; a view is a predicate over it, not a graph, so switching
+ * views swaps reducers. The graph lives at module scope in core/graph/universe.ts; this
+ * holds ids, labels and counts.
  */
 
 import { create } from 'zustand';

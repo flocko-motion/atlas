@@ -1,10 +1,12 @@
 /**
- * The shell: header, footer, a tabbed main pane of graph views, a tabbed side pane
- * of tooling and details. Both panes tab independently.
+ * package: ui / shell
+ * type:    view
+ * job:     the shell — header, footer, and the tabbed main and side panes
+ * limits:  layout only; each pane owns its content (-> ui/panes)
  *
- * The canvas host is mounted once and never unmounted by a re-render — the Sigma
- * instance and the graph both live outside React, and this component holds nothing
- * but a ref to the host and ids from the store.
+ * Both panes tab independently. The canvas host is mounted once and never unmounted by a
+ * re-render: Sigma and the graph live outside React, and this holds only a ref to the
+ * host and ids from the store.
  */
 
 import { useEffect, useRef } from 'react';

@@ -1,4 +1,9 @@
 /**
+ * package: ui / panes
+ * type:    view
+ * job:     show how the active view draws what is loaded
+ * limits:  presentation; layout and rendering are elsewhere (-> core/layout, render)
+ *
  * The view pane: how the active view draws what is loaded.
  *
  * Reading belongs to the Query tab; this is only presentation — layout and the render

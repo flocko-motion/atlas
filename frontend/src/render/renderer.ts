@@ -1,14 +1,12 @@
 /**
- * The Sigma binding. This is the only module that knows a renderer exists.
+ * package: render / renderer
+ * type:    adapter
+ * job:     own the Sigma instance — the only module that knows a renderer exists
+ * limits:  module-scoped, outside framework state (-> ui, core/store)
  *
- * Two design rules meet here:
- *
- * 1. **The renderer lives outside framework state.** The instance is module-scoped,
- *    constructed once for the canvas host and never recreated by a re-render. React
- *    holds a handle, never graph data.
- * 2. **Views are selections, not graphs.** A view is applied through node/edge
- *    reducers over the one union graph — no node is added or removed, and the
- *    renderer is never rebuilt to switch view.
+ * Built once and never recreated by a re-render: React holds a handle, never graph data.
+ * A view is a selection applied through reducers over the one union graph, never a graph
+ * of its own.
  */
 
 import Sigma from 'sigma';
@@ -69,11 +67,8 @@ export function mount(container: HTMLElement): Sigma {
     renderEdgeLabels: false,
     enableEdgeEvents: false,
     allowInvalidContainer: true,
-    // The label budget. Sigma picks labels per grid cell, so these two settings
-    // *are* the cap: at most `labelDensity` labels per `labelGridCellSize` px of
-    // viewport, and nothing below the size threshold at all. Measured on real
-    // hardware, labels turned out to cost far less than edges — but the cap is
-    // what keeps that true when zoomed into a dense row.
+    // The label budget, and the cap itself: at most `labelDensity` labels per
+    // `labelGridCellSize` px of viewport, nothing below the size threshold.
     labelRenderedSizeThreshold: 8,
     labelDensity: 1,
     labelGridCellSize: 120,
@@ -110,9 +105,8 @@ export function mount(container: HTMLElement): Sigma {
 }
 
 /**
- * applyViewSettings pushes a view's render flags into Sigma. These are settings
- * rather than reducer output, so they cost nothing to change — unlike `hidden`,
- * which forces a re-index.
+ * applyViewSettings pushes a view's render flags into Sigma — settings, not reducer
+ * output, so they cost nothing to change (unlike `hidden`, which re-indexes).
  */
 export function applyViewSettings(view: ViewState | null): void {
   if (!sigma || !view) return;
@@ -122,9 +116,8 @@ export function applyViewSettings(view: ViewState | null): void {
 }
 
 /**
- * refreshSelection re-runs the reducers — needed when a view's selection changes.
- * It is O(N) in the store: a re-index plus a full buffer upload. The cost is timed
- * and published, because knowing it is what lets a slow frame be attributed.
+ * refreshSelection re-runs the reducers when a selection changes: O(N), a re-index plus
+ * a full upload, timed and published so a slow frame can be attributed.
  */
 export function refreshSelection(): void {
   if (!sigma) return;
@@ -142,10 +135,7 @@ export function refreshSelection(): void {
   });
 }
 
-/**
- * highlight repaints just the affected nodes. Hover must never trigger a full
- * refresh: that re-runs every reducer and re-uploads the buffers, which is O(N).
- */
+/** highlight repaints only the affected nodes — hover must never cost a full O(N) refresh. */
 export function highlight(nodes: string[]): void {
   if (!sigma || nodes.length === 0) return;
   const present = nodes.filter((n) => graph().hasNode(n));
@@ -169,9 +159,8 @@ function bindEvents(instance: Sigma): void {
     if (previous) highlight([previous]);
   });
 
-  // Hover drives only the cheap preview, and only through a partial repaint. The
-  // highlight is immediate because it is two nodes' worth of work; the preview is
-  // debounced so sweeping the pointer cannot change it faster than it can be read.
+  // Hover drives only a partial repaint: the highlight is immediate (two nodes), the
+  // preview debounced so a sweeping pointer cannot outrun the reader.
   instance.on('enterNode', ({ node }) => {
     const previous = useExplorer.getState().selection.hovered;
     useExplorer.getState().hover(node);

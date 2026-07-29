@@ -1,23 +1,12 @@
 /**
- * Server connections — the explorer's address book. Headless.
+ * package: core / connections
+ * type:    data
+ * job:     hold the ranke-db instances the explorer can talk to, and their credentials
+ * limits:  an address book; it issues no requests (-> core/data/source)
  *
- * The explorer is a pure client in the Banana-Cake-Pop sense: it runs from a static
- * bundle, needs no server of its own, works with none at all (mock data), and can
- * hold several ranke-db instances at once, switching between them. Nothing here is
- * persisted server-side because there is no server side.
- *
- * The auth kinds mirror the server's own adapters and the security schemes in
- * `openapi/openapi.yaml`:
- *
- *   none      → the noauth adapter; no header sent
- *   apikey    → `X-API-Key: <key>`
- *   jwt       → `Authorization: Bearer <token>`
- *   macaroon  → `Authorization: Macaroon <token>`
- *
- * **Secrets are held in memory by default and are not written to disk.** Anything in
- * `localStorage` is readable by any script that gets into the page, so a token there
- * is a token exposed to the next XSS. `remember` opts in per connection, and only
- * then is the secret persisted.
+ * A static bundle holding several instances at once, or none (mock data). Auth kinds
+ * mirror `openapi/openapi.yaml`. Secrets stay in memory unless `remember` opts in —
+ * anything in `localStorage` is one XSS from lost.
  */
 
 import { create } from 'zustand';
@@ -40,11 +29,8 @@ export const AUTH_SECRET_LABELS: Record<AuthKind, string | null> = {
 };
 
 /**
- * A mock connection's "server details": what archive the generator stands for.
- *
- * `seed` and `claimsPerContribution` define *which* archive this is; `claims` is how
- * large it can be — a ceiling, not a request. How much of it a read returns is the
- * query's `limit`, which is a separate thing and lives in the Query tab.
+ * A mock connection's "server details": `seed` and `claimsPerContribution` say *which*
+ * archive this is, `claims` how large it may get — a ceiling, not a read's `limit`.
  */
 export interface MockParams {
   /** Ceiling on the archive's size. */
@@ -56,10 +42,7 @@ export interface MockParams {
 export interface Connection {
   id: string;
   name: string;
-  /**
-   * `mock` is a generator standing in for an instance, configured the same way and
-   * read through the same port; `rest` is a real ranke-db.
-   */
+  /** `mock` is a generator standing in for an instance, read through the same port. */
   kind: 'mock' | 'rest';
   /** Base URL of a ranke-db instance, e.g. `http://localhost:8080`. Unused when mock. */
   baseUrl: string;
@@ -129,8 +112,7 @@ function loadPersisted(): Persisted {
     const remembered = JSON.parse(localStorage.getItem(SECRET_KEY) ?? '{}') as Record<string, string>;
     for (const [id, secret] of Object.entries(remembered)) secrets.set(id, secret);
     if (parsed && Array.isArray(parsed.connections) && parsed.connections.length > 0) {
-      // Older persisted entries predate `kind`/`mock`; fill them in rather than
-      // discarding somebody's configured instances.
+      // Older entries predate `kind`/`mock`; fill them in rather than discard them.
       const connections = parsed.connections.map((c) => ({
         ...c,
         kind: c.kind ?? 'rest',

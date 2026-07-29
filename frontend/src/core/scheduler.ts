@@ -1,16 +1,19 @@
-/**
- * Cooperative yielding, so a long load does not look like a hang.
- *
- * Core stays headless: this checks for `requestAnimationFrame` rather than assuming
- * it, so the same code paths run under Node in the benches. In a browser it waits
- * for an actual paint — one frame to let the pending state render, a second to be
- * sure the frame was presented — which is the difference between a progress
- * indicator that updates and one that appears only after the work is finished.
- */
+// package: core / scheduler
+// type:    logic
+// job:     yield cooperatively, so a long load does not look like a hang
+// limits:  pacing only; it owns none of the work it paces
 
 const hasRaf = typeof requestAnimationFrame === 'function';
 
-/** yieldToPaint returns once the UI has had a chance to draw. */
+/**
+ * yieldToPaint returns once the UI has had a chance to draw.
+ *
+ * Core stays headless, so this checks for `requestAnimationFrame` rather than
+ * assuming it and the same paths run under Node in the benches. In a browser it waits
+ * for an actual paint — one frame to render the pending state, a second to be sure it
+ * was presented — the difference between a progress indicator that updates and one
+ * that appears only after the work is done.
+ */
 export function yieldToPaint(): Promise<void> {
   if (!hasRaf) return new Promise((resolve) => setTimeout(resolve, 0));
   return new Promise((resolve) => {

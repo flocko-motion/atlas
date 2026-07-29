@@ -1,13 +1,12 @@
 /**
- * Folds a vite build into one self-contained file: dist/explorer.html.
+ * package: scripts / build
+ * type:    tool
+ * job:     fold a vite build into one self-contained dist/explorer.html
+ * limits:  packaging only; the bundling itself is vite's (-> vite.config.ts)
  *
- * Exists so the spike can be opened without running a server. The page's imports
- * are bare specifiers ('sigma', 'graphology'), which no browser can resolve from
- * disk, so a bundle is required either way — this just inlines it into the HTML
- * and rewrites the module script as a classic one, which `file://` will run.
- *
- * The ForceAtlas2-worker layout will not work from file://: it builds its worker
- * from a Blob URL, and a file:// page has an opaque origin. Every other layout does.
+ * Lets the spike open without a server: bare specifiers need a bundle anyway, so this
+ * inlines it and makes the script classic, which `file://` runs. The FA2-worker layout
+ * cannot work there — a Blob-URL worker needs a real origin.
  */
 
 import { readFileSync, readdirSync, writeFileSync } from 'node:fs';

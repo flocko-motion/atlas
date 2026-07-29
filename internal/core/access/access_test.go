@@ -3,14 +3,15 @@ package access
 import "testing"
 
 // TestAllow walks the core-access scenarios: a grant permits a matching right on a
-// matching branch, an out-of-glob or un-granted request is denied, the three
-// reserved names are privileged, an ordinary glob never reaches them, an unknown
-// account is denied, and the cross-branch delete rule falls out of per-branch calls.
+// matching branch, an out-of-glob or un-granted request is denied, the reserved
+// names are privileged, an ordinary glob never reaches them, an unknown account is
+// denied, and the cross-branch delete rule falls out of per-branch calls.
 func TestAllow(t *testing.T) {
 	c, err := New(map[string][]string{
 		"webapp":      {"CR foo-*"},
 		"provisioner": {"C $branches"},
 		"backup":      {"R $universe"},
+		"archivist":   {"R $archive"},
 		"seqop":       {"D $sequencer"},
 		"wildcard":    {"R *"},
 		"deleter":     {"D a"}, // holds D on branch a, not b
@@ -32,8 +33,10 @@ func TestAllow(t *testing.T) {
 		{"branch outside glob", "webapp", Read, "bar-baz", false},
 		{"branch-table admin", "provisioner", Contribute, Branches, true},
 		{"privileged universe read", "backup", Read, Universe, true},
+		{"archive-wide read", "archivist", Read, Archive, true},
 		{"privileged sequencer op", "seqop", Delete, Sequencer, true},
 		{"ordinary glob misses universe", "wildcard", Read, Universe, false},
+		{"ordinary glob misses archive", "wildcard", Read, Archive, false},
 		{"ordinary glob misses sequencer", "wildcard", Read, Sequencer, false},
 		{"ordinary glob matches branch", "wildcard", Read, "anything", true},
 		{"unknown account", "ghost", Read, "foo-bar", false},
@@ -113,10 +116,10 @@ func TestParseGrantRejects(t *testing.T) {
 	}
 }
 
-// TestParseGrantReserved confirms the three reserved names parse, with $universe
-// held to R-only and the other two accepting CRUD (pending their final right-sets).
+// TestParseGrantReserved confirms the reserved names parse, with $universe held to
+// R-only and the others accepting CRUD (pending their final right-sets).
 func TestParseGrantReserved(t *testing.T) {
-	for _, spec := range []string{"R $universe", "C $branches", "CRUD $branches", "D $sequencer"} {
+	for _, spec := range []string{"R $universe", "R $archive", "CRUD $archive", "C $branches", "CRUD $branches", "D $sequencer"} {
 		if _, err := ParseGrant(spec); err != nil {
 			t.Errorf("ParseGrant(%q): unexpected error %v", spec, err)
 		}

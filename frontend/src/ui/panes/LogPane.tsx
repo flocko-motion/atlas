@@ -1,4 +1,9 @@
 /**
+ * package: ui / panes
+ * type:    view
+ * job:     show what the session has done, with timings
+ * limits:  presentation; the log itself lives in the store (-> core/store)
+ *
  * The log pane: what the session has done, with timings.
  *
  * It exists so a slow result explains itself — which stage cost what — rather than

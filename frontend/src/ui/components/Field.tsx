@@ -1,10 +1,9 @@
-/**
- * Form primitives — Field, Select, TextInput, Toggle, Button, KeyValue.
- *
- * Pure interface: every one of them takes a value and reports a change. None reads
- * a store, and none knows what the value means.
- */
+// package: ui / components
+// type:    view
+// job:     the form primitives — Field, Select, TextInput, Toggle, Button, KeyValue
+// limits:  pure interface: each takes a value and reports a change, reading no store
 
+/** Field labels a control and optionally hints at what the value means. */
 export function Field({
   label,
   hint,

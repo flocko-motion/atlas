@@ -1,11 +1,9 @@
-/**
- * Tabs and TabHandle — the shell's one tab implementation, used by both panes.
- *
- * Pure interface: it renders the items it is given and reports intent upward. It
- * holds no state of its own, knows nothing about views, graphs or panes, and both
- * the main pane (graph views) and the side pane (tooling) use the same component.
- */
+// package: ui / components
+// type:    view
+// job:     the shell's one tab implementation, used by both panes
+// limits:  pure interface; it holds no state and knows nothing of views or graphs
 
+/** TabItem is one tab: what to show, and whether it can be closed. */
 export interface TabItem {
   id: string;
   label: string;

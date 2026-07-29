@@ -1,13 +1,12 @@
 /**
- * Render half of the spike: drives the explorer page in a real browser and
- * collects the frame timings the headless bench cannot produce.
+ * package: bench / render
+ * type:    benchmark
+ * job:     drive the explorer page in a real browser and measure what a frame costs
+ * limits:  measurement only; the headless half is graph-bench
  *
- * It follows the repo's convention for external counterparts (see the
- * architecture spec on adapters and podman): drive the real thing, and skip
- * cleanly — exit 0, loud message — when it is unavailable, so a machine without
- * a browser or a GPU never reports a red gate or, worse, invented numbers.
- *
- * Run: npm run bench:render -- --scales=1000,10000,100000
+ * Collects the frame timings the headless bench cannot produce. Follows the repo's
+ * external-counterpart convention: drive the real thing, and skip cleanly (exit 0, loud)
+ * when no browser or GPU is there. Run: npm run bench:render.
  */
 
 import { spawn } from 'node:child_process';

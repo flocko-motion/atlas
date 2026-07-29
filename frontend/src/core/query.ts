@@ -1,15 +1,12 @@
 /**
- * The query — what to read from the active source, as opposed to which source it is.
+ * package: core / query
+ * type:    data
+ * job:     hold what to read from the active source
+ * limits:  the request, not the archive it runs against (-> core/connections)
  *
- * The split matters: a *connection* identifies an archive (a URL and credentials, or
- * a generator's seed and granularity), while a *query* is a request against it. The
- * same query run against two connections is a meaningful thing to do; a query that
- * carried its own archive identity would not be.
- *
- * Today it holds a result limit and an optional class filter, which is all the mock
- * source can honour. It is shaped to grow into the REST contract's query — `select`
- * (branch, root claim, traversal), `where`, `order`, `limit` — without the UI or the
- * store changing shape around it.
+ * A connection identifies an archive; a query is a request against it, so the same query
+ * against two connections is meaningful. Shaped to grow into the REST contract's
+ * `select`/`where`/`order`/`limit`.
  */
 
 import { create } from 'zustand';

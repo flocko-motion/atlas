@@ -1,11 +1,12 @@
 /**
- * The header: logo, essential tools, and the badge naming the current source.
+ * package: ui / shell
+ * type:    view
+ * job:     show the logo, the essential tools, and the badge naming the current source
+ * limits:  presentation; the source is the connection store's (-> core/connections)
  *
- * Running a read belongs to the Query tab, not here — a query has parameters, and a
- * button in a toolbar cannot carry them. The badge is the way into the Server tab.
- *
- * The pick/select/drag tools are declared but disabled: they need interaction modes
- * in core first, and showing them inert is more honest than pretending.
+ * Running a read belongs to the Query tab: a query has parameters a toolbar button
+ * cannot carry. The pick/select/drag tools are declared but disabled until core has
+ * interaction modes — inert is more honest than pretending.
  */
 
 import { useConnections } from '../../core/connections.ts';

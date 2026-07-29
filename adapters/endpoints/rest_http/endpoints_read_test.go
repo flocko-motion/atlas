@@ -2,7 +2,6 @@ package rest_http
 
 import (
 	"encoding/json"
-	"math"
 	"reflect"
 	"testing"
 	"time"
@@ -13,11 +12,11 @@ import (
 )
 
 // TestRankeQuery drives the wire→RQL mapping from actual request JSON, since that
-// is the only thing a client sends. Each case pins a translation the wire schema
-// and ranke-go's RQL do not share outright: the wire's folded `detail`, its
-// bool|int|string content cap, its sequence framing, its single sort key, its
-// boolean-tree union, and the unconfined read it spells as a claim without a
-// branch.
+// is the only thing a client sends. The wire binds ranke-go's RQL field-for-field,
+// so what each case pins is that the binding is *faithful*: every axis of the
+// language reaches the library intact, with none folded away or unreachable, and
+// the two rules the JSON schema cannot state (a scope is mandatory, $universe needs
+// a head) enforced at the boundary.
 func TestRankeQuery(t *testing.T) {
 	for _, tc := range []struct {
 		name string
@@ -25,7 +24,7 @@ func TestRankeQuery(t *testing.T) {
 		want func(*testing.T, ranke.Query)
 	}{
 		{
-			name: "branch roots the scope",
+			name: "a branch name is the scope",
 			body: `{"select": {"branch": "foo"}}`,
 			want: func(t *testing.T, q ranke.Query) {
 				if q.Select.Branch != "foo" {
@@ -34,48 +33,78 @@ func TestRankeQuery(t *testing.T) {
 			},
 		},
 		{
-			name: "a claim without a branch is the unconfined read",
-			body: `{"select": {"claim": "` + testClaimID + `"}}`,
+			name: "the archive scope reads across branches",
+			body: `{"select": {"branch": "$archive"}}`,
 			want: func(t *testing.T, q ranke.Query) {
-				if q.Select.Branch != ranke.BranchUniverse {
-					t.Fatalf("branch = %q, want %q", q.Select.Branch, ranke.BranchUniverse)
-				}
-				if q.Select.Claim == nil {
-					t.Fatal("claim id not carried")
+				if q.Select.Branch != ranke.BranchArchive {
+					t.Fatalf("branch = %q, want %q", q.Select.Branch, ranke.BranchArchive)
 				}
 			},
 		},
 		{
-			name: "path depth is a max-hop bound",
-			body: `{"select": {"branch": "foo", "path": [{"edges": ["cites"], "dir": "uses", "depth": 3, "nodes": ["source/*"]}]}}`,
+			name: "the universe scope carries its head",
+			body: `{"select": {"branch": "$universe", "head": "` + testClaimID + `"}}`,
 			want: func(t *testing.T, q ranke.Query) {
-				want := ranke.PathStep{Edges: []string{"cites"}, Dir: ranke.DirUses, Max: 3, Nodes: []string{"source/*"}}
+				if q.Select.Branch != ranke.BranchUniverse {
+					t.Fatalf("branch = %q, want %q", q.Select.Branch, ranke.BranchUniverse)
+				}
+				if q.Select.Head == nil {
+					t.Fatal("head id not carried")
+				}
+			},
+		},
+		{
+			name: "head pins the closure and claim the start",
+			body: `{"select": {"branch": "foo", "head": "` + testClaimID + `", "claim": "` + testClaimID + `"}}`,
+			want: func(t *testing.T, q ranke.Query) {
+				if q.Select.Head == nil || q.Select.Claim == nil {
+					t.Fatalf("head/claim = %v/%v, want both carried", q.Select.Head, q.Select.Claim)
+				}
+			},
+		},
+		{
+			name: "a step carries its edges, direction, hop range and nodes",
+			body: `{"select": {"branch": "foo", "path": [{"edges": ["derivation/*"], "dir": "uses", "min": 0, "max": 3, "nodes": ["source/*"]}]}}`,
+			want: func(t *testing.T, q ranke.Query) {
+				want := ranke.PathStep{
+					Edges: []string{"derivation/*"},
+					Dir:   ranke.DirUses,
+					Min:   ranke.Hops(0),
+					Max:   3,
+					Nodes: []string{"source/*"},
+				}
 				if !reflect.DeepEqual(q.Select.Path, []ranke.PathStep{want}) {
 					t.Fatalf("path = %+v, want %+v", q.Select.Path, want)
 				}
 			},
 		},
 		{
-			name: "detail path unfolds into a shape",
-			body: `{"select": {"branch": "foo"}, "output": {"detail": "path"}}`,
+			name: "an absent min leaves the library's one-hop default",
+			body: `{"select": {"branch": "foo", "path": [{"edges": ["derivation/*"]}]}}`,
 			want: func(t *testing.T, q ranke.Query) {
-				if q.Output.Shape != ranke.ShapePath || q.Output.Detail != ranke.DetailClaims {
-					t.Fatalf("shape/detail = %q/%q, want path/claims", q.Output.Shape, q.Output.Detail)
+				if got := q.Select.Path[0].MinHops(); got != 1 {
+					t.Fatalf("min hops = %d, want 1", got)
 				}
 			},
 		},
 		{
-			name: "detail id carries identities only",
-			body: `{"select": {"branch": "foo"}, "output": {"detail": "id"}}`,
+			name: "the output axes stay orthogonal",
+			body: `{"select": {"branch": "foo"}, "output": {"shape": "path", "detail": "graph", "form": "original", "encoding": "cbor"}}`,
 			want: func(t *testing.T, q ranke.Query) {
-				if q.Output.Detail != ranke.DetailID || q.Output.Shape != "" {
-					t.Fatalf("shape/detail = %q/%q, want /id", q.Output.Shape, q.Output.Detail)
+				want := ranke.Output{
+					Shape:    ranke.ShapePath,
+					Detail:   ranke.DetailGraph,
+					Form:     ranke.FormOriginal,
+					Encoding: ranke.ResultCBOR,
+				}
+				if !reflect.DeepEqual(q.Output, want) {
+					t.Fatalf("output = %+v, want %+v", q.Output, want)
 				}
 			},
 		},
 		{
-			name: "content false carries none",
-			body: `{"select": {"branch": "foo"}, "output": {"content": false}}`,
+			name: "absent content inlines none",
+			body: `{"select": {"branch": "foo"}, "output": {}}`,
 			want: func(t *testing.T, q ranke.Query) {
 				if q.Output.Content != nil {
 					t.Fatalf("content = %+v, want nil", q.Output.Content)
@@ -83,49 +112,23 @@ func TestRankeQuery(t *testing.T) {
 			},
 		},
 		{
-			name: "content true is uncapped",
-			body: `{"select": {"branch": "foo"}, "output": {"content": true}}`,
+			name: "content caps the bytes inlined, with overflow",
+			body: `{"select": {"branch": "foo"}, "output": {"content": {"max": 4096, "overflow": "reference"}}}`,
 			want: func(t *testing.T, q ranke.Query) {
-				if q.Output.Content == nil || q.Output.Content.Max != math.MaxInt64 {
-					t.Fatalf("content = %+v, want max", q.Output.Content)
+				want := ranke.Content{Max: 4096, Overflow: ranke.OverflowReference}
+				if q.Output.Content == nil || *q.Output.Content != want {
+					t.Fatalf("content = %+v, want %+v", q.Output.Content, want)
 				}
 			},
 		},
 		{
-			name: "content number is bytes, with overflow",
-			body: `{"select": {"branch": "foo"}, "output": {"content": 4096, "overflow": "reference"}}`,
+			name: "sort keys keep their priority order and collation",
+			body: `{"select": {"branch": "foo"}, "order": [{"field": "height", "compare": "numeric", "dir": "desc"}, {"field": "type"}]}`,
 			want: func(t *testing.T, q ranke.Query) {
-				if q.Output.Content == nil || q.Output.Content.Max != 4096 {
-					t.Fatalf("content = %+v, want 4096", q.Output.Content)
+				want := []ranke.OrderKey{
+					{Field: "height", Compare: ranke.CompareNumeric, Dir: ranke.SortDesc},
+					{Field: "type"},
 				}
-				if q.Output.Content.Overflow != ranke.OverflowReference {
-					t.Fatalf("overflow = %q, want reference", q.Output.Content.Overflow)
-				}
-			},
-		},
-		{
-			name: "content string is a human size",
-			body: `{"select": {"branch": "foo"}, "output": {"content": "4kb"}}`,
-			want: func(t *testing.T, q ranke.Query) {
-				if q.Output.Content == nil || q.Output.Content.Max != 4096 {
-					t.Fatalf("content = %+v, want 4096", q.Output.Content)
-				}
-			},
-		},
-		{
-			name: "cbor-seq framing selects the verifiable claim form",
-			body: `{"select": {"branch": "foo"}, "output": {"encoding": "cbor-seq"}}`,
-			want: func(t *testing.T, q ranke.Query) {
-				if q.Output.Encoding != ranke.ResultCBOR {
-					t.Fatalf("encoding = %q, want cbor", q.Output.Encoding)
-				}
-			},
-		},
-		{
-			name: "one sort key becomes the key list",
-			body: `{"select": {"branch": "foo"}, "order": {"field": "created_at", "dir": "desc"}}`,
-			want: func(t *testing.T, q ranke.Query) {
-				want := []ranke.OrderKey{{Field: "created_at", Dir: ranke.SortDesc}}
 				if !reflect.DeepEqual(q.Order, want) {
 					t.Fatalf("order = %+v, want %+v", q.Order, want)
 				}
@@ -141,40 +144,28 @@ func TestRankeQuery(t *testing.T) {
 			},
 		},
 		{
-			name: "report true grades to info",
-			body: `{"select": {"branch": "foo"}, "execution": {"layer": "hot", "report": true}}`,
+			name: "report carries the asked-for verbosity",
+			body: `{"select": {"branch": "foo"}, "execution": {"layer": "hot", "report": "trace"}}`,
 			want: func(t *testing.T, q ranke.Query) {
-				if q.Execution.Layer != "hot" || q.Execution.Report != ranke.ReportInfo {
-					t.Fatalf("execution = %+v, want hot/info", q.Execution)
+				if q.Execution.Layer != "hot" || q.Execution.Report != ranke.ReportTrace {
+					t.Fatalf("execution = %+v, want hot/trace", q.Execution)
 				}
 			},
 		},
 		{
-			name: "a field map is a leaf",
-			body: `{"select": {"branch": "foo"}, "where": {"type": {"glob": "source/*"}}}`,
+			name: "a field and its test are a leaf",
+			body: `{"select": {"branch": "foo"}, "where": {"field": "type", "test": {"glob": "source/*"}}}`,
 			want: func(t *testing.T, q ranke.Query) {
 				if q.Where == nil || q.Where.Field != "type" || q.Where.Test == nil || q.Where.Test.Glob != "source/*" {
-					t.Fatalf("where = %+v, want type glob leaf", q.Where)
-				}
-			},
-		},
-		{
-			name: "several fields conjoin in a stable order",
-			body: `{"select": {"branch": "foo"}, "where": {"type": {"eq": "source"}, "author": {"eq": "ada"}}}`,
-			want: func(t *testing.T, q ranke.Query) {
-				if q.Where == nil || len(q.Where.And) != 2 {
-					t.Fatalf("where = %+v, want a 2-leaf conjunction", q.Where)
-				}
-				if q.Where.And[0].Field != "author" || q.Where.And[1].Field != "type" {
-					t.Fatalf("fields = %q,%q, want author,type (sorted)", q.Where.And[0].Field, q.Where.And[1].Field)
+					t.Fatalf("where = %+v, want a type glob leaf", q.Where)
 				}
 			},
 		},
 		{
 			name: "and/or/not nest",
 			body: `{"select": {"branch": "foo"}, "where": {"and": [
-				{"or": [{"type": {"eq": "source"}}, {"type": {"eq": "derivation"}}]},
-				{"not": {"author": {"eq": "ada"}}}
+				{"or": [{"field": "type", "test": {"eq": "source"}}, {"field": "type", "test": {"eq": "derivation"}}]},
+				{"not": {"field": "author", "test": {"eq": "ada"}}}
 			]}}`,
 			want: func(t *testing.T, q ranke.Query) {
 				if q.Where == nil || len(q.Where.And) != 2 {
@@ -191,7 +182,7 @@ func TestRankeQuery(t *testing.T) {
 		},
 		{
 			name: "in and the scalar operators pass through",
-			body: `{"select": {"branch": "foo"}, "where": {"height": {"in": [1, 2, 3]}}}`,
+			body: `{"select": {"branch": "foo"}, "where": {"field": "height", "test": {"in": [1, 2, 3]}}}`,
 			want: func(t *testing.T, q ranke.Query) {
 				if q.Where == nil || q.Where.Test == nil || len(q.Where.Test.In) != 3 {
 					t.Fatalf("where = %+v, want a 3-value set", q.Where)
@@ -217,12 +208,12 @@ func TestRankeQuery(t *testing.T) {
 // rejected at the boundary so the engine never sees a half-understood query.
 func TestRankeQueryRejects(t *testing.T) {
 	for _, tc := range []struct{ name, body string }{
-		{"invalid claim id", `{"select": {"claim": "not-an-id"}}`},
-		{"unknown detail", `{"select": {"branch": "foo"}, "output": {"detail": "everything"}}`},
-		{"unknown encoding", `{"select": {"branch": "foo"}, "output": {"encoding": "yaml"}}`},
-		{"unparseable size", `{"select": {"branch": "foo"}, "output": {"content": "4 furlongs"}}`},
+		{"no scope", `{"select": {}}`},
+		{"universe without a head", `{"select": {"branch": "$universe"}}`},
+		{"invalid head id", `{"select": {"branch": "foo", "head": "not-an-id"}}`},
+		{"invalid claim id", `{"select": {"branch": "foo", "claim": "not-an-id"}}`},
 		{"unparseable duration", `{"select": {"branch": "foo"}, "limit": {"time": "soon"}}`},
-		{"where neither tree nor map", `{"select": {"branch": "foo"}, "where": {"and": []}}`},
+		{"where neither tree nor leaf", `{"select": {"branch": "foo"}, "where": {"and": []}}`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var wire openapi.Query

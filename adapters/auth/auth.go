@@ -31,14 +31,12 @@ import (
 // invalid — an endpoint maps it to 401.
 var ErrUnauthenticated = errors.New("auth: unauthenticated")
 
-// ErrAmbiguousCredentials reports that a request presented more than one auth
-// scheme at once. An endpoint raises it while extracting credentials — before
-// core runs — and maps it to 400; the Set only ever resolves a single credential.
+// ErrAmbiguousCredentials reports more than one auth scheme on one request. An
+// endpoint raises it while extracting, before core runs, and maps it to 400.
 var ErrAmbiguousCredentials = errors.New("auth: ambiguous credentials")
 
-// Well-known credential schemes. A backend reports which one it consumes via
-// Scheme(); an endpoint tags each credential it extracts with the same string.
-// The empty scheme is NoAuth — the absence of a credential.
+// Well-known credential schemes: a backend reports its own via Scheme(), an endpoint
+// tags each credential with the same string, and the empty scheme is NoAuth.
 const (
 	SchemeNone     = ""         // NoAuth: no credential presented
 	SchemeAPIKey   = "apikey"   // an API key (e.g. X-API-Key)
@@ -56,20 +54,16 @@ type Credential struct {
 // Auth authenticates one credential scheme. Backends: NoAuth, JWT, API key,
 // Macaroon (-> sub-packages).
 type Auth interface {
-	// Authenticate resolves token to a Principal, or returns ErrUnauthenticated if
-	// it is missing or invalid. NoAuth ignores the token and returns its configured
-	// account.
+	// Authenticate resolves token to a Principal, or returns ErrUnauthenticated.
+	// NoAuth ignores the token and returns its configured account.
 	Authenticate(ctx context.Context, token string) (access.Principal, error)
 
-	// Scheme reports the credential scheme this backend consumes (one of the
-	// Scheme* constants). NoAuth reports SchemeNone.
+	// Scheme reports which Scheme* constant this backend consumes.
 	Scheme() string
 }
 
-// New builds the auth backend named by the section's "type" value, handing the
-// backend the same section to read its secrets from. An empty type defaults to
-// noauth. The credential-checking backends (jwt, apikey, macaroon) land here as
-// they are added.
+// New builds the backend named by the section's "type", handing it that same section
+// to read its secrets from. An empty type defaults to noauth.
 func New(ctx context.Context, cfg scope.Section) (Auth, error) {
 	var t string
 	if cfg.HasValue("type") {
@@ -116,12 +110,9 @@ func NewSet(auths []Auth) (*Set, error) {
 	return s, nil
 }
 
-// Authenticate resolves the one credential an endpoint extracted from a request.
-// A zero-value credential (empty scheme) means none was presented and falls back
-// to NoAuth — ErrUnauthenticated if no NoAuth backend is configured. Otherwise it
-// routes to the backend for the credential's scheme, or ErrUnauthenticated if none
-// handles it. Rejecting a request that presents more than one scheme is the
-// endpoint's job, done during extraction (see ErrAmbiguousCredentials).
+// Authenticate resolves the one credential an endpoint extracted: a zero value falls
+// back to NoAuth, anything else routes by scheme, and neither found is
+// ErrUnauthenticated. Multi-scheme requests die at extraction, not here.
 func (s *Set) Authenticate(ctx context.Context, cred Credential) (access.Principal, error) {
 	if cred.Scheme == SchemeNone {
 		if s.noAuth == nil {
