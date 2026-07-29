@@ -19,7 +19,7 @@ PAPERS_DIR       := docs/papers
 # these are the exceptions (its own tooling). Dotdirs never match the glob.
 PAPERS_SKIP      := scripts
 
-.PHONY: all help check-tools generate verify tidy build smoke test \
+.PHONY: all help check-tools generate verify tidy build smoke test dev \
         ranke-go-version upgrade release major minor patch breaking feature fix docs docs-clean
 
 BIN := bin/ranke-db
@@ -66,6 +66,21 @@ tidy: ## Sync go.mod/go.sum with imports (adds transitive deps)
 build: ## Compile the ranke-db binary to bin/
 	@echo ">> build → $(BIN)"
 	@go build -o $(BIN) ./cmd/ranke-db
+
+DEV_CONFIG ?= examples/minimal/config.json
+
+# The signing key is minted per run and never written down: this stack keeps
+# nothing between launches, so a throwaway identity is the honest default. The
+# address comes from the config's endpoints section, not a flag.
+dev: build ## Run a dev server from DEV_CONFIG with an ephemeral signing key
+	@command -v openssl >/dev/null 2>&1 || { echo "ERROR: dev needs openssl to mint a throwaway signing key"; exit 1; }
+	@addr=$$(grep -o '"addr"[[:space:]]*:[[:space:]]*"[^"]*"' $(DEV_CONFIG) | head -1 | sed -E 's/.*"([^"]*)"$$/\1/'); \
+		echo ">> $(DEV_CONFIG) — ephemeral signing key, nothing persisted between runs"; \
+		echo ">> serving on  http://localhost$${addr:-:8080}"; \
+		echo ">> routes are mounted (/health, /system/layers, /{branch}/head, POST /query, POST /contribute)"; \
+		echo ">> but every handler answers 501 core: not implemented — the core is still being built"; \
+		echo ">> ctrl-c to stop"; \
+		RANKE_SIGNER_KEY="$$(openssl genpkey -algorithm ed25519)" $(BIN) run $(DEV_CONFIG)
 
 smoke: build ## Launch ranke-db run against the minimal example, check health, shut down
 	@./scripts/smoke.sh $(BIN)
