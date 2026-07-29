@@ -25,10 +25,10 @@ export function GraphPane() {
     <div className="pane">
       <KeyValue
         rows={[
-          ['claims', status.nodes.toLocaleString('en-US')],
+          ['nodes', status.nodes.toLocaleString('en-US')],
           ['edges', status.edges.toLocaleString('en-US')],
           ['contributions', status.contributions.toLocaleString('en-US')],
-          ['edges per claim', (status.edges / (status.nodes || 1)).toFixed(2)],
+          ['edges per node', (status.edges / (status.nodes || 1)).toFixed(2)],
         ]}
       />
 

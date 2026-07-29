@@ -19,7 +19,7 @@ export function Footer() {
   return (
     <footer className="statusbar">
       <span>
-        {status.nodes.toLocaleString('en-US')} claims · {status.edges.toLocaleString('en-US')} edges
+        {status.nodes.toLocaleString('en-US')} nodes · {status.edges.toLocaleString('en-US')} edges
       </span>
       <span>{status.contributions.toLocaleString('en-US')} contributions</span>
       {status.visibleNodes > 0 ? (
