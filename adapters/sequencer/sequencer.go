@@ -3,9 +3,8 @@
 // job:     the Sequencer port — build the ranke-go sequencer backend named in a config section
 // limits:  wiring only; advancing the head, the six merge steps and the head history are ranke-go's (-> github.com/flocko-motion/ranke-go)
 //
-// A Ranke-Archive's single writer advances the head k → k′ and keeps past heads so a
-// failed persist can be rolled back (paper 2 §Sequencer). That mechanism is ranke-go's,
-// so this package only picks a backend and hands it its dependencies.
+// The single writer advances the head k → k′ and keeps past heads for rollback (paper 2
+// §Sequencer). That mechanism is ranke-go's; this package only picks a backend.
 package sequencer
 
 import (
@@ -30,9 +29,7 @@ import (
 // merges that advance the head to write.
 type Sequencer = ranke.Sequencer
 
-// New builds the backend named by the section's "type": "dev" is ranke-go's serial
-// reference writer, "concurrent" its optimistic-concurrency sibling. Both take the
-// same dependencies, so the choice is one word.
+// New builds the backend named by the section's "type".
 func New(ctx context.Context, cfg scope.Section, storage ranke.Universe, sig signer.Signer) (Sequencer, error) {
 	if !cfg.HasValue("type") {
 		return nil, fmt.Errorf("sequencer: missing type")
@@ -61,8 +58,8 @@ func New(ctx context.Context, cfg scope.Section, storage ranke.Universe, sig sig
 	}
 }
 
-// buildHistory builds the head timeline. Memory by default; a file history is what
-// lets a restart reopen an archive instead of bootstrapping a fresh one.
+// buildHistory builds the head timeline. A file history is what lets a restart reopen
+// an archive rather than bootstrap a fresh one.
 func buildHistory(ctx context.Context, cfg scope.Section) (ranke.History, error) {
 	if !cfg.HasSection("history") {
 		return historymem.New(), nil
@@ -86,9 +83,9 @@ func buildHistory(ctx context.Context, cfg scope.Section) (ranke.History, error)
 	}
 }
 
-// contributor mints the identity merges are signed as: an initial node holding the
-// signer's public key. Its created_at is the epoch so the id follows from the key
-// alone — a launch timestamp would mint a new identity on every start.
+// contributor mints the identity merges are signed as. created_at is pinned to the
+// epoch so the id follows from the key alone; a launch time would mint a new identity
+// every start.
 func contributor(ctx context.Context, u ranke.Universe, sig signer.Signer) (ranke.Contributor, error) {
 	pub, err := sig.Public(ctx)
 	if err != nil {
@@ -110,9 +107,8 @@ func contributor(ctx context.Context, u ranke.Universe, sig signer.Signer) (rank
 	return claim.AsContributor(ctx, u, key)
 }
 
-// portKey adapts the signer port to the crypto.Signer ranke-go signs with. Signing
-// stays a call because a Transit key never leaves the vault; the context is the
-// assembly's, since crypto.Signer takes none.
+// portKey adapts the signer port to crypto.Signer, keeping signing a call: a Transit
+// key never leaves the vault. It carries a context because crypto.Signer takes none.
 type portKey struct {
 	ctx context.Context
 	sig signer.Signer
@@ -122,7 +118,7 @@ type portKey struct {
 // Public returns the public half of the identity.
 func (k portKey) Public() crypto.PublicKey { return k.pub }
 
-// Sign signs the digest through the port; rand is unused, as the backends hold their own.
+// Sign signs the digest through the port; the backends hold their own entropy.
 func (k portKey) Sign(_ io.Reader, digest []byte, _ crypto.SignerOpts) ([]byte, error) {
 	return k.sig.Sign(k.ctx, digest)
 }
