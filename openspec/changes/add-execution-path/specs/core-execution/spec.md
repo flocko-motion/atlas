@@ -27,63 +27,43 @@ the head advances while it runs.
 - **WHEN** a merge advances the head while a query is streaming results
 - **THEN** the query continues against the snapshot it opened and its results stay consistent
 
-### Requirement: A response body is an item renderer plus a framing
+### Requirement: The server serves the library's result set rather than shaping it
 
-The system SHALL render a response body from two orthogonal parts: an **item**, which
-serialises one result under the request's output axes, and a **framing**, which writes
-a sequence of items with its separators and declares the content type. A framing SHALL
-be usable with any item and an item under any framing, so that no execution path
-carries a serialiser of its own.
+The system SHALL take the result set the library produces — already shaped to the
+query's output axes — and SHALL write it to the wire, adding only the sequence
+separators the media type requires and the content type that describes them. It SHALL
+NOT re-serialise, re-shape or re-encode a result, so the bytes a client receives are
+the bytes the library produced.
 
-Both SHALL operate lazily, so that neither a large result set nor a large blob is held
-whole in memory.
+Where the library does not yet produce a serialized result, the fix SHALL be made in
+the library, not compensated for here.
 
-#### Scenario: One item type serves several framings
-- **WHEN** the same result is returned under `application/json-seq` and under `application/cbor-seq`
-- **THEN** the same item renderer produces both bodies, differing only in the framing and the encoding axis
+#### Scenario: Bytes pass through unaltered
+- **WHEN** a query result is written to the response
+- **THEN** the library's bytes are copied through, framed but not re-encoded
 
-#### Scenario: A single-value response reuses the machinery
-- **WHEN** an operation returns exactly one value, such as a branch head or a health report
-- **THEN** it is rendered as a single item under a single-object framing, not by a bespoke serialiser
+#### Scenario: The canonical combination stays verifiable
+- **WHEN** a claim is read with `detail: claims`, `form: original`, `encoding: cbor`
+- **THEN** the bytes on the wire verify against the claim's id, the server having altered nothing
 
-#### Scenario: Results stream rather than buffer
+#### Scenario: Serving streams rather than buffers
 - **WHEN** a query matches more results than fit comfortably in memory
-- **THEN** items are pulled and written incrementally, without buffering the whole set
+- **THEN** results are pulled and written incrementally, without buffering the whole set
 
-### Requirement: A stream may carry items of more than one kind
+### Requirement: The execution report is served as the stream's final record
 
-The system SHALL allow one stream to carry items of distinct kinds and SHALL keep each
-kind distinguishable to a reader. In particular, when a query requests an execution
-report, the stream SHALL carry that report as a final record after the last result,
-typed so that a reader never mistakes it for a result.
+The system SHALL write the execution report the library returns as a final record
+after the last result, when the query asked for one, and SHALL leave it typed as the
+library typed it so a reader never mistakes it for a result. The system SHALL emit no
+report when the query asked for none.
 
 #### Scenario: A requested report closes the stream
 - **WHEN** a query sets an execution report verbosity
-- **THEN** the stream carries the results, then one final report record naming the layer that served the query, what it was lowered to, and per-stage timings
-
-#### Scenario: The report is not mistakable for data
-- **WHEN** a reader consumes a stream carrying a report
-- **THEN** the report record is distinguishable from the result records by its type, not by its position alone
+- **THEN** the response carries the results, then the library's report record
 
 #### Scenario: No report is emitted unless asked for
 - **WHEN** a query sets no execution report verbosity
-- **THEN** the stream carries results only
-
-### Requirement: Canonical output passes through unaltered
-
-The system SHALL return, for the output combination `detail: claims` + `form:
-original` + `encoding: cbor`, the library's canonical serialization unaltered, so the
-result stays re-hashable and signature-checkable against the claim's id. The renderer
-SHALL NOT re-encode those bytes. Every other combination SHALL be treated as a
-convenience projection and SHALL NOT be presented as verifiable.
-
-#### Scenario: The canonical combination round-trips
-- **WHEN** a claim is read with `detail: claims`, `form: original`, `encoding: cbor`
-- **THEN** the returned bytes verify against the claim's id without reconstruction
-
-#### Scenario: A convenience rendering is not claimed to verify
-- **WHEN** a claim is read with `encoding: json`
-- **THEN** the response is a projection and carries no guarantee of verifiability against the id
+- **THEN** the response carries results only
 
 ### Requirement: Library failures resolve to the pipeline's sentinels
 

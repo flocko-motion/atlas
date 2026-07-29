@@ -18,17 +18,14 @@ answers it, and turning what comes back into bytes on the wire. That is four thi
 
 - Pin **dispatch**: one path per operation, resolving the archive snapshot once per
   request so results stay consistent while the head advances.
-- Pin the **rendering unit** — the one genuine design decision here, and the piece
-  `stream.go` explicitly defers to "the execute-stage engines". A `ResultStream`
-  yields Go values; the wire wants `application/json-seq`, `application/cbor-seq`, a
-  single JSON object, or a raw blob. An **item** renders one result under the
-  request's output axes; a **framing** writes a sequence of items and declares the
-  content type. The two are orthogonal, so no operation carries a serialiser.
-  The normative spec constrains this rather than leaving it open: `Result = Element |
-  [Element]`, `Element = Id | Graph | Claim`, and the execution report rides the same
-  stream *"typed distinctly from result claims so a reader never mistakes it for
-  data"* — so a stream carries items of more than one kind, which the abstraction has
-  to admit from the start.
+- Pin that the server **serves the result set rather than shaping it**. The library
+  already honours four output axes — `Shape`, `Detail`, `Form`, `Content`. The fifth,
+  `Output.Encoding`, is declared at `query.go:121-126` and consumed nowhere, so a
+  `QueryResult` arrives as Go values even when the query asked for cbor. That is an
+  upstream fix, not a server abstraction: the canonical form is the library's, and
+  serialising it here is how a claim stops verifying against its id. Once the axis is
+  honoured, serving is a loop — write the bytes, add the separator the media type
+  requires, set the content type.
 - Pin **error mapping**: library errors resolve to the sentinels `Categorize` already
   translates, and an out-of-closure read is reported as not-found, indistinguishable
   from absent.
@@ -42,8 +39,9 @@ answers it, and turning what comes back into bytes on the wire. That is four thi
 
 ### New Capabilities
 
-- `core-execution`: the execute stage — dispatch and the archive snapshot seam, the
-  item/framing rendering unit, error mapping, and the verification-run registry.
+- `core-execution`: the execute stage — dispatch and the archive snapshot seam,
+  serving the library's result set to the wire, error mapping, and the
+  verification-run registry.
 
 ## Impact
 
@@ -58,6 +56,7 @@ answers it, and turning what comes back into bytes on the wire. That is four thi
 - **Not affected**: `core-query`, `core-contribution`, `core-verification`,
   `core-access`, `adapter-storage` and `adapter-sequencer`. Their semantics are
   ranke-go's or already specified; this change restates none of them.
-- **Blocked upstream, not planned here**: the contribute arm needs two things ranke-go
-  does not offer — a wire format for a multi-claim body, and a per-claim read check
-  during closure. Both are recorded in `design.md` as asks, with tasks to raise them.
+- **Blocked upstream, not planned here**: three asks, recorded in `design.md` with
+  tasks to raise them. `Output.Encoding` must be honoured before any read arm can
+  serve bytes; and the contribute arm needs a wire format for a multi-claim body and a
+  per-claim read check during closure, neither of which ranke-go offers.

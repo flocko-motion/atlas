@@ -20,7 +20,7 @@ misplaced and belongs upstream.
 **Goals:**
 
 - Dispatch: `Operation` → the library call that answers it.
-- The rendering unit: library values → framed bytes with a content type.
+- Serving: the library's result bytes onto the wire, framed and content-typed.
 - Error mapping onto the existing sentinels.
 - The verification-run registry, which is operational state rather than graph state.
 
@@ -37,50 +37,44 @@ misplaced and belongs upstream.
 
 ## Decisions
 
-### The rendering unit is the only real design decision
+### There is nothing to render — the server serves what the library shapes
 
-`stream.go` defers it deliberately — "that rendering unit is core's own; it lands with
-the execute-stage engines". It is the spine: every operation renders through it.
+The library already shapes the result set to the query's output axes. Four of the five
+are honoured today:
 
-The normative spec fixes the algebra, so this is constrained rather than open:
+| Axis | Honoured at |
+|---|---|
+| `Shape` | `query_default.go:45,87`, `archive.go:148`, `neo4j/query.go:22` |
+| `Detail` | `query_default.go:88`, `neo4j/query.go:43,49` |
+| `Form` | `stack/query.go:20` |
+| `Content` | `query_default.go:98`, `stack/query.go:80` |
 
-```
-Result  = Element | [Element]        // per output.shape: single | path
-Element = Id | Graph | Claim         // per output.detail
-```
+The fifth is not. **`Output.Encoding` is declared at `query.go:121-126` and consumed
+nowhere** — `ResultJSON` and `ResultCBOR` are defined and never referenced — so
+`QueryResult` comes back as Go values (`Id`, `Claim`, `[]Claim`, `[]byte`) even when
+the client's query asked for cbor.
 
-with `form` (original | materialized) and `content` (max + overflow) as value
-properties, and `encoding` (json | cbor) orthogonal to all of it. The *framing* is
-separate again — `application/json-seq` (RS-prefixed), `application/cbor-seq`
-(concatenated), a single JSON object, a raw blob.
+That is an upstream gap, not a server concern. `Output.Encoding` sits in the query AST
+the client sends, so the engine is what should answer in it — exactly as it already
+answers `Shape`, `Detail`, `Form` and `Content`. Building a serialisation layer here
+to compensate would put the graph's canonical form in the server's hands, which is the
+one place the razor says it must not be: get it wrong and a claim no longer verifies
+against its id.
 
-One type per combination is combinatorial. Two orthogonal abstractions instead: an
-**item** renders itself into a writer under the output axes; a **framing** writes a
-sequence of items with its separators and declares the content type. A by-id read
-yields one item; `/health` yields one item; a query yields many from a `ResultStream`.
-Same machinery throughout.
+So once the library honours the axis, the server's job is a loop — write each result's
+bytes, add the separator the media type requires, set the content type. RFC 7464
+prefixes each record with RS; RFC 8742 concatenates. A single object and a raw blob are
+degenerate cases of the same loop. No abstraction earns its keep here.
 
-The constraint that is easy to miss and expensive to retrofit — the spec requires:
-
-> After the last element — and only if `execution.report` was set — the stream carries
-> a final *report* record... **It is typed distinctly from result claims so a reader
-> never mistakes it for data.**
-
-So a stream carries items *of more than one kind*. An abstraction where "item" quietly
-means "claim" cannot carry the report without a special case in every framing.
+The same applies to the execution report: `Report()` returns a `*QueryReport`, and the
+spec requires it to reach the reader *"typed distinctly from result claims"*. The
+typing is the library's to preserve, not the server's to invent.
 
 Vocabulary note, so nobody trips: Paper 02 §Filtered Reads describes `output.encoding`
 as `json-seq`/`cbor-seq`, conflating serialization with framing. The normative spec
-separates them — `encoding` is `json`|`cbor`, the media type frames — and both
-`ranke.Output` and `openapi.yaml` follow the spec. Follow the spec; the paper section
-predates the split.
-
-### Only the canonical combination is verifiable, and the renderer must not touch it
-
-`detail: claims` + `form: original` + `encoding: cbor` reproduces the canonical
-serialization the id was computed over. That is the library's output; the renderer's
-job is to pass it through unaltered rather than re-encode it. Every other combination
-is a convenience projection and must not be presented as verifiable.
+separates them — `encoding` is `json`|`cbor`, the media type frames the sequence — and
+both `ranke.Output` and `openapi.yaml` follow the spec. Follow the spec; the paper
+section predates the split.
 
 ### One snapshot per request
 
@@ -113,9 +107,16 @@ no id, no persistence, no cancel beyond ctx. `domain.go` already models `ID`, `S
 active-run limit are server state. Last in the order, being a subsystem rather than a
 dispatch arm.
 
-## Upstream asks — the contribute arm depends on these
+## Upstream asks
 
-Both are ranke-go's by the razor. Neither should be worked around here.
+All three are ranke-go's by the razor. None should be worked around here.
+
+**`Output.Encoding` must be honoured.** Declared at `query.go:121-126`, consumed
+nowhere; `ResultJSON`/`ResultCBOR` are never referenced. The client asks for a
+serialized form in the query and the engine ignores it, so a `QueryResult` arrives as
+Go values. Every read arm waits on this: without it the server would have to serialise,
+and serialising the canonical form outside the library is how a claim stops verifying
+against its id.
 
 **A wire format for a multi-claim body.** `openapi.yaml` promises "signed CBOR in
 ranke's bundle format"; no such format exists. ranke-go has per-claim `Encode()` and
@@ -147,9 +148,10 @@ unsatisfiable by this backend.
 
 ## Risks / Trade-offs
 
-- **The rendering unit has the widest blast radius** → all fifteen operations render
-  through it; if it is wrong they all change. Hence deciding it, including the
-  heterogeneous-item constraint, before the first arm is written.
+- **Every read arm waits on `Output.Encoding`** → the read path is otherwise trivial,
+  so this single upstream fix gates the bulk of the change. If it cannot land soon,
+  the fallback is a temporary server-side encode, which puts canonical bytes in the
+  wrong repo and should be marked as debt the day it is written.
 - **`concurrent` holds its committed-id set in memory** and it "grows with the archive"
   (its own doc) → unbounded growth on a long-lived server. Upstream.
 - **The contributor identity is minted, never looked up** → a fresh contributor claim
