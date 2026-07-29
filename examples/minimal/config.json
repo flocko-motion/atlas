@@ -6,17 +6,39 @@
   "storage": {
     "type": "stack",
     "layers": [
-      { "type": "mem" }
+      {
+        "type": "mem"
+      }
     ]
   },
+  "sequencer": {
+    "type": "dev",
+    "history": {
+      "type": "mem"
+    }
+  },
   "accounts": {
-    "ops": { "grants": ["CR *"] }
+    "ops": {
+      "grants": [
+        "CR *"
+      ]
+    }
   },
   "endpoints": [
     {
-      "transport": { "type": "rest", "addr": ":8080" },
-      "auth": [ { "type": "noauth", "subject": "ops" } ],
-      "admit": ["ops"]
+      "transport": {
+        "type": "rest",
+        "addr": ":8080"
+      },
+      "auth": [
+        {
+          "type": "noauth",
+          "subject": "ops"
+        }
+      ],
+      "admit": [
+        "ops"
+      ]
     }
   ]
 }
