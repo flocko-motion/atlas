@@ -149,9 +149,11 @@ unsatisfiable by this backend.
 ## Risks / Trade-offs
 
 - **Every read arm waits on `Output.Encoding`** → the read path is otherwise trivial,
-  so this single upstream fix gates the bulk of the change. If it cannot land soon,
-  the fallback is a temporary server-side encode, which puts canonical bytes in the
-  wrong repo and should be marked as debt the day it is written.
+  so one upstream fix gates the bulk of the change. There is no server-side fallback:
+  the combination `detail: claims` + `form: original` + `encoding: cbor` *is* the
+  canonical serialization a claim's id is computed over, so producing those bytes
+  anywhere but the library means the server decides identity. A read arm waits rather
+  than compensates.
 - **`concurrent` holds its committed-id set in memory** and it "grows with the archive"
   (its own doc) → unbounded growth on a long-lived server. Upstream.
 - **The contributor identity is minted, never looked up** → a fresh contributor claim

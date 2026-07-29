@@ -1,7 +1,7 @@
 ## 1. Raise `Output.Encoding` upstream — gates every read arm
 
 - [ ] 1.1 Report it: `Output.Encoding` is declared at `query.go:121-126` and consumed nowhere — `ResultJSON`/`ResultCBOR` are never referenced — while `Shape`, `Detail`, `Form` and `Content` are all honoured by the engines. So a client asking for cbor gets Go values. The engine should answer the axis it accepts.
-- [ ] 1.2 Do not compensate here. Serialising the canonical form outside the library is how a claim stops verifying against its id. If the fix cannot land soon, any temporary server-side encode is marked as debt the day it is written.
+- [ ] 1.2 Do not compensate here, and do not ship a temporary encode. `detail: claims` + `form: original` + `encoding: cbor` *is* the canonical serialization a claim's id is computed over; producing those bytes in the server means the server decides identity. Group 2 waits on 1.1.
 
 ## 2. Serve the result set
 
