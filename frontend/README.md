@@ -41,8 +41,8 @@ server's adapters and `openapi.yaml`'s security schemes: no-auth, `X-API-Key`,
 `Authorization: Bearer` (JWT), and `Authorization: Macaroon`. Secrets stay in memory
 for the session unless you tick *remember*, which writes them to `localStorage` where
 any script on the page can read them. Reading claims from a connection is not wired
-yet: the REST query contract (`add-rest-api`) has not merged, so nothing here imports
-a generated client.
+yet: the REST query contract has merged (`rest-api`), but nothing here imports a
+generated client from it so far.
 
 # Performance
 

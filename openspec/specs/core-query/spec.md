@@ -1,88 +1,58 @@
 # core-query Specification
 
 ## Purpose
-A read against RankeDB is a tree-structured query, expressible as a JSON object:
-`select` generators that produce result sets of claims, `where` filters that narrow
-them, and `limit` controls that bound the read. This capability defines the query
-language, its result formats and ordering, and the guarantee that lowering a query
-to whichever engine a storage layer offers preserves its result set.
+A read against RankeDB is a RankeQL query — the declarative `Query` type the normative
+spec fixes (§RankeQL). This capability does not define that language; it cites it, and
+fixes what the server owes around it: that a generator reads only within the requesting
+account's scope, and that lowering a query to whichever engine a storage layer offers
+preserves its result set.
 
 ## Requirements
-
-### Requirement: A read is a select/where/limit query tree
-The system SHALL express a read as a JSON query with `select` generators (defining
-result sets of claims), `where` filters (selecting subsets), and `limit` controls,
-with `and`, `or`, and `not` combining comparisons and `or` also unioning result
-sets. Generators SHALL select only claims within the access scope of the requesting
-account.
-
-#### Scenario: A query generates then filters
-- **WHEN** a query selects a branch closure and applies a `where` on `type`
-- **THEN** the result is the generated set narrowed to claims matching the filter
-
-### Requirement: select roots a traversal and follows a path
-The system SHALL root a generator with `select.branch` (a branch's current head,
-confining the query to that branch), optionally `select.claim` (a claim id within
-the branch), or `select.claim` without a branch (a privileged Universe read, see
-`core-access`); and SHALL traverse via `select.path`, a sequence of steps each naming
-`edges`, a `dir` (`provenance` default, `uses`, or `connections`), a `depth`, and
-optionally the `nodes` its endpoint may be — `edges` and `nodes` being type lists
-where a leading `-` excludes a type. Without `path`, the generator SHALL follow every
-edge outward to the full closure.
-
-#### Scenario: A path step follows typed edges to a bounded depth
-- **WHEN** a step names `edges: [derivation/*]`, `depth: 3`, `nodes: [source/*]`
-- **THEN** the traversal follows derivation edges up to three hops and keeps endpoints of type `source/*`
-
-#### Scenario: A branch-less claim root is privileged
-- **WHEN** `select.claim` is given without a branch
-- **THEN** the read is treated as a privileged Universe access (see `core-access`)
-
-### Requirement: where is a boolean tree of comparisons
-The system SHALL evaluate `where` as a boolean tree of comparisons, each testing one
-field with `eq`, `ne`, `lt`, `le`, `gt`, `ge`, `in` (set membership), or `glob`
-(shell-style wildcard), combined by `and`, `or`, and `not`.
-
-#### Scenario: A glob comparison filters by type
-- **WHEN** a `where` tests `type` with `glob: source/*`
-- **THEN** only claims whose type matches `source/*` remain
-
-### Requirement: limit bounds the read
-The system SHALL bound a read with `limit` controls: `results` caps the number of
-claims, `content` caps returned bytes per claim with `overflow` choosing whether an
-over-large claim is cut off or omitted, and `time` cancels the query when exceeded.
-
-#### Scenario: Content overflow is handled per setting
-- **WHEN** `content` is `4kb` with `overflow: cutoff` and a claim exceeds it
-- **THEN** that claim's returned content is cut off at the cap rather than omitted
-
-### Requirement: format sets how much each result carries
-The system SHALL set result carriage with `select.format`: `claim` (default) returns
-the reached claim alone, and `path` returns the whole route to it.
-
-#### Scenario: path format returns the route
-- **WHEN** `format` is `path`
-- **THEN** each result carries the full traversal route, not only the endpoint claim
-
-### Requirement: Results are totally ordered and pageable
-The system SHALL return results in the total order `(created_at, id)` unless a named
-`order` of `{field, dir}` sorts by another field, with claims lacking that field
-sorting last. To page, a client SHALL carry the last row's order key —
-`(created_at, id)`, or `(field, id)` under a named order — into a `where` on the next
-request.
-
-#### Scenario: Paging resumes after the last row
-- **WHEN** a client carries the previous page's last order key into the next request's `where`
-- **THEN** results resume immediately after that row with no overlap or gap
 
 ### Requirement: Queries are declarative and lowering preserves the result set
 The system SHALL keep queries declarative and backend-agnostic, lowering each to the
 most capable execution engine the storage stack offers (a Cypher/GQL layer ranked
-above the native graph walk), falling back to the native walk otherwise. The logical
-order is generate, filter, sort, then limit; an optimised engine MAY diverge from
-that order as long as the result set is identical (see `conformance-execution`).
-`execution.layer` and `execution.trace` SHALL aid comparison across engines.
+above the native graph walk) and falling back to the native walk otherwise. An
+optimised engine MAY reorder or lower the evaluation steps §RankeQL fixes, provided
+the delivered result set is identical; the native reference engine is the oracle (see
+`conformance-suite`). `execution.layer` and `execution.report` SHALL aid comparison
+across engines.
 
 #### Scenario: Native and accelerated engines agree
 - **WHEN** the same query is run against the native walk and against a Cypher/GQL layer
 - **THEN** the two result sets are identical
+
+#### Scenario: A pinned layer and a report attribute a difference
+- **WHEN** two engines disagree and the query is re-run with `execution.layer` pinned and `execution.report` set
+- **THEN** the report names the layer and the lowered query, so the difference can be attributed
+
+### Requirement: The query language is the normative RankeQL type, restated nowhere
+A read SHALL be a RankeQL query — the `Query` type the normative spec fixes
+(§RankeQL: `select`, `where`, `output`, `order`, `limit`, `execution`), which alone
+defines its field names, permitted values, evaluation order and result shapes. This
+capability SHALL cite that chapter rather than restate it, so the language cannot
+drift from its source. `ranke-go`'s `Query` is the reference implementation, and a
+transport binding (see `rest-api`) carries it onto the wire.
+
+#### Scenario: The language is read from its source
+- **WHEN** an implementer or a binding needs a query field's name, values or meaning
+- **THEN** §RankeQL answers it, and no requirement here duplicates or overrides that answer
+
+#### Scenario: A language change lands in one place
+- **WHEN** RankeQL gains or changes a field
+- **THEN** the normative chapter changes and this capability needs no edit, because it fixes none of the language
+
+### Requirement: A generator reads only within the requesting account's scope
+The system SHALL confine every generator to what the requesting account may read: the
+query's scope (`select.branch`) is what the grant is held against, and a `select.head`
+given explicitly SHALL only narrow that scope, never widen it past the grant (see
+`core-access`). A claim outside the resolved closure SHALL be absent from the result
+rather than reported as denied.
+
+#### Scenario: The grant bounds the generator
+- **WHEN** an account holding `R` on one branch runs a query scoped to another
+- **THEN** the read is denied, because the scope is what the grant is held against
+
+#### Scenario: An explicit head cannot widen the scope
+- **WHEN** a query under a branch scope names a `select.head` outside that branch's closure
+- **THEN** the query is rejected rather than served from the wider closure
