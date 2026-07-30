@@ -3,14 +3,10 @@
 // job:     turn an Operation into the library call that answers it, and its result into a Stream
 // limits:  a seam, no graph behaviour; one archive snapshot per request (-> ranke-go)
 //
-// Every arm here is one call on the archive. The query engine, the closure walk, the
-// filters, the ordering and the verification pass are all the library's and are
-// finished; what is left is choosing the call and handing back what it returned. An arm
-// that grows logic is an arm in the wrong repository.
+// Every arm is one call on the archive; an arm that grows logic is in the wrong repository.
 //
-// A request resolves its archive snapshot once. RA_k is immutable, so answering
-// everything from the snapshot opened at the start is what keeps a streaming query
-// consistent while a merge advances the head underneath it.
+// A request resolves its snapshot once. RA_k is immutable, so answering from the one
+// opened at the start is what keeps a streaming query consistent under a merge.
 package core
 
 import (
@@ -192,7 +188,7 @@ func (c *Core) branch(ctx context.Context, req *Request, archive ranke.Archive) 
 // --- operational arms -----------------------------------------------------
 
 // health reports liveness and the signing identity, taken from the signer so it answers
-// when no archive could be opened.
+// when no archive opened.
 func (c *Core) health(ctx context.Context, req *Request) (Stream, error) {
 	report := Health{Status: "ok"}
 	if c.signer != nil {
@@ -234,8 +230,7 @@ type layerList struct {
 // --- error mapping --------------------------------------------------------
 
 // mapLibError resolves a library failure onto its sentinel. Absent and out-of-closure
-// arrive as one ErrNotFound, which is what keeps them indistinguishable to a caller;
-// anything unrecognised stays put and categorises as internal.
+// arrive as one ErrNotFound, which is what keeps them indistinguishable.
 func mapLibError(err error) error {
 	switch {
 	case err == nil:
@@ -261,8 +256,11 @@ func readCloser(r io.Reader) io.ReadCloser {
 // --- the contribute arm ---------------------------------------------------
 
 // contribute merges a contribution body: open against the base, fill, verify, persist,
-// merge — every step the library's, in order. The body names the branch each claim joins
-// and may name several, so each is authorized before anything is added.
+// merge — every step the library's, in order.
+//
+// Read here rather than through Contribution.AddWire: its drain stores each content record
+// as it reads, so filling first would write for a caller that may hold no grant. Task 6.8
+// asks for a branch declaration ahead of the drain, which would retire this loop.
 func (c *Core) contribute(ctx context.Context, req *Request) (Stream, error) {
 	if req.Body == nil {
 		return nil, fmt.Errorf("%w: no contribution body", ErrInvalidRequest)

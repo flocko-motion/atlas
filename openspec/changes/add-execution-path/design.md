@@ -134,6 +134,19 @@ require. It also moves the grant check: contribute authorizes the **C** right on
 branch the body writes to, once the records are read, which is the shape `core-access`
 already gives the cross-branch delete rule.
 
+v0.5.0 also offers `Contribution.AddWire`, which fills from the same stream, and this arm
+deliberately does not use it. Authorization needs the branch set *before* the drain, and
+`DrainWire` — the shared implementation — calls `PutContents` per content record as it
+reads, so filling first lands blobs in the Universe on behalf of a caller that may hold no
+grant. Reading the records here is what keeps the check ahead of the first write.
+
+The fix is a branch set declared at the head of the stream, not one reported after the
+fill — a set known only afterwards still authorizes after the fact. A reader would expose
+the declaration, the caller would authorize each branch, and the drain would refuse any
+claim naming an undeclared branch, which makes the declaration binding. That also makes
+the check streaming: nothing here would need to hold every record in memory to learn where
+it goes. Tracked as 6.8.
+
 **A per-claim read check during closure.** Paper 02 §Sequencer step 3 requires that
 closing a contribution draw in referenced claims from other branches or the wider
 Universe, and that *"read access to all branch-external claims is required"*. There is
