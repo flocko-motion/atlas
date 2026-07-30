@@ -7,11 +7,14 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"errors"
+	"io"
 	"strings"
 	"testing"
 	"time"
 
 	ranke "github.com/flocko-motion/ranke-go"
+
+	"github.com/flocko-motion/rankedb/internal/core/access"
 )
 
 // newContributor mints a client-side contributor: its own key, its own signed
@@ -125,7 +128,7 @@ func TestContributeSpansSeveralBranches(t *testing.T) {
 	self, priv, selfClaim := newContributor(t, c.store)
 
 	var body bytes.Buffer
-	w := ranke.NewWireWriter(&body)
+	w := ranke.NewWireWriter(&body, "main", "notes")
 	if err := w.WriteClaim("main", selfClaim); err != nil {
 		t.Fatalf("WriteClaim: %v", err)
 	}
@@ -164,11 +167,66 @@ func TestContributeSpansSeveralBranches(t *testing.T) {
 func writeContribution(t *testing.T, branch string, claims ...ranke.Claim) []byte {
 	t.Helper()
 	var body bytes.Buffer
-	w := ranke.NewWireWriter(&body)
+	w := ranke.NewWireWriter(&body, branch)
 	for _, claim := range claims {
 		if err := w.WriteClaim(branch, claim); err != nil {
 			t.Fatalf("WriteClaim: %v", err)
 		}
 	}
 	return body.Bytes()
+}
+
+// TestContributeAuthorizesTheDeclarationBeforeReading pins what the header buys: the C
+// right is settled from the declaration alone. The reader here records any read past the
+// header, so the test only passes if nothing beyond it was consumed.
+func TestContributeAuthorizesTheDeclarationBeforeReading(t *testing.T) {
+	c := newStack(t)
+	chk, err := access.New(map[string][]string{"ops": {"CR foo-*"}})
+	if err != nil {
+		t.Fatalf("access.New: %v", err)
+	}
+	c.access = chk
+
+	var header bytes.Buffer
+	if err := ranke.NewWireWriter(&header, "secret").WriteContent(ranke.ContentBlob{
+		Hash: mustHash(t, []byte("x")), Content: []byte("x"),
+	}); err != nil {
+		t.Fatalf("WriteContent: %v", err)
+	}
+	body := &failAfter{header: header.Bytes()}
+
+	_, err = c.Handle(context.Background(), &Request{Op: OpClaimContribute, Body: body})
+	if !errors.Is(err, ErrForbidden) {
+		t.Fatalf("err = %v, want ErrForbidden from the declaration alone", err)
+	}
+	if body.readPast {
+		t.Fatal("the body was read past its header before the grant was checked")
+	}
+}
+
+// failAfter yields the header bytes, then records any further read.
+type failAfter struct {
+	header   []byte
+	off      int
+	readPast bool
+}
+
+func (f *failAfter) Read(p []byte) (int, error) {
+	if f.off >= len(f.header) {
+		f.readPast = true
+		return 0, io.EOF
+	}
+	n := copy(p, f.header[f.off:])
+	f.off += n
+	return n, nil
+}
+
+// mustHash addresses content the way a claim does.
+func mustHash(t *testing.T, b []byte) ranke.Id {
+	t.Helper()
+	h, err := ranke.HashContent(b)
+	if err != nil {
+		t.Fatalf("HashContent: %v", err)
+	}
+	return h
 }
