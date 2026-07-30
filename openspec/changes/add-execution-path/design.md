@@ -154,7 +154,20 @@ CompleteAndVerify(ctx context.Context) (VerifiedContribution, error)
 
 No options, no hook. Steps 3 and 4 run as one traversal inside, and the only extension
 point in the path is `g.Verify(ranke.WithTrusted(c.s.isCommitted))` — the sequencer's
-own pruning, not the caller's. So ranke-db cannot authorize what the walk pulls in, and
+own pruning, not the caller's.
+
+The shape to ask for is the one `WithTrusted` already sets: a caller-supplied predicate,
+passed as an option, called per claim the walk draws in from outside the contribution and
+given that claim's id together with the branch it was found on — empty where no branch
+holds it. That is all this repo needs, because the paper fixes the rest: a branch-external
+claim arrives "from another branch of the archive or the wider Universe", so `core-access`
+answers with R on the naming branch, or `R $universe` where none does. The policy is
+settled; only the seam is missing.
+
+Approximating it here was considered and rejected. The walk is recursive, so a check over
+only the references visible in the submitted body would enforce the common case while
+leaving the transitive tail open — a control that reads as though it covers step 3 without
+doing so, which is worse than the absence it replaces. So ranke-db cannot authorize what the walk pulls in, and
 contribute cannot satisfy the paper until `CompleteAndVerify` accepts a read check.
 
 Two further findings from executing the read arms, for whoever raises the above.
