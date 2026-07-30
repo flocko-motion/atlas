@@ -3,17 +3,11 @@
 // job:     the Signer port — the server's signing identity — plus its factory
 // limits:  contract + dispatch; keys live in the backends (-> inmemory, openbao, azure)
 //
-// Package signer defines the server's merge-signing identity and builds it from
-// config. The server signs the branch-table claims (the hard timestamp) with it;
-// the contributor key that signs the CLAIMS themselves is the application's.
+// Package signer builds the server's merge-signing identity from config. It signs the
+// branch-table claims; the key signing the CLAIMS is the application's.
 //
-// Per the foundation paper, identity is id(v) = Sign(H(S(v))): Sign takes a hash
-// and returns a deterministic, self-describing signature bound to the signer's
-// public key. The port is deliberately narrower than crypto.Signer — it drops the
-// rand/opts we never use — and is ctx-aware, so an in-process key (inmemory) and a
-// key that never leaves an HSM/KMS (OpenBao Transit, Azure Key Vault) present
-// identically. When core attests a merge through ranke-go (which consumes a
-// crypto.Signer), it adapts a Signer at the boundary.
+// Narrower than crypto.Signer (no rand/opts) and ctx-aware, so an in-process key and one
+// that never leaves an HSM present identically. Core adapts it at ranke-go's boundary.
 package signer
 
 import (
@@ -28,36 +22,27 @@ import (
 	"github.com/flocko-motion/rankedb/config/scope"
 )
 
-// Signer is the server's signing identity. Sign returns a deterministic,
-// self-describing signature over hash (the paper's Sign(H(S(v)))); Public returns
-// the public key the signature binds to. Backends: in-memory, OpenBao Transit,
-// Azure Key Vault (-> sub-packages).
+// Signer is the server's signing identity: Sign is the paper's Sign(H(S(v))), Public the
+// key it binds to. Backends: inmemory, OpenBao Transit, Azure Key Vault.
 type Signer interface {
 	Sign(ctx context.Context, hash []byte) ([]byte, error)
 	Public(ctx context.Context) (crypto.PublicKey, error)
 }
 
-// testSigner is the conformance suite's view of a signer: a Signer that can also
-// prepare the key the suite signs with — inmemory returns the key it was given,
-// OpenBao mints one in Transit. It is private, so production (which only ever
-// holds a Signer) never sees PrepareKey; the method is public on the backend
-// types only because Go requires exported methods for a type in another package
-// to satisfy the interface.
+// testSigner is the conformance suite's view: a Signer that can also prepare the key the
+// suite signs with. Private, so production never sees PrepareKey.
 type testSigner interface {
 	Signer
 	PrepareKey(ctx context.Context, name string) (crypto.PublicKey, error)
 }
 
-// New builds the signer backend named by the section's "type", returning it as
-// the narrow Signer for production. An empty or unknown type is an error.
+// New builds the backend named by the section's "type" as the narrow production Signer.
 func New(ctx context.Context, cfg scope.Section) (Signer, error) {
 	return newTestSigner(ctx, cfg)
 }
 
-// Identity renders the signing identity as "<algorithm>:<base64 public key>" — what an
-// operator reads in the launch log and a client reads from health, so both name the key
-// the same way. An unreadable key yields the reason, since an identity nobody can
-// resolve is worth reporting rather than hiding.
+// Identity renders the signer as "<algorithm>:<base64 key>", the one form the launch log
+// and health both use. An unreadable key yields the reason rather than hiding it.
 func Identity(ctx context.Context, s Signer) string {
 	if s == nil {
 		return ""
@@ -72,9 +57,7 @@ func Identity(ctx context.Context, s Signer) string {
 	return fmt.Sprintf("%T", pub)
 }
 
-// newTestSigner builds the backend as a testSigner — the conformance suite's
-// view. New downcasts the result to Signer. Delegated backends (openbao, azure)
-// land in this switch as they are added.
+// newTestSigner builds the backend as a testSigner, which New downcasts to Signer.
 func newTestSigner(ctx context.Context, cfg scope.Section) (testSigner, error) {
 	var t string
 	if cfg.HasValue("type") {

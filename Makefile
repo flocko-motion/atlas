@@ -19,10 +19,11 @@ PAPERS_DIR       := docs/papers
 # these are the exceptions (its own tooling). Dotdirs never match the glob.
 PAPERS_SKIP      := scripts
 
-.PHONY: all help check-tools generate verify tidy build smoke test dev \
+.PHONY: all help check-tools generate verify tidy build smoke test dev seed \
         ranke-go-version upgrade release major minor patch breaking feature fix docs docs-clean
 
 BIN := bin/ranke-db
+GEN := bin/generator
 
 .DEFAULT_GOAL := all
 
@@ -63,27 +64,46 @@ generate: check-tools ## Generate every artifact from the spec into openapi/ (Go
 tidy: ## Sync go.mod/go.sum with imports (adds transitive deps)
 	@go mod tidy
 
-build: ## Compile the ranke-db binary to bin/
+build: ## Compile both binaries into bin/ (the server and the seeding client)
 	@echo ">> build → $(BIN)"
 	@go build -o $(BIN) ./cmd/ranke-db
+	@echo ">> build → $(GEN)"
+	@go build -o $(GEN) ./cmd/generator
 
 DEV_CONFIG ?= examples/minimal/config.json
+SEED_URL   ?= http://localhost:8080
+# Shape knobs for SEED=chain; ignored by the example shape.
+CONTRIBUTIONS ?= 20
+CLAIMS        ?= 10
+
+# SEED picks a shape: example (the default, 4 claims) or chain (many contributions).
+SEED_ARGS = $(if $(filter chain,$(SEED)),chain --contributions $(CONTRIBUTIONS) --claims $(CLAIMS),example)
 
 # The signing key is minted per run and never written down: this stack keeps
 # nothing between launches, so a throwaway identity is the honest default. The
 # address comes from the config's endpoints section, not a flag.
-dev: build ## Run a dev server from DEV_CONFIG with an ephemeral signing key
+#
+# Seeding runs as a client, which is what a contributor is — so the generator goes into
+# the background with --wait, contributes as soon as /health answers, and exits, while
+# the server keeps the foreground and ctrl-c.
+dev: build ## Run a dev server from DEV_CONFIG (SEED=example|chain to seed it once it answers)
 	@command -v openssl >/dev/null 2>&1 || { echo "ERROR: dev needs openssl to mint a throwaway signing key"; exit 1; }
 	@addr=$$(grep -o '"addr"[[:space:]]*:[[:space:]]*"[^"]*"' $(DEV_CONFIG) | head -1 | sed -E 's/.*"([^"]*)"$$/\1/'); \
+		url="http://localhost$${addr:-:8080}"; \
 		echo ">> $(DEV_CONFIG) — ephemeral signing key, nothing persisted between runs"; \
-		echo ">> serving on  http://localhost$${addr:-:8080}"; \
-		echo ">> routes are mounted (/health, /system/layers, /{branch}/head, POST /query, POST /contribute)"; \
-		echo ">> but every handler answers 501 core: not implemented — the core is still being built"; \
+		echo ">> serving on  $$url"; \
+		echo ">> try:  curl $$url/health  ·  curl $$url/main/head"; \
 		echo ">> ctrl-c to stop"; \
+		$(if $(SEED),$(GEN) $(SEED_ARGS) "$$url" --wait 15s &,) \
 		RANKE_SIGNER_KEY="$$(openssl genpkey -algorithm ed25519)" $(BIN) run $(DEV_CONFIG)
 
-smoke: build ## Launch ranke-db run against the minimal example, check health, shut down
-	@./scripts/smoke.sh $(BIN)
+# Seeding a server that is already up. An in-memory stack dies with its process, so
+# against the default config this only reaches an instance started by `make dev`.
+seed: build ## Seed a running server over its REST API (SEED_URL, SEED=example|chain)
+	@$(GEN) $(SEED_ARGS) $(SEED_URL) --wait 5s
+
+smoke: build ## Launch against the minimal example, seed it over the API, read it back, shut down
+	@./scripts/smoke.sh $(BIN) $(GEN)
 
 test: ## Test all packages; scope with make test/<pkg> (e.g. test/config, test/adapters/vault/openbao)
 	@echo ">> go test ./..."
