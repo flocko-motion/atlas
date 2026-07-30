@@ -53,6 +53,7 @@ library's and this repo holds none of it.
 - [x] 6.1 ranke-go v0.5.0 provides the contribution codec (`codec_wire.go`): `WireWriter`/`WireReader` over a CBOR sequence of `[0, id, claim-bytes, branch]` and `[1, hash, blob]`, with `WireMediaType`. The server reads it and defines no framing of its own; `openapi.yaml` documents it as the binding.
 - [x] 6.2 A shared codec was the ask, and v0.5.0 answers it — a client produces a contribution body with the library.
 - [ ] 6.3 Ask ranke-go for a per-claim read check on `CompleteAndVerify`, which takes `(ctx)` and offers no hook. Without it the paper's step 3 — "read access to all branch-external claims is required" — cannot be enforced from this repo. The one part of contribute still unsatisfiable here.
+- [x] 6.8 Ask ranke-go for a branch set readable **before** the drain, so the access check runs before any byte is read or stored. A set reported only after filling still authorizes after the fact, and `DrainWire` calls `PutContents` per content record as it reads — so a caller holding no grant can already have landed blobs in the Universe. Proposed: the stream opens with a record declaring the branches it will write to; a reader exposes that declaration (`Branches()`), the caller authorizes each, and the drain then refuses any claim naming an undeclared branch, which makes the declaration binding rather than advisory. This also makes the check streaming — the server would no longer hold every record in memory to learn where they go.
 - [x] 6.4 Report alongside: `admissible()` rejects `NodeBranches` but not limiting claims, though the paper reserves both to the Sequencer; and step 6's `expires_after_request` → `contribution/expiry` mint is absent from `concurrent`, leaving `core-limiting-claims` unsatisfiable by that backend.
 - [x] 6.5 `Archive.GetBranch`'s not-found is `errBranchNotFound`, unexported and wrapping no exported sentinel, so no caller can classify it. `execute` asks `HasBranch` on the error path; wrapping `ErrNotFound` upstream would remove the extra call.
 - [x] 6.6 `QueryReport` carries no JSON tags, so serving it as the library types it puts Go field names on a wire whose contract declares `startedAt`/`elapsedMs`/`events`. Reconcile upstream rather than remapping here.
@@ -68,6 +69,7 @@ seam upstream.
 - [ ] 7.3 Wire the read check from 6.3 into the closure walk. Blocked: `CompleteAndVerify(ctx)` offers no hook.
 - [x] 7.4 Report a head conflict only for a genuine irreconcilable clash. `concurrent` folds step 6 against the branch's live head, so nothing here reports a conflict for two contributions opened at one base.
 - [x] 7.5 A body names the branch per claim, so one contribution may advance several. The **C** right is checked on every branch the body writes to, before anything lands — the shape `core-access` already gives the cross-branch delete rule.
+- [x] 7.6 Read the records here rather than through `AddWire`, and say why: the branch set must be known before the fill, and `AddWire` persists content as it reads. Revisit once 6.8 lands.
 
 ## 8. The verification subsystem
 
