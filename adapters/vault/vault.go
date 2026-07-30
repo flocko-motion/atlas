@@ -1,6 +1,6 @@
 // package: vault / secrets
 // type:    interface + factory
-// job:     the Vault port — resolve a named secret reference to its value — plus the factory that builds a backend from config
+// job:     the Vault port — a secret reference in, its value out — plus its factory
 // limits:  contract + dispatch; secret fetching lives in the backends (-> adapters/vault/openbao, azure)
 //
 // Package vault defines the secret-resolution port and builds the configured

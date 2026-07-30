@@ -1,7 +1,7 @@
 // package: sequencer / coordination
 // type:    factory
 // job:     the Sequencer port — build the ranke-go sequencer backend named in a config section
-// limits:  wiring only; advancing the head, the six merge steps and the head history are ranke-go's (-> github.com/flocko-motion/ranke-go)
+// limits:  wiring only; the head, merges and history are ranke-go's (-> ranke-go)
 //
 // The single writer advances the head k → k′ and keeps past heads for rollback (paper 2
 // §Sequencer). That mechanism is ranke-go's; this package only picks a backend.
@@ -58,7 +58,7 @@ func New(ctx context.Context, cfg scope.Section, storage ranke.Universe, sig sig
 	}
 }
 
-// buildHistory builds the head timeline. A file history is what lets a restart reopen
+// buildHistory builds the head timeline. A file timeline is what lets a restart reopen
 // an archive rather than bootstrap a fresh one.
 func buildHistory(ctx context.Context, cfg scope.Section) (ranke.History, error) {
 	if !cfg.HasSection("history") {

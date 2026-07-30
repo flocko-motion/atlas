@@ -1,7 +1,7 @@
 // package: core / orchestration
 // type:    orchestrator
 // job:     run a Request through the pipeline — authenticate, authorize, execute — driving the ports
-// limits:  the composition of the ports, assembled by config; execution is a scaffold stub (-> config, adapters/*)
+// limits:  the composition of the ports, assembled by config (-> config, adapters/*)
 //
 // Core is what the endpoints drive and what drives storage, the sequencer and the
 // signer. Handle is the pipeline: it authenticates the request's credentials to a
@@ -18,6 +18,7 @@ import (
 
 	"github.com/flocko-motion/rankedb/adapters/auth"
 	"github.com/flocko-motion/rankedb/adapters/sequencer"
+	"github.com/flocko-motion/rankedb/adapters/signer"
 	"github.com/flocko-motion/rankedb/adapters/storage"
 	"github.com/flocko-motion/rankedb/internal/core/access"
 )
@@ -85,11 +86,41 @@ type Core struct {
 	access *access.Checker
 	seq    sequencer.Sequencer
 	store  storage.Storage
+	signer signer.Signer
+	// layerInfo names the storage layers by name and type — all config retains of
+	// them, and all layer introspection reports.
+	layerInfo []StorageLayer
+	// runs is the verification-run registry — the identity and history the library's
+	// live handle has none of.
+	runs *registry
 }
 
 // New assembles the core from the ports config built.
-func New(a *auth.Set, chk *access.Checker, seq sequencer.Sequencer, store storage.Storage) *Core {
-	return &Core{auth: a, access: chk, seq: seq, store: store}
+func New(a *auth.Set, chk *access.Checker, seq sequencer.Sequencer, store storage.Storage, opts ...Option) *Core {
+	c := &Core{auth: a, access: chk, seq: seq, store: store, runs: newRegistry(0, nil)}
+	for _, opt := range opts {
+		opt(c)
+	}
+	return c
+}
+
+// Option supplies what only some stacks have: a signer to report an identity from, the
+// layer names config parsed. A core assembled without them still authenticates,
+// authorizes and reads.
+type Option func(*Core)
+
+// WithSigner binds the signing identity health reports.
+func WithSigner(s signer.Signer) Option { return func(c *Core) { c.signer = s } }
+
+// WithLayers binds the storage layers, name and type only, that introspection reports.
+func WithLayers(layers []StorageLayer) Option {
+	return func(c *Core) { c.layerInfo = layers }
+}
+
+// WithMaxVerificationRuns bounds how many verification runs may walk at once. Beyond it
+// a start is refused as busy; the server never stops a run to make room.
+func WithMaxVerificationRuns(n int) Option {
+	return func(c *Core) { c.runs = newRegistry(n, nil) }
 }
 
 // Handle runs a request through authenticate → authorize → execute, enriching it in
@@ -128,11 +159,4 @@ func (c *Core) authorize(req *Request) error {
 	}
 	req.Report.step("authorized %c on %s", right, req.Branch)
 	return nil
-}
-
-// execute runs the operation against the ports. Scaffold: the query, contribution and
-// verification engines land here, each producing a Stream.
-func (c *Core) execute(ctx context.Context, req *Request) (Stream, error) {
-	req.Report.step("execute %v: not yet implemented", req.Op)
-	return nil, ErrNotImplemented
 }

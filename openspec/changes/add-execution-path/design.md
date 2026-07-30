@@ -89,7 +89,7 @@ section predates the split.
 everything from it is what keeps a streaming query consistent while a merge advances
 the head. Cheap, and the alternative is subtly wrong.
 
-### A stack with no sequencer answers nothing
+### A stack with no sequencer answers nothing — so it must not launch
 
 `GetArchive` is a `Sequencer` method and storage has no head, so `RA_k = (𝒰, k)` cannot
 be opened from storage alone. Config builds the sequencer only
@@ -142,6 +142,13 @@ point in the path is `g.Verify(ranke.WithTrusted(c.s.isCommitted))` — the sequ
 own pruning, not the caller's. So ranke-db cannot authorize what the walk pulls in, and
 contribute cannot satisfy the paper until `CompleteAndVerify` accepts a read check.
 
+Two further findings from executing the read arms, for whoever raises the above.
+`Archive.GetBranch` reports a missing branch as the unexported `errBranchNotFound`, which
+wraps no exported sentinel, so a caller cannot classify it — `execute` asks `HasBranch` on
+the error path instead of matching on a message. And `QueryReport` carries no JSON tags,
+so serving it as the library types it puts Go field names on a wire whose contract
+declares `startedAt`/`elapsedMs`/`events`.
+
 Two smaller observations from the same read, for whoever raises the above:
 `admissible()` rejects `NodeBranches` but not limiting claims, though the paper reserves
 both to the Sequencer; and step 6's `expires_after_request` → `contribution/expiry`
@@ -164,14 +171,18 @@ unsatisfiable by this backend.
 Two questions were open through drafting and are settled here, so nothing is left for
 whoever executes to guess at.
 
-**Read-only opens the archive directly.** Not the alternative of making the sequencer
-mandatory. `adapters/sequencer` already documents the promise — *"omit the section to
-launch read-only"* — so honouring it is finishing something started, not adding a
-feature. `ranke.NewArchive(ctx, u, k)` is public and `History.Latest()` supplies `k`,
-so the cost is small, and storage-plus-history with no writer is a real deployment: a
-replica, or a frozen bundle served for inspection. The consequence to accept is that
-history becomes required in every configuration, read-only included — consistent with
-it being the only source of `k`.
+**A sequencer is required.** Not the alternative of opening the archive directly for a
+read-only replica. *Corrected during execution:* the justification given here — that
+`adapters/sequencer` documents the promise "omit the section to launch read-only" — was
+not true; nothing in that package, or anywhere else in the repository, says it. With the
+premise gone the case collapses: `GetArchive` is the sequencer's, `k` is the sequencer's,
+and a server that cannot open an archive is not serving a Ranke-Archive. So a
+configuration without a sequencer fails at launch, named alongside the other sections
+serving cannot do without, and there is no second place to configure a head timeline.
+
+If serving a frozen archive is ever wanted, its shape is a *sequencer backend* that
+refuses to advance the head — read-only behind the same port, which is what keeps the
+hexagon intact. What it is not is a route to an archive that goes around the port.
 
 **`/health` takes the signing identity from the signer port.** Not from the
 sequencer's `GetContributor`. Health exists to answer when things are broken, and

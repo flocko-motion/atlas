@@ -1,7 +1,7 @@
 // package: podman / tools
 // type:    test-support
 // job:     run a throwaway container for an adapter's real-counterpart test, on a free port, torn down after
-// limits:  a test helper; it skips when podman is absent and waits only for the port to open — service-specific readiness (unseal, health) is the caller's
+// limits:  a test helper; it skips without podman and waits for the port, not for readiness
 //
 // Package podman is the shared boilerplate for the real-counterpart adapter tests
 // (OpenBao for the vault and signer ports, and more to come). An adapter's only

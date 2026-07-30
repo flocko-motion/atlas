@@ -1,7 +1,7 @@
 // package: signer / crypto
 // type:    interface + factory
-// job:     the Signer port — the server's signing identity — plus the factory that builds a backend from config
-// limits:  contract + dispatch; key handling lives in the backends (-> adapters/signer/inmemory, openbao, azure)
+// job:     the Signer port — the server's signing identity — plus its factory
+// limits:  contract + dispatch; keys live in the backends (-> inmemory, openbao, azure)
 //
 // Package signer defines the server's merge-signing identity and builds it from
 // config. The server signs the branch-table claims (the hard timestamp) with it;
@@ -19,6 +19,8 @@ package signer
 import (
 	"context"
 	"crypto"
+	"crypto/ed25519"
+	"encoding/base64"
 	"fmt"
 
 	"github.com/flocko-motion/rankedb/adapters/signer/inmemory"
@@ -50,6 +52,24 @@ type testSigner interface {
 // the narrow Signer for production. An empty or unknown type is an error.
 func New(ctx context.Context, cfg scope.Section) (Signer, error) {
 	return newTestSigner(ctx, cfg)
+}
+
+// Identity renders the signing identity as "<algorithm>:<base64 public key>" — what an
+// operator reads in the launch log and a client reads from health, so both name the key
+// the same way. An unreadable key yields the reason, since an identity nobody can
+// resolve is worth reporting rather than hiding.
+func Identity(ctx context.Context, s Signer) string {
+	if s == nil {
+		return ""
+	}
+	pub, err := s.Public(ctx)
+	if err != nil {
+		return fmt.Sprintf("unavailable: %v", err)
+	}
+	if ed, ok := pub.(ed25519.PublicKey); ok {
+		return "ed25519:" + base64.RawStdEncoding.EncodeToString(ed)
+	}
+	return fmt.Sprintf("%T", pub)
 }
 
 // newTestSigner builds the backend as a testSigner — the conformance suite's

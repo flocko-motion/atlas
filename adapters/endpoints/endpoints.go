@@ -1,6 +1,6 @@
 // package: endpoints / transport
 // type:    interface + factory
-// job:     the Endpoint port — bind a transport to core (build a core.Request, hand it to Handle) — plus the factory
+// job:     the Endpoint port — bind a transport to core.Handle — plus the factory
 // limits:  contract + dispatch; transports live in sub-packages (-> adapters/endpoints/rest_http, mcp_http)
 //
 // Package endpoints defines the driving Endpoint port and builds it from config.

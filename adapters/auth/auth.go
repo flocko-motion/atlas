@@ -1,7 +1,7 @@
 // package: auth / authn
 // type:    interface + factory + dispatcher
-// job:     the Auth port — turn a request credential into an authenticated Principal — the factory, and the scheme dispatcher
-// limits:  identity only; WHAT a principal may do is access's (-> internal/core/access); credential checking lives in the backends
+// job:     the Auth port — a credential in, a Principal out — plus factory and dispatcher
+// limits:  identity only; authority is access's, checking the backends' (-> internal/core/access)
 //
 // Package auth defines the authentication port (credential in, Principal out) and
 // builds the configured backends. It settles only WHO the caller is — a system

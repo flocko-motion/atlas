@@ -1,7 +1,7 @@
 // package: access / policy
 // type:    checker
 // job:     decide whether a system account may exercise a CRUD right on a branch
-// limits:  pure policy parsed from config; no ports, no ctx; core loops it for the cross-branch delete rule (-> config, core)
+// limits:  pure policy from config; no ports, no ctx; core loops it for delete (-> config, core)
 //
 // Package access is the server's access checker. Access is this deployment's
 // policy, declared in the configuration as system accounts each holding grants of

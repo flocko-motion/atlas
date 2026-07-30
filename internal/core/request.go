@@ -1,7 +1,7 @@
 // package: core / orchestration
 // type:    struct
 // job:     the one request object that flows through the server, enriched at each stage
-// limits:  transport-neutral; endpoints fill the ingress, core fills the rest (-> core.go, adapters/endpoints)
+// limits:  transport-neutral; endpoints fill the ingress, core the rest (-> core.go)
 //
 // Package core is the hexagon's center: it drives the driven ports (storage,
 // sequencer, signer) and is driven by the driving ports (auth, endpoints). Its

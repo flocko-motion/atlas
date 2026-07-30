@@ -1,7 +1,7 @@
 // package: scope / config
 // type:    struct
-// job:     a literal, resolution-free Section over a flat map — for adapters holding known values and their tests
-// limits:  flat leaves only (no nesting, no env()/vault()); the config-driven cfgSection does resolution (-> config)
+// job:     a resolution-free Section over a flat map, for known values and tests
+// limits:  flat leaves only; cfgSection resolves env()/vault() (-> config)
 //
 // This file provides Literal: a Section whose values are already-known literals,
 // with no env()/vault() resolution and no nested sections or arrays. The

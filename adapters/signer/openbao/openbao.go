@@ -1,7 +1,7 @@
 // package: openbao / crypto
 // type:    adapter
 // job:     sign via an OpenBao Transit key that never leaves the server
-// limits:  ed25519 Transit keys; the key is minted in / read from OpenBao, never held here (-> adapters/signer)
+// limits:  ed25519 Transit keys, which stay in OpenBao (-> adapters/signer)
 //
 // Package openbao is the Transit signer backend. The private key is generated in
 // and never leaves OpenBao; this holds only a client, the Transit mount, and the
