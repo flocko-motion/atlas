@@ -161,11 +161,11 @@ func refusal(status int, body []byte) error {
 	return &apiRefusal{status: status, msg: strings.TrimSpace(string(body))}
 }
 
-// encodeContribution writes claims as ranke's contribution stream, each record naming
-// the branch its claim joins.
+// encodeContribution writes claims as ranke's contribution stream, declaring the branch
+// they join so the server settles access before reading the body.
 func encodeContribution(branch string, claims []ranke.Claim) ([]byte, error) {
 	var buf bytes.Buffer
-	w := ranke.NewWireWriter(&buf)
+	w := ranke.NewWireWriter(&buf, branch)
 	for _, claim := range claims {
 		if err := w.WriteClaim(branch, claim); err != nil {
 			return nil, fmt.Errorf("encode claim %s: %w", claim.ID(), err)

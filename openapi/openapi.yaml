@@ -194,10 +194,16 @@ paths:
         The body is ranke's contribution stream: a **CBOR sequence** (RFC 8742) of
         records, self-framing so a contribution of any size streams.
 
+          - `[2, ["<branch>", …]]` — **first**, the branches this contribution touches
           - `[0, <id>, <claim bytes>, "<branch>"]` — a claim, as the canonical CBOR its
             contributor signed, and the branch it joins
           - `[1, <hash>, <content bytes>]` — externalized content, which lives in the
             Universe unbranched and so names no branch
+
+        The header comes first so the **C** right is settled on every declared branch
+        before any of the body is read; a claim naming an undeclared branch is refused, so
+        the declaration binds. One contribution may therefore advance **several branches**,
+        and an unauthorized one is answered without its payload being read.
 
         Payloads are CBOR byte strings carried through untouched: a claim's id is a
         signature over exactly those bytes, so the server stores what it was sent. The id
@@ -205,11 +211,9 @@ paths:
         contributor's key, and the canonical encoding carries only the node. Content is
         checked against the hash addressing it.
 
-        Each claim names its own branch, so **one contribution may advance several**; the
-        **C** right is required on every branch the body writes to. Send every claim the
-        closure needs that the archive may not hold yet — a first-time contributor
-        includes its own `contribution/contributor` claim, since everything it signs
-        references it.
+        Send every claim the closure needs that the archive may not hold yet — a
+        first-time contributor includes its own `contribution/contributor` claim, since
+        everything it signs references it.
 
         The sequencer mints the `contribution/branches` branch-table claim recording the
         merge (paper 02 §Sequencer). On success the new branch-table head id and the

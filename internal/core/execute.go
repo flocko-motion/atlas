@@ -255,64 +255,36 @@ func readCloser(r io.Reader) io.ReadCloser {
 
 // --- the contribute arm ---------------------------------------------------
 
-// contribute merges a contribution body: open against the base, fill, verify, persist,
-// merge — every step the library's, in order.
+// contribute merges a contribution body: authorize what it declares, fill, verify,
+// persist, merge — every step the library's, in order.
 //
-// Read here rather than through Contribution.AddWire: its drain stores each content record
-// as it reads, so filling first would write for a caller that may hold no grant. Task 6.8
-// asks for a branch declaration ahead of the drain, which would retire this loop.
+// The stream declares its branches in its first record, so the C right is settled before
+// any of the body is read, and the rest then streams through the library's own drain.
 func (c *Core) contribute(ctx context.Context, req *Request) (Stream, error) {
 	if req.Body == nil {
 		return nil, fmt.Errorf("%w: no contribution body", ErrInvalidRequest)
 	}
 
-	var (
-		byBranch = map[string][]ranke.Claim{}
-		order    []string
-		blobs    []ranke.ContentBlob
-	)
 	wire := ranke.NewWireReader(req.Body)
-	for wire.Next() {
-		switch rec := wire.Record(); rec.Kind {
-		case ranke.WireClaim:
-			if _, seen := byBranch[rec.Branch]; !seen {
-				order = append(order, rec.Branch)
-			}
-			byBranch[rec.Branch] = append(byBranch[rec.Branch], rec.Claim)
-		case ranke.WireContent:
-			blobs = append(blobs, rec.Blob)
-		}
-	}
-	if err := wire.Err(); err != nil {
+	branches, err := wire.Branches()
+	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrInvalidRequest, err)
 	}
-	if len(order) == 0 {
-		return nil, fmt.Errorf("%w: the contribution carries no claims", ErrInvalidRequest)
+	if len(branches) == 0 {
+		return nil, fmt.Errorf("%w: the contribution declares no branches", ErrInvalidRequest)
 	}
-
-	// Every branch the body writes to needs the C right, checked before any of it lands.
-	for _, branch := range order {
+	for _, branch := range branches {
 		if err := c.allow(req, access.Contribute, branch); err != nil {
 			return nil, err
 		}
-	}
-
-	// Content first: the closure walk resolves a claim's hash reference.
-	if len(blobs) > 0 {
-		if err := c.store.PutContents(ctx, blobs); err != nil {
-			return nil, mapLibError(err)
-		}
-		req.Report.step("%d content blob(s) stored", len(blobs))
 	}
 
 	contribution, err := c.seq.NewContribution(ctx)
 	if err != nil {
 		return nil, mapLibError(err)
 	}
-	for _, branch := range order {
-		if err := contribution.AddClaims(branch, byBranch[branch]); err != nil {
-			return nil, mapLibError(err)
-		}
+	if err := contribution.AddWire(ctx, wire); err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrInvalidRequest, err)
 	}
 	verified, err := contribution.CompleteAndVerify(ctx)
 	if err != nil {
@@ -331,6 +303,6 @@ func (c *Core) contribute(ctx context.Context, req *Request) (Stream, error) {
 	for _, id := range verified.Ids() {
 		ids = append(ids, id.String())
 	}
-	req.Report.step("merged %d claim(s) onto %v at head %s", len(ids), order, receipt.Head())
+	req.Report.step("merged %d claim(s) onto %v at head %s", len(ids), branches, receipt.Head())
 	return &jsonStream{value: Contribution{Head: receipt.Head().String(), Ids: ids}}, nil
 }
