@@ -73,9 +73,9 @@ The same applies to the execution report: `Report()` returns a `*QueryReport`, a
 spec requires it to reach the reader *"typed distinctly from result claims"*. The
 typing is the library's to preserve, not the server's to invent.
 
-One consequence to absorb on the bump: `QueryResult.Content []byte` is gone. Inline
-content now rides inside the encoded claim, so the query arm no longer handles content
-as a separate field — the content *route* (`GetClaimContent`) is unaffected.
+v0.4.0 also drops `QueryResult.Content []byte`, which was a second copy of bytes the
+claim already carried — inline content is inside the claim by definition. `Output.Content`
+still caps it and still decides overflow; only the duplicate field is gone.
 
 Vocabulary note, so nobody trips: Paper 02 §Filtered Reads describes `output.encoding`
 as `json-seq`/`cbor-seq`, conflating serialization with framing. The normative spec
