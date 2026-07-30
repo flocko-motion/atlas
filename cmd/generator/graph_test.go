@@ -1,0 +1,195 @@
+package main
+
+import (
+	"bytes"
+	"context"
+	"testing"
+
+	"github.com/flocko-motion/ranke-go"
+)
+
+// TestIdentityIsReproducible pins what makes a fixture a fixture: the same name always
+// derives the same contributor, so re-seeding writes the claims that are already there
+// rather than a second set under a new identity.
+func TestIdentityIsReproducible(t *testing.T) {
+	first, _, err := identity("dev")
+	if err != nil {
+		t.Fatalf("identity: %v", err)
+	}
+	again, _, err := identity("dev")
+	if err != nil {
+		t.Fatalf("identity: %v", err)
+	}
+	if !first.ID().Equal(again.ID()) {
+		t.Fatalf("same name derived different ids: %s vs %s", first.ID(), again.ID())
+	}
+
+	other, _, err := identity("someone-else")
+	if err != nil {
+		t.Fatalf("identity: %v", err)
+	}
+	if first.ID().Equal(other.ID()) {
+		t.Fatal("different names derived the same identity")
+	}
+}
+
+// TestExampleGraphHasRealProvenance checks the shape rather than the bytes: one
+// contribution, four claims, and heights that follow from what each cites — 1 for the
+// sources, 2 for the derivation, 3 for the entity.
+func TestExampleGraphHasRealProvenance(t *testing.T) {
+	g := newTestGrower(t)
+	bs, err := g.example()
+	if err != nil {
+		t.Fatalf("example: %v", err)
+	}
+	if len(bs) != 1 {
+		t.Fatalf("batches = %d, want 1", len(bs))
+	}
+
+	claims := bs[0]
+	want := []struct {
+		typ    string
+		height uint64
+	}{
+		{"source/note", 1},
+		{"source/note", 1},
+		{"derivation/extraction", 2},
+		{"entity/person", 3},
+	}
+	if len(claims) != len(want) {
+		t.Fatalf("claims = %d, want %d", len(claims), len(want))
+	}
+	for i, w := range want {
+		node := claims[i].Node()
+		if node.Type() != w.typ {
+			t.Errorf("claim %d type = %q, want %q", i, node.Type(), w.typ)
+		}
+		if node.Height() != w.height {
+			t.Errorf("claim %d height = %d, want %d", i, node.Height(), w.height)
+		}
+	}
+
+	// The derivation cites both sources, which is the provenance the shape exists to show.
+	cited := inputs(claims[2])
+	if len(cited) != 2 {
+		t.Fatalf("derivation cites %d inputs, want 2", len(cited))
+	}
+	for i, source := range claims[:2] {
+		if !cited[i].Equal(source.ID()) {
+			t.Errorf("derivation input %d = %s, want %s", i, cited[i], source.ID())
+		}
+	}
+}
+
+// TestChainGrowsDepth pins that the chain shape produces what it is for: the requested
+// batches, and heights that climb past the flat 1 a graph of roots would have.
+func TestChainGrowsDepth(t *testing.T) {
+	g := newTestGrower(t)
+	bs, err := g.chain(10, 6)
+	if err != nil {
+		t.Fatalf("chain: %v", err)
+	}
+	if len(bs) != 10 {
+		t.Fatalf("batches = %d, want 10", len(bs))
+	}
+
+	var deepest uint64
+	for i, batch := range bs {
+		if len(batch) != 6 {
+			t.Fatalf("batch %d holds %d claims, want 6", i, len(batch))
+		}
+		for _, claim := range batch {
+			deepest = max(deepest, claim.Node().Height())
+			// A source is what enters the archive, so it cites nothing but its contributor.
+			if isSource(claim.Node().Type()) && len(inputs(claim)) != 0 {
+				t.Errorf("%s cites %d inputs, want none", claim.Node().Type(), len(inputs(claim)))
+			}
+		}
+	}
+	if deepest < 3 {
+		t.Fatalf("deepest height = %d, want a graph with real depth", deepest)
+	}
+}
+
+// TestChainIsDeterministic pins reproducibility across the whole shape, not just the
+// identity: two runs of the same command produce the same ids in the same order.
+func TestChainIsDeterministic(t *testing.T) {
+	first, err := newTestGrower(t).chain(4, 5)
+	if err != nil {
+		t.Fatalf("chain: %v", err)
+	}
+	again, err := newTestGrower(t).chain(4, 5)
+	if err != nil {
+		t.Fatalf("chain: %v", err)
+	}
+	for i := range first {
+		for j := range first[i] {
+			if !first[i][j].ID().Equal(again[i][j].ID()) {
+				t.Fatalf("claim %d.%d differs between runs: %s vs %s",
+					i, j, first[i][j].ID(), again[i][j].ID())
+			}
+		}
+	}
+}
+
+// TestEncodeContributionRoundTrips reads the body back with the same reader core uses,
+// so the wire contract this client writes is pinned to the one the server reads.
+func TestEncodeContributionRoundTrips(t *testing.T) {
+	g := newTestGrower(t)
+	bs, err := g.example()
+	if err != nil {
+		t.Fatalf("example: %v", err)
+	}
+	claims := append([]ranke.Claim{g.selfClaim}, bs[0]...)
+
+	body, err := encodeContribution("main", claims)
+	if err != nil {
+		t.Fatalf("encodeContribution: %v", err)
+	}
+
+	var read []ranke.Claim
+	wire := ranke.NewWireReader(bytes.NewReader(body))
+	for wire.Next() {
+		rec := wire.Record()
+		if rec.Kind != ranke.WireClaim {
+			t.Fatalf("record kind = %v, want a claim", rec.Kind)
+		}
+		if rec.Branch != "main" {
+			t.Errorf("record branch = %q, want %q", rec.Branch, "main")
+		}
+		read = append(read, rec.Claim)
+	}
+	if err := wire.Err(); err != nil {
+		t.Fatalf("wire read: %v", err)
+	}
+	if len(read) != len(claims) {
+		t.Fatalf("read %d claims, wrote %d", len(read), len(claims))
+	}
+	for i, claim := range claims {
+		if !read[i].ID().Equal(claim.ID()) {
+			t.Errorf("claim %d read back as %s, wrote %s", i, read[i].ID(), claim.ID())
+		}
+	}
+}
+
+// newTestGrower builds a grower for the fixture identity the tests share.
+func newTestGrower(t *testing.T) *grower {
+	t.Helper()
+	g, err := newGrower(context.Background(), "test")
+	if err != nil {
+		t.Fatalf("newGrower: %v", err)
+	}
+	return g
+}
+
+// inputs returns the ids a claim cites as derivation inputs, skipping the contributor
+// edge every claim carries.
+func inputs(claim ranke.Claim) []ranke.Id {
+	var ids []ranke.Id
+	for _, edge := range claim.Edges() {
+		if edge.Type() == "derivation/input" {
+			ids = append(ids, edge.Reference())
+		}
+	}
+	return ids
+}

@@ -27,26 +27,48 @@ export RANKE_SIGNER_KEY="$(openssl genpkey -algorithm ed25519)"
 ranke-db run examples/minimal/config.json
 ```
 
-`make smoke` runs the same cycle end-to-end (generate key, launch, health-check,
-shut down) as a self-test.
+## Seed it
+
+An empty archive is hard to look at, so `bin/generator` fills one. It is a **client**,
+not a server feature: a contributor is an application-held key, so the generator signs
+its own claims and sends them to `POST /contribute` the way any application would.
+
+```sh
+make dev SEED=example                 # serve, and seed as soon as /health answers
+make dev SEED=chain                   # 20 contributions × 10 claims (CONTRIBUTIONS=, CLAIMS=)
+make seed SEED_URL=http://host:8080   # seed a server that is already up
+```
+
+`example` is the smallest graph with real provenance: two `source/note` claims, a
+`derivation/extraction` citing both, an `entity/person` distilled from that.
+`chain` grows one contribution at a time, each citing what came before, so heights
+climb and the branch table accumulates a revision per contribution — the shape worth
+testing a client against.
+
+Seeding with `make dev` rather than in a second run matters here: this stack keeps
+nothing on disk, so an archive only exists while the process serving it is up. Against
+a persistent storage and history, seed once with `make seed` and relaunch as often as
+you like.
+
+The fixture identity is derived from its name (`--as`, default `dev`) and the clock is
+pinned, so the same command always produces the same claim ids — re-seeding merges
+nothing new.
+
+`make smoke` runs the whole cycle as a self-test: launch, health-check, seed over the
+API, read the graph back, shut down.
 
 ## What a running instance answers today
 
-The stack assembles fully — storage, sequencer, signer, and one REST endpoint —
-and `verify --level connect` proves it. The REST routes are mounted too, but the
-core behind them is still being written, so every one of them answers
-`501 {"code":"unimplemented","error":"core: not implemented"}`:
+The stack assembles fully — storage, sequencer, signer, and one REST endpoint — and
+`verify --level connect` proves it. The read and write surface is live:
 
-| Route | Status |
+| Route | Answers |
 |---|---|
-| `GET /health`, `GET /system/layers` | mounted → 501 |
-| `GET /{branch}/head`, `GET /{branch}/claim/{id}` | mounted → 501 |
-| `POST /query`, `POST /contribute` | mounted → 501 |
-
-The single remaining gap is `internal/core`'s `execute`, which returns
-`ErrNotImplemented` for every operation. Authentication and authorisation already
-run in front of it, and the sequencer behind it is live — so an instance cannot yet
-be seeded with claims, but nothing structural is missing any more.
+| `GET /health` | the server's signing identity |
+| `GET /{branch}/head`, `GET /{branch}/claim/{id}` | the branch head, a claim |
+| `POST /contribute` | merges a contribution, returns the new head and the ids |
+| `POST /query` | the branch's closure, as `native`, `json` or `cbor` |
+| `GET /system/layers`, `POST /system/verification` | storage introspection, verification |
 
 ### The sequencer section
 

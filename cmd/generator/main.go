@@ -1,0 +1,148 @@
+// package: main / cmd
+// type:    entrypoint
+// job:     the generator binary — a client that seeds a running ranke-db over its REST API
+// limits:  a client only: no config, no adapters, no archive of its own (-> cmd/ranke-db serves)
+//
+// Seeding belongs to a client: a contributor is an application-held key (§5.7), so a
+// fixture signs its own claims and the server attests only the merge. Filling a dev
+// archive therefore goes through POST /contribute, the path everything else uses.
+package main
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"time"
+
+	"github.com/spf13/cobra"
+
+	"github.com/flocko-motion/ranke-go"
+)
+
+func main() {
+	if err := rootCmd().Execute(); err != nil {
+		fmt.Fprintln(os.Stderr, "generator:", err)
+		os.Exit(1)
+	}
+}
+
+// options are the flags every shape shares: where to write, as whom, with what key.
+type options struct {
+	branch string
+	as     string
+	token  string
+	apiKey string
+	wait   time.Duration
+}
+
+// rootCmd builds the generator command tree: one subcommand per graph shape.
+func rootCmd() *cobra.Command {
+	var o options
+	root := &cobra.Command{
+		Use:           "generator",
+		Short:         "Seed a running ranke-db with example graphs, over its REST API",
+		SilenceUsage:  true,
+		SilenceErrors: true,
+	}
+	f := root.PersistentFlags()
+	f.StringVar(&o.branch, "branch", "main", "branch the claims are merged onto")
+	f.StringVar(&o.as, "as", "dev", "contributor name; the same name always derives the same fixture identity")
+	f.StringVar(&o.token, "token", "", "Authorization: Bearer credential")
+	f.StringVar(&o.apiKey, "api-key", "", "X-API-Key credential")
+	f.DurationVar(&o.wait, "wait", 0, "wait up to this long for the server to answer /health before writing")
+	root.AddCommand(exampleCmd(&o), chainCmd(&o))
+	return root
+}
+
+// exampleCmd writes the small hand-built graph: provenance you can read in full.
+func exampleCmd(o *options) *cobra.Command {
+	return &cobra.Command{
+		Use:   "example <url>",
+		Short: "Write the smallest graph with real provenance (4 claims, one contribution)",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return deliver(cmd, args[0], o, func(g *grower) (batches, error) { return g.example() })
+		},
+	}
+}
+
+// chainCmd grows an archive over many contributions — the shape that gets interesting.
+func chainCmd(o *options) *cobra.Command {
+	var contributions, per int
+	c := &cobra.Command{
+		Use:   "chain <url>",
+		Short: "Grow an archive over many contributions, each citing what came before",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if contributions < 1 || per < 1 {
+				return fmt.Errorf("chain: --contributions and --claims must both be at least 1")
+			}
+			return deliver(cmd, args[0], o, func(g *grower) (batches, error) {
+				return g.chain(contributions, per)
+			})
+		},
+	}
+	c.Flags().IntVar(&contributions, "contributions", 20, "how many contributions to merge, one after another")
+	c.Flags().IntVar(&per, "claims", 10, "claims per contribution")
+	return c
+}
+
+// progressEvery paces a long seed's reporting.
+const progressEvery = 10
+
+// deliver builds a shape's claims and merges each contribution in order — a claim may
+// only cite what the archive already holds, so the batches go up one at a time.
+func deliver(cmd *cobra.Command, url string, o *options, shape func(*grower) (batches, error)) error {
+	ctx := cmd.Context()
+	c := newClient(url, o.token, o.apiKey)
+	if o.wait > 0 {
+		if err := c.waitReady(ctx, o.wait); err != nil {
+			return err
+		}
+	}
+
+	g, err := newGrower(ctx, o.as)
+	if err != nil {
+		return err
+	}
+	bs, err := shape(g)
+	if err != nil {
+		return err
+	}
+
+	out := cmd.OutOrStdout()
+	fmt.Fprintf(out, ">> %s — contributing as %q to branch %q\n", c.base, o.as, o.branch)
+	total := 0
+	for i, claims := range bs {
+		// The contributor claim rides along first: everything signed references it, so a
+		// closure cannot resolve without it.
+		if i == 0 {
+			claims = append([]ranke.Claim{g.selfClaim}, claims...)
+		}
+		body, err := encodeContribution(o.branch, claims)
+		if err != nil {
+			return err
+		}
+		res, err := c.contribute(ctx, body)
+		if err != nil {
+			return fmt.Errorf("contribution %d/%d: %w", i+1, len(bs), err)
+		}
+		total += len(res.Ids)
+		if len(bs) > 1 && (i+1)%progressEvery == 0 {
+			fmt.Fprintf(out, "   %d/%d contributions · %d claims\n", i+1, len(bs), total)
+		}
+	}
+
+	fmt.Fprintf(out, ">> merged %d claim(s) in %d contribution(s)\n", total, len(bs))
+	return report(ctx, cmd, c, o.branch)
+}
+
+// report reads the branch back, so a seed that claims to have written shows it served.
+func report(ctx context.Context, cmd *cobra.Command, c *client, branch string) error {
+	head, err := c.head(ctx, branch)
+	if err != nil {
+		return fmt.Errorf("read back %q: %w", branch, err)
+	}
+	fmt.Fprintf(cmd.OutOrStdout(), ">> %s head %s\n", branch, head)
+	return nil
+}

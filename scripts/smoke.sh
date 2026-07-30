@@ -1,14 +1,16 @@
 #!/usr/bin/env sh
-# smoke.sh — launch ranke-db against the minimal example, verify it serves the REST
-# contract, and shut it down. A self-test that the run pipeline (load → resolve →
-# assemble → serve) works end to end and that the configured endpoint is actually
-# mounted. Arg 1: path to the ranke-db binary.
+# smoke.sh — launch ranke-db against the minimal example, seed it over its own REST API,
+# read the graph back, and shut down. A self-test that the whole pipeline works end to
+# end: load → resolve → assemble → serve, then contribute → merge → query.
+# Arg 1: the ranke-db binary. Arg 2: the generator binary.
 set -eu
 
-BIN="${1:?usage: smoke.sh <ranke-db-binary>}"
+BIN="${1:?usage: smoke.sh <ranke-db-binary> <generator-binary>}"
+GEN="${2:?usage: smoke.sh <ranke-db-binary> <generator-binary>}"
 CONFIG="examples/minimal/config.json"
 PORT="8089"
 ADDR="127.0.0.1:$PORT"
+URL="http://$ADDR"
 
 if ! command -v openssl >/dev/null 2>&1; then
 	echo "smoke: openssl required to generate a throwaway signer key" >&2
@@ -31,14 +33,10 @@ echo ">> launching: $BIN run <minimal example on $ADDR>"
 PID=$!
 trap 'kill "$PID" 2>/dev/null || true; rm -rf "$WORK"' EXIT
 
-# Wait for the listener, then check the contract's routes are mounted. What smoke
-# asserts is that the endpoint the config named is serving the bound surface — not
-# what the surface answers: core's execute stage is still a scaffold, so a routed
-# read is a 501 today and a 200 once the engine lands. A 404 (or no answer at all)
-# is the failure this catches: an endpoint built but never mounted.
+# Wait for the listener before asserting anything about what it answers.
 code=""
 for _ in 1 2 3 4 5 6 7 8 9 10; do
-	code="$(curl -s -o /dev/null -m 2 -w '%{http_code}' "http://$ADDR/health" || true)"
+	code="$(curl -s -o /dev/null -m 2 -w '%{http_code}' "$URL/health" || true)"
 	case "$code" in
 	000 | "") sleep 0.3 ;;
 	*) break ;;
@@ -47,13 +45,32 @@ done
 
 case "$code" in
 000 | "") echo "smoke: no answer from GET /health on $ADDR" >&2; exit 1 ;;
-404) echo "smoke: GET /health is 404 — the configured endpoint is not mounted" >&2; exit 1 ;;
+200) ;;
+*) echo "smoke: GET /health returned $code, want 200" >&2; exit 1 ;;
 esac
-echo ">> GET /health routed ($code)"
+echo ">> GET /health OK"
 
-# The query route also answers on the wire, and its boundary check runs ahead of
-# core: a query naming no scope is a 400 whatever the engine behind it does.
-code="$(curl -s -o /dev/null -m 5 -w '%{http_code}' -X POST "http://$ADDR/query" \
+# Seeding runs as a client, the way an application contributes: claims signed with its
+# own key, sent as a contribution stream. This is the write path's end-to-end check.
+echo ">> seeding over POST /contribute"
+"$GEN" example "$URL" --wait 5s
+
+# And what was written reads back. The seeded entity is the one claim whose content is
+# distinctive enough to find in the result without parsing the sequence.
+echo ">> POST /query reads the seeded graph back"
+body="$(curl -s -m 10 -X POST "$URL/query" \
+	-H 'content-type: application/json' \
+	-d '{"select":{"branch":"main"},"output":{"encoding":"json"}}')"
+if ! printf '%s' "$body" | grep -q '"type":"entity/person"'; then
+	echo "smoke: the seeded entity/person claim did not come back from /query" >&2
+	printf 'smoke: got %s\n' "$body" >&2
+	exit 1
+fi
+echo ">> seeded claims read back OK"
+
+# The boundary check runs ahead of core: a query naming no scope is a 400 whatever the
+# engine behind it does.
+code="$(curl -s -o /dev/null -m 5 -w '%{http_code}' -X POST "$URL/query" \
 	-H 'content-type: application/json' -d '{"select":{}}')"
 if [ "$code" != "400" ]; then
 	echo "smoke: POST /query with no scope returned $code, want 400" >&2

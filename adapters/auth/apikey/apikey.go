@@ -3,14 +3,10 @@
 // job:     authenticate a request by matching its API key against configured account keys
 // limits:  recognises keys, never mints them; holds digests only (-> auth.New, internal/core/access)
 //
-// Package apikey is the API-key authentication backend: it maps a presented key to
-// the system account it authenticates as. The config carries the SHA-256 digest of
-// each key, not the key itself — the server needs only to recognise a key, never to
-// reproduce it, so a compromise of the running config or process never yields the
-// keys. The client sends the raw key (over TLS); this backend hashes it and looks
-// up the account. Like the other auth backends it stays independent of the auth
-// package (returns access.Principal and its own error, reports its scheme as a
-// literal), so auth.New can dispatch to it without an import cycle.
+// Package apikey maps a presented key to the account it authenticates as. The config
+// carries each key's SHA-256 digest, never the key: recognising one needs no ability to
+// reproduce it, so a leaked config yields no keys. Independent of the auth package that
+// dispatches to it, to avoid an import cycle.
 package apikey
 
 import (
@@ -25,27 +21,21 @@ import (
 	"github.com/flocko-motion/rankedb/internal/core/access"
 )
 
-// minKeyLength is the shortest key this backend will honour. It is a guardrail
-// against trivially short keys (a mistakenly configured "1234"), not an entropy
-// guarantee — a key's real strength is the operator's responsibility at
-// generation, and length does not imply entropy across encodings.
+// minKeyLength guards against a mistakenly configured "1234". Not an entropy claim:
+// strength is the operator's to get right at generation.
 const minKeyLength = 16
 
-// errUnauthenticated is returned for any credential this backend does not accept.
-// It is package-local (not auth.ErrUnauthenticated) to keep the backend free of an
-// import cycle with the dispatching auth package; the endpoint maps it to 401.
+// errUnauthenticated covers every credential this backend declines. Package-local to
+// avoid an import cycle; the endpoint maps it to 401.
 var errUnauthenticated = errors.New("apikey: unauthenticated")
 
-// Auth is the API-key backend: a set of key digests, each mapped to the account it
-// authenticates as.
+// Auth is the API-key backend: key digests mapped to accounts.
 type Auth struct {
 	byDigest map[string]string // hex sha256(key) -> account
 }
 
-// New builds the backend from the section's "keys" array, each entry an object
-// with an "account" and the "sha256" hex digest of that account's key. It rejects
-// a malformed digest, an empty account, a duplicate digest, and an empty key set
-// (a backend that authenticates nobody is a misconfiguration).
+// New builds the backend from the section's "keys" array, each an "account" with the
+// "sha256" of its key. An empty set is a misconfiguration, not an empty allowlist.
 func New(ctx context.Context, cfg scope.Section) (*Auth, error) {
 	entries := cfg.GetArray("keys")
 	if len(entries) == 0 {
@@ -76,8 +66,7 @@ func New(ctx context.Context, cfg scope.Section) (*Auth, error) {
 	return &Auth{byDigest: byDigest}, nil
 }
 
-// Authenticate hashes the presented key and returns the account it maps to. A key
-// shorter than minKeyLength, or one whose digest is not configured, is rejected.
+// Authenticate hashes the presented key and returns the account it maps to.
 func (a *Auth) Authenticate(_ context.Context, token string) (access.Principal, error) {
 	if len(token) < minKeyLength {
 		return access.Principal{}, errUnauthenticated
@@ -90,7 +79,5 @@ func (a *Auth) Authenticate(_ context.Context, token string) (access.Principal, 
 	return access.Principal{Account: account}, nil
 }
 
-// Scheme reports the credential scheme this backend consumes. Returned as a literal
-// so apikey need not import the auth package that dispatches to it; it equals
-// auth.SchemeAPIKey.
+// Scheme is the credential scheme consumed — a literal equal to auth.SchemeAPIKey.
 func (a *Auth) Scheme() string { return "apikey" }

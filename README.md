@@ -16,7 +16,8 @@ exactly one configuration supplied at launch.
 | Path | What |
 |---|---|
 | `openapi/` | The REST API spec — the single source of truth — and the artifacts generated from it |
-| `cmd/ranke-db/` | The binary: `run <config>`, `verify <config>` |
+| `cmd/ranke-db/` | The server binary: `run <config>`, `verify <config>` |
+| `cmd/generator/` | A contributing client that seeds a running instance over the REST API |
 | `internal/core/` | The core: endpoints, access, persistence composition, contribution |
 | `config/` | Configuration — the composition root |
 | `adapters/` | One directory per adapter port: `storage`, `sequencer`, `signer`, `vault`, `auth`, `endpoints` |
@@ -28,8 +29,8 @@ exactly one configuration supplied at launch.
 
 ```bash
 make            # regenerate from the OpenAPI spec, then build, vet, test and lint
-make build      # compile bin/ranke-db
-make smoke      # launch the minimal example, health-check it, shut down again
+make build      # compile bin/ranke-db and bin/generator
+make smoke      # launch the minimal example, seed it over the API, read it back, shut down
 ```
 
 ## Running
@@ -41,6 +42,12 @@ The admin cycle is edit → run → observe → stop.
 ranke-db verify examples/minimal/config.json   # offline, secret-free check of the config
 ranke-db run    examples/minimal/config.json   # resolve secrets, assemble the stack, serve
 ```
+
+For a dev server with something in it, `make dev SEED=example` launches the minimal
+example with a throwaway signing key and seeds it as soon as it answers; `SEED=chain`
+grows a larger archive one contribution at a time. Seeding is a **client** — a
+contributor is an application-held key, so `bin/generator` signs its own claims and
+sends them to `POST /contribute`.
 
 See [`examples/minimal/`](examples/minimal/) for the smallest launchable stack.
 

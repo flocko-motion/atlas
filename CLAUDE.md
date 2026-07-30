@@ -131,7 +131,13 @@ Never hand-edit `*.gen.*` or the generated client/references — change the spec
 Classical single-module Go repo at the repo root (module `github.com/flocko-motion/rankedb`).
 
 - `openapi/` — the API spec (source of truth) **and** its generated artifacts (Go server `openapi.gen.go`, TS client `openapi.gen.ts`, `openapi.html`, `openapi.md`; the two references symlinked under `docs/openapi/`)
-- `cmd/ranke-db/` — the binary (`run <config>`, `verify <config>`; later `tui`/config edit)
+- `cmd/ranke-db/` — the server binary (`run <config>`, `verify <config>`; later `tui`/config edit)
+- `cmd/generator/` — a **client** that seeds a running instance over `POST /contribute`:
+  it derives its own contributor identity, signs its own claims, and sends them as a
+  contribution stream. Shapes: `example` (4 claims) and `chain` (many contributions).
+  Seeding is never a server feature — a contributor is an application-held key.
+  `make dev SEED=example|chain` launches and seeds; `make seed SEED_URL=…` seeds a
+  running instance
 - `internal/core/` (+ `internal/core/access/`) · `config/` · `adapters/<port>/` — the hexagon
   (each `adapters/<port>/<port>.go` holds the port contract + its `New` factory; the
   backends sit in subpackages)

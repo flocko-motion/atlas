@@ -3,12 +3,9 @@
 // job:     decrypt an age-encrypted config with a caller-supplied passphrase source
 // limits:  passphrase (scrypt) only; the source is built by the frontend (-> cmd/ranke-db)
 //
-// This file is the config library's age layer. A reference-only config is
-// plaintext; a config carrying an inline literal secret is age-encrypted, its
-// passphrase supplied by a PassphraseSource the frontend builds (the CLI wraps
-// prompt/stdin/env/file; a TUI wraps a modal). decrypt sniffs the age header and
-// passes plaintext through untouched, so Verify and Run route every config
-// through it and call the source only when the bytes are actually encrypted.
+// A reference-only config is plaintext; one carrying an inline secret is age-encrypted.
+// decrypt sniffs the header and passes plaintext through, so Verify and Run can route
+// every config through it and ask for a passphrase only when there is something to open.
 package config
 
 import (
@@ -26,15 +23,12 @@ const (
 	ageArmorMagic  = "-----BEGIN AGE ENCRYPTED FILE-----"
 )
 
-// PassphraseSource yields the passphrase that decrypts an age-encrypted config.
-// It is called at most once, only when the config is actually encrypted. The
-// frontend supplies it (the CLI builds one from --age-key; a TUI from a modal).
+// PassphraseSource yields the passphrase for an age-encrypted config, called at most
+// once. The frontend supplies it — the CLI from --age-key, a TUI from a modal.
 type PassphraseSource func() (string, error)
 
-// decrypt returns plaintext config bytes. Plaintext input is returned unchanged.
-// age-encrypted input (binary or armored) is decrypted with the passphrase from
-// src; a nil src then errors, so an encrypted config never fails silently for
-// want of a key.
+// decrypt returns plaintext config bytes, passing plaintext input through. A nil src on
+// encrypted input errors, so a missing key never fails silently.
 func decrypt(data []byte, src PassphraseSource) ([]byte, error) {
 	if !looksEncrypted(data) {
 		return data, nil
@@ -65,8 +59,7 @@ func decrypt(data []byte, src PassphraseSource) ([]byte, error) {
 	return out, nil
 }
 
-// looksEncrypted sniffs the age binary or armor header so plaintext config is
-// recognized without a key and routed straight to the parser.
+// looksEncrypted sniffs the age binary or armor header, so plaintext needs no key.
 func looksEncrypted(data []byte) bool {
 	return bytes.HasPrefix(data, []byte(ageBinaryMagic)) ||
 		bytes.HasPrefix(data, []byte(ageArmorMagic))

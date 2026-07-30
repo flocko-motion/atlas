@@ -3,23 +3,13 @@
 // job:     REST/HTTP endpoint backend — the Endpoints port and its server lifecycle
 // limits:  transport + translation only; all capability lives behind core.Core (-> internal/core)
 //
-// Package rest_http serves the ranke-db REST API over HTTP. It implements the
-// generated openapi.ServerInterface (from openapi/openapi.yaml) by, for each request,
-// extracting the caller's raw credential from the wire, translating the request
-// into a core.Request, handing it to core.Handle — which authenticates, authorizes
-// and executes — and rendering the response, or the mapped status for a sentinel
-// error, back onto the wire. Auth and access live in core; this package is pure
-// transport and never resolves a subject itself.
+// Package rest_http implements the generated openapi.ServerInterface: it lifts the raw
+// credential off the wire, builds a core.Request, and renders what core.Handle answers.
+// Auth and access live in core; this is pure transport.
 //
-// The package is split by topic:
-//
-//	rest_http.go              the Server and its http.Server lifecycle (this file)
-//	auth.go                   extract the wire credential, carried to the handlers
-//	respond.go                response writers and the sentinel-error → status map
-//	endpoints_read.go         query and the cacheable by-id reads
-//	endpoints_contribute.go   contribute
-//	endpoints_system.go       health and storage-layer introspection
-//	endpoints_verification.go the verification run API
+// By topic: auth.go (wire credential), respond.go (writers, error → status),
+// endpoints_read.go, endpoints_contribute.go, endpoints_system.go,
+// endpoints_verification.go — the Server's own lifecycle here.
 package rest_http
 
 import (
@@ -34,15 +24,13 @@ import (
 	"github.com/flocko-motion/rankedb/openapi"
 )
 
-// Server is a running REST/HTTP endpoint: an http.Server whose handlers translate
-// each request into a core.Request and drive it through core.Handle.
+// Server is a running REST/HTTP endpoint driving core.Handle.
 type Server struct {
 	core *core.Core
 	srv  *http.Server
 }
 
-// New builds the REST/HTTP endpoint from its config section, wired to the core it
-// drives. The section's "addr" sets the listen address (default ":8080").
+// New builds the endpoint from its config section; "addr" listens (default ":8080").
 func New(ctx context.Context, cfg scope.Section, c *core.Core) (*Server, error) {
 	addr := ":8080"
 	if cfg.HasValue("addr") {
