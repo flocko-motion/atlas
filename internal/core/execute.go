@@ -22,6 +22,7 @@ import (
 	ranke "github.com/flocko-motion/ranke-go"
 
 	"github.com/flocko-motion/rankedb/adapters/signer"
+	"github.com/flocko-motion/rankedb/internal/core/access"
 )
 
 // execute runs the operation against the ports and returns its response stream.
@@ -42,6 +43,8 @@ func (c *Core) execute(ctx context.Context, req *Request) (Stream, error) {
 	req.Report.step("archive snapshot at head %s", archive.Head())
 
 	switch req.Op {
+	case OpClaimContribute:
+		return c.contribute(ctx, req)
 	case OpClaimQuery:
 		return c.query(ctx, req, archive)
 	case OpClaimGet:
@@ -80,8 +83,7 @@ func (c *Core) query(ctx context.Context, req *Request, archive ranke.Archive) (
 	if req.Query == nil {
 		return nil, fmt.Errorf("%w: no query", ErrNotFound)
 	}
-	// The engine serialises each result only when asked for an explicit encoding;
-	// its native form is Go objects, which only an encoder could put on the wire.
+	// Ask for an explicit encoding: the engine's native form is Go objects.
 	q := *req.Query
 	if q.Output.Encoding == "" || q.Output.Encoding == ranke.ResultNative {
 		q.Output.Encoding = ranke.ResultJSON
@@ -108,8 +110,7 @@ func (c *Core) claim(ctx context.Context, req *Request, archive ranke.Archive) (
 	return &bytesStream{payload: payload, contentType: mediaCBOR}, nil
 }
 
-// claimContent streams one claim's content. Content is addressed by the claim holding
-// it, so it inherits that claim's scope and reveals nothing about where the bytes live.
+// claimContent streams one claim's content, which inherits that claim's scope.
 func (c *Core) claimContent(ctx context.Context, req *Request, archive ranke.Archive) (Stream, error) {
 	if req.ClaimID == nil {
 		return nil, fmt.Errorf("%w: no claim id", ErrNotFound)
@@ -175,9 +176,8 @@ func (c *Core) scopedClaim(ctx context.Context, req *Request, archive ranke.Arch
 	return claim, mapLibError(err)
 }
 
-// branch resolves the request's branch within the snapshot. An unknown branch is asked
-// about rather than inferred: GetBranch's not-found is an unexported sentinel that wraps
-// nothing, so HasBranch is the only way to tell "no such branch" from a real failure.
+// branch resolves the request's branch. GetBranch's not-found is an unexported sentinel
+// wrapping nothing, so HasBranch is the only way to classify it.
 func (c *Core) branch(ctx context.Context, req *Request, archive ranke.Archive) (ranke.Branch, error) {
 	branch, err := archive.GetBranch(ctx, req.Branch)
 	if err == nil {
@@ -191,8 +191,8 @@ func (c *Core) branch(ctx context.Context, req *Request, archive ranke.Archive) 
 
 // --- operational arms -----------------------------------------------------
 
-// health reports liveness and the identity this stack signs merges with, taken from the
-// signer so it answers even when no archive or sequencer could be assembled.
+// health reports liveness and the signing identity, taken from the signer so it answers
+// when no archive could be opened.
 func (c *Core) health(ctx context.Context, req *Request) (Stream, error) {
 	report := Health{Status: "ok"}
 	if c.signer != nil {
@@ -202,8 +202,7 @@ func (c *Core) health(ctx context.Context, req *Request) (Stream, error) {
 	return &jsonStream{value: report}, nil
 }
 
-// layers reports the storage layers by name and type, which is all config retained of
-// them — no address, credential or path is reachable through here.
+// layers reports what config retained of each layer: a name and a type.
 func (c *Core) layers(req *Request) (Stream, error) {
 	req.Report.step("%d storage layers listed", len(c.layerInfo))
 	return &jsonStream{value: layerList{Layers: c.layerInfo}}, nil
@@ -234,11 +233,9 @@ type layerList struct {
 
 // --- error mapping --------------------------------------------------------
 
-// mapLibError resolves a library failure onto the sentinel its category requires. An
-// absent claim and one outside the requested scope's closure arrive as the same
-// ErrNotFound, which is what keeps them indistinguishable to a caller. Anything
-// unrecognised stays as it is and categorises as internal, rather than being dressed up
-// as a client error.
+// mapLibError resolves a library failure onto its sentinel. Absent and out-of-closure
+// arrive as one ErrNotFound, which is what keeps them indistinguishable to a caller;
+// anything unrecognised stays put and categorises as internal.
 func mapLibError(err error) error {
 	switch {
 	case err == nil:
@@ -259,4 +256,83 @@ func readCloser(r io.Reader) io.ReadCloser {
 		return rc
 	}
 	return io.NopCloser(r)
+}
+
+// --- the contribute arm ---------------------------------------------------
+
+// contribute merges a contribution body: open against the base, fill, verify, persist,
+// merge — every step the library's, in order. The body names the branch each claim joins
+// and may name several, so each is authorized before anything is added.
+func (c *Core) contribute(ctx context.Context, req *Request) (Stream, error) {
+	if req.Body == nil {
+		return nil, fmt.Errorf("%w: no contribution body", ErrInvalidRequest)
+	}
+
+	var (
+		byBranch = map[string][]ranke.Claim{}
+		order    []string
+		blobs    []ranke.ContentBlob
+	)
+	wire := ranke.NewWireReader(req.Body)
+	for wire.Next() {
+		switch rec := wire.Record(); rec.Kind {
+		case ranke.WireClaim:
+			if _, seen := byBranch[rec.Branch]; !seen {
+				order = append(order, rec.Branch)
+			}
+			byBranch[rec.Branch] = append(byBranch[rec.Branch], rec.Claim)
+		case ranke.WireContent:
+			blobs = append(blobs, rec.Blob)
+		}
+	}
+	if err := wire.Err(); err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrInvalidRequest, err)
+	}
+	if len(order) == 0 {
+		return nil, fmt.Errorf("%w: the contribution carries no claims", ErrInvalidRequest)
+	}
+
+	// Every branch the body writes to needs the C right, checked before any of it lands.
+	for _, branch := range order {
+		if err := c.allow(req, access.Contribute, branch); err != nil {
+			return nil, err
+		}
+	}
+
+	// Content first: the closure walk resolves a claim's hash reference.
+	if len(blobs) > 0 {
+		if err := c.store.PutContents(ctx, blobs); err != nil {
+			return nil, mapLibError(err)
+		}
+		req.Report.step("%d content blob(s) stored", len(blobs))
+	}
+
+	contribution, err := c.seq.NewContribution(ctx)
+	if err != nil {
+		return nil, mapLibError(err)
+	}
+	for _, branch := range order {
+		if err := contribution.AddClaims(branch, byBranch[branch]); err != nil {
+			return nil, mapLibError(err)
+		}
+	}
+	verified, err := contribution.CompleteAndVerify(ctx)
+	if err != nil {
+		return nil, mapLibError(err)
+	}
+	mergable, err := verified.Persist(ctx)
+	if err != nil {
+		return nil, mapLibError(err)
+	}
+	receipt, err := c.seq.Merge(ctx, mergable)
+	if err != nil {
+		return nil, mapLibError(err)
+	}
+
+	ids := make([]string, 0, len(verified.Ids()))
+	for _, id := range verified.Ids() {
+		ids = append(ids, id.String())
+	}
+	req.Report.step("merged %d claim(s) onto %v at head %s", len(ids), order, receipt.Head())
+	return &jsonStream{value: Contribution{Head: receipt.Head().String(), Ids: ids}}, nil
 }

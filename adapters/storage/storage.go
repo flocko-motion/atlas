@@ -3,19 +3,11 @@
 // job:     build one ranke.Universe from a storage section — a leaf, or a composite
 // limits:  wiring only; the persistence logic is ranke-go's adapters (-> github.com/flocko-motion/ranke-go)
 //
-// Package storage is ranke-db's storage port. A composed stack or partition is
-// itself a Universe (the paper's composable-universe property), so the whole
-// store — however deeply layered — is one recursive descriptor and presents as
-// one type. New reads that descriptor from its scope.Section: a "type" selects a
-// leaf backend (mem, fs, sqlite, minimal, s3) or a composite ("stack" over its
-// "layers", "partition" over its "shards"), and composites recurse, so a layer
-// or a shard may itself be a stack or a partition. Each leaf reads its own
-// settings from its section, resolving env()/vault() delegations as it does.
+// A composed stack or partition is itself a Universe, so the whole store is one
+// recursive descriptor: a "type" selects a leaf or a composite, and composites recurse.
 //
-// A layer's write role and content cap are not ours to set: ranke-go reports
-// them per universe as ranke.Capabilities, fixed by the backend's own adapter
-// options, so this package only holds a layer's declared "mode"/"maxContentSize"
-// against what the built universe reports and fails when they disagree.
+// A layer's write role and content cap are the backend's, reported as
+// ranke.Capabilities, so this package only fails a declaration that disagrees.
 package storage
 
 import (

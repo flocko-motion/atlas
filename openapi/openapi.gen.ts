@@ -850,7 +850,7 @@ export class Api<
   };
   contribute = {
     /**
-     * @description Contributes one or more signed claims to a branch as a single **atomic** merge — all are absorbed under one new branch-table head, or none are. The request body is the claims as **signed CBOR** in ranke's bundle format (a subgraph; claims reference each other and their closure by content-addressed id). Content-addressed and therefore **idempotent**: re-contributing yields the same ids with no duplicates. The target branch is **required** and given as the `branch` query parameter — a contribution is always a set of claims merged onto one named branch, and core checks the **C** right on it before the sequencer merges. It is not in the body: the body carries only the claims being added, and the sequencer itself creates the `contribution/branches` branch-table claim that records them (paper 02 §Sequencer), so the target cannot be derived from the submitted bundle. On success the new branch-table head id and the contributed claim ids are returned.
+     * @description Contributes one or more signed claims to a branch as a single **atomic** merge — all are absorbed under one new branch-table head, or none are. Content-addressed and therefore **idempotent**: re-contributing yields the same ids with no duplicates. The body is ranke's contribution stream: a **CBOR sequence** (RFC 8742) of records, self-framing so a contribution of any size streams. - `[0, <id>, <claim bytes>, "<branch>"]` — a claim, as the canonical CBOR its contributor signed, and the branch it joins - `[1, <hash>, <content bytes>]` — externalized content, which lives in the Universe unbranched and so names no branch Payloads are CBOR byte strings carried through untouched: a claim's id is a signature over exactly those bytes, so the server stores what it was sent. The id is explicit because it cannot be derived — `Sign(H(S(node)))` is made with the contributor's key, and the canonical encoding carries only the node. Content is checked against the hash addressing it. Each claim names its own branch, so **one contribution may advance several**; the **C** right is required on every branch the body writes to. Send every claim the closure needs that the archive may not hold yet — a first-time contributor includes its own `contribution/contributor` claim, since everything it signs references it. The sequencer mints the `contribution/branches` branch-table claim recording the merge (paper 02 §Sequencer). On success the new branch-table head id and the contributed claim ids are returned.
      *
      * @tags write
      * @name Contribute
@@ -858,18 +858,10 @@ export class Api<
      * @request POST:/contribute
      * @secure
      */
-    contribute: (
-      query: {
-        /** The target branch the claims are merged onto (the `C` right applies here). */
-        branch: string;
-      },
-      data: File,
-      params: RequestParams = {},
-    ) =>
+    contribute: (data: File, params: RequestParams = {}) =>
       this.request<ContributionResult, Error>({
         path: `/contribute`,
         method: "POST",
-        query: query,
         body: data,
         secure: true,
         format: "json",

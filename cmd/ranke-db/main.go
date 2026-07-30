@@ -3,12 +3,9 @@
 // job:     the ranke-db binary — a cobra CLI handing a config to the config package
 // limits:  CLI wiring only; decrypt/parse/resolve/assemble live in config (-> config)
 //
-// Command ranke-db is the single binary. It opens the launch artifact (a file or
-// stdin), builds an age PassphraseSource from --age-key (prompt|stdin|env:VAR|
-// file:path — never a command-line literal), and hands both to config: "run"
-// assembles the stack and serves until SIGINT/SIGTERM; "verify" checks the config
-// to a chosen depth and exits. The config package owns everything past the
-// handoff; the CLI only generalises its inputs into config's two entry points.
+// The binary opens the launch artifact, builds an age passphrase source from --age-key,
+// and hands both to config: "run" serves until signalled, "verify" checks and exits.
+// Everything past that handoff is config's.
 package main
 
 import (

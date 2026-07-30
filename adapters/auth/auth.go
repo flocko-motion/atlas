@@ -3,17 +3,10 @@
 // job:     the Auth port — a credential in, a Principal out — plus factory and dispatcher
 // limits:  identity only; authority is access's, checking the backends' (-> internal/core/access)
 //
-// Package auth defines the authentication port (credential in, Principal out) and
-// builds the configured backends. It settles only WHO the caller is — a system
-// account, plus any caveats a token carried; WHAT they may do is the access
-// checker's, keyed on the returned Principal one step later in core. An endpoint
-// extracts the raw credential per its transport (a Bearer token, an X-API-Key
-// header, …) and hands it here, so the port stays transport-neutral.
+// The port settles who the caller is, never what they may do.
 //
-// Each backend answers one credential scheme. A Set groups the configured backends
-// and dispatches by the scheme an endpoint presents: exactly one credential routes
-// to its backend, none falls back to NoAuth, and more than one is ambiguous and
-// rejected — the endpoint never guesses a token's kind by inspecting its bytes.
+// A Set dispatches on the scheme presented: one credential routes to its backend, none
+// falls back to NoAuth, more than one is ambiguous — never guessed from the bytes.
 package auth
 
 import (
@@ -110,9 +103,8 @@ func NewSet(auths []Auth) (*Set, error) {
 	return s, nil
 }
 
-// Authenticate resolves the one credential an endpoint extracted: a zero value falls
-// back to NoAuth, anything else routes by scheme, and neither found is
-// ErrUnauthenticated. Multi-scheme requests die at extraction, not here.
+// Authenticate routes one credential by scheme; a zero value falls back to NoAuth, and
+// neither found is ErrUnauthenticated.
 func (s *Set) Authenticate(ctx context.Context, cred Credential) (access.Principal, error) {
 	if cred.Scheme == SchemeNone {
 		if s.noAuth == nil {

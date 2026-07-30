@@ -3,16 +3,12 @@
 // job:     decrypt/parse the launch config and either check it (Verify) or assemble the adapter stack (Run)
 // limits:  the only component that sees the whole config; adapters get scope.Section slices (-> Verify, Run)
 //
-// Package config is the composition root. Its public surface is two entry points
-// that mirror the CLI verbs: Verify checks an (optionally age-encrypted) config
-// to a chosen depth without assembling anything; Run decrypts, parses, and
-// assembles the live adapter stack. Both take the config bytes and a
-// PassphraseSource the frontend supplies. config hands each adapter its own slice
-// as a scope.Section — that section's keys and nothing else; env(KEY)/vault(ref)
-// delegations resolve lazily when the adapter reads them, so a rotating secret is
-// fetched at use. config is the ONE component that sees the whole config; a
-// backend can read neither another port's secrets nor a sibling instance's — the
-// narrowing is by containment, not visibility.
+// Two entry points mirror the CLI verbs: Verify checks without assembling, Run assembles
+// the live stack. Each adapter is handed its own scope.Section and nothing else, its
+// env()/vault() delegations resolved lazily at use.
+//
+// config is the one component that sees the whole config; the narrowing below it is by
+// containment, not visibility.
 package config
 
 import (

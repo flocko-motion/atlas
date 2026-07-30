@@ -116,16 +116,23 @@ dispatch arm.
 
 ## Upstream asks
 
-Both are ranke-go's by the razor, and both block the contribute arm only — the read
-arms are unblocked by v0.4.0. Neither should be worked around here. Tracked as
+One genuine ask remains, and it blocks only the paper's step-3 read check. Tracked as
 `td-0da051`.
 
-**A wire format for a multi-claim body.** `openapi.yaml` promises "signed CBOR in
-ranke's bundle format"; no such format exists. ranke-go has per-claim `Encode()` and
-`DecodeClaim(id, b)`, and "bundle" upstream means a filesystem layout. Since an id is
-`Sign(H(S(v)))` — a signature, not recomputable from the payload — a body must carry
-explicit `(id, bytes)` pairs. Proposed: a self-framing CBOR sequence of
-`[id, claim-bytes]`. Every client must produce it, so it belongs in the library.
+**A wire format for a multi-claim body — answered upstream.** *Corrected twice during
+execution.* It was first recorded as a blocker, which it was not; the format is the
+binding's business, so it was defined here. ranke-go **v0.5.0** then shipped the codec
+(`codec_wire.go`), so the server holds no framing of its own: `WireWriter`/`WireReader`
+over a CBOR sequence of `[0, id, claim-bytes, branch]` and `[1, hash, blob]`, under
+`WireMediaType`. Two things the library's shape adds over the one drafted here: a claim
+record names the branch it joins, so **one contribution may advance several**, and content
+is checked against the hash addressing it — a flipped byte is refused as an integrity
+failure rather than merged.
+
+Naming the branch per record retires the `?branch=` parameter the contract used to
+require. It also moves the grant check: contribute authorizes the **C** right on every
+branch the body writes to, once the records are read, which is the shape `core-access`
+already gives the cross-branch delete rule.
 
 **A per-claim read check during closure.** Paper 02 §Sequencer step 3 requires that
 closing a contribution draw in referenced claims from other branches or the wider

@@ -29,6 +29,9 @@ var (
 	// ErrForbidden — an authenticated principal lacks a grant for the action (403).
 	// Distinct from auth.ErrUnauthenticated: identity was established, authority not.
 	ErrForbidden = errors.New("core: forbidden")
+	// ErrInvalidRequest — the request is malformed: a body that does not decode, or a
+	// field the bound engine cannot carry (400).
+	ErrInvalidRequest = errors.New("core: invalid request")
 	// ErrNotFound — unknown, or outside the named scope's closure; indistinguishable (404).
 	ErrNotFound = errors.New("core: not found")
 	// ErrConflict — a contribution clashes with the branch's current head (409).
@@ -63,6 +66,8 @@ func Categorize(err error) Category {
 	case errors.Is(err, auth.ErrUnauthenticated):
 		return CatUnauthenticated
 	case errors.Is(err, auth.ErrAmbiguousCredentials):
+		return CatInvalid
+	case errors.Is(err, ErrInvalidRequest):
 		return CatInvalid
 	case errors.Is(err, ErrForbidden):
 		return CatForbidden
@@ -154,9 +159,21 @@ func (c *Core) authorize(req *Request) error {
 		req.Report.step("no grant required")
 		return nil
 	}
-	if !c.access.Allow(req.Principal, right, req.Branch) {
-		return fmt.Errorf("%w: %q may not %c %s", ErrForbidden, req.Principal.Account, right, req.Branch)
+	if req.Op == OpClaimContribute {
+		// A contribution names the branch each claim joins, and may name several, so
+		// its grants are checked once the body is decoded — the same shape as the
+		// cross-branch delete rule, which is core calling Allow per branch.
+		req.Report.step("authorized per branch once the body is read")
+		return nil
 	}
-	req.Report.step("authorized %c on %s", right, req.Branch)
+	return c.allow(req, right, req.Branch)
+}
+
+// allow checks one grant and records it.
+func (c *Core) allow(req *Request, right access.Right, branch string) error {
+	if !c.access.Allow(req.Principal, right, branch) {
+		return fmt.Errorf("%w: %q may not %c %s", ErrForbidden, req.Principal.Account, right, branch)
+	}
+	req.Report.step("authorized %c on %s", right, branch)
 	return nil
 }
