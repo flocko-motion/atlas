@@ -44,8 +44,8 @@ answers it, and turning what comes back into bytes on the wire. That is four thi
 
 ## Impact
 
-- **`internal/core/`**: `execute` grows from a stub into dispatch plus the rendering
-  unit; the verification registry is new.
+- **`internal/core/`**: `execute` grows from a stub into dispatch plus the switch that
+  serves each result's payload; the verification registry is new.
 - **`config/`**: settles what a stack without a sequencer section means. `GetArchive`
   is a `Sequencer` method and storage has no head, so such a stack currently builds
   cleanly and then answers nothing.
