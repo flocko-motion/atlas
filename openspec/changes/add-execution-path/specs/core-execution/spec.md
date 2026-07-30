@@ -107,9 +107,29 @@ request that would exceed it.
 ### Requirement: Health is answerable without a working archive
 
 The system SHALL answer a health request with liveness and the stack's signing identity
-without depending on a readable archive or a running sequencer, so that health stays
-reportable precisely when the stack is degraded.
+taken from the signer, and SHALL NOT depend on a readable archive or an assembled
+sequencer to do so, since health is wanted precisely when the stack is degraded.
 
 #### Scenario: Health answers on a broken stack
-- **WHEN** the archive cannot be opened
-- **THEN** the health request still returns, reporting the signing identity
+- **WHEN** neither the archive nor the sequencer could be assembled
+- **THEN** the health request still returns, reporting the signing identity from the signer
+
+### Requirement: A stack with no sequencer serves reads and refuses writes
+
+The system SHALL serve reads when no sequencer is configured, opening the archive
+directly from the head the timeline records as latest, and SHALL refuse every write
+operation on such a stack at the dispatch boundary rather than failing further down.
+The head timeline SHALL be required in every configuration, being the only source of
+that head; a configuration offering neither sequencer nor timeline SHALL fail at launch.
+
+#### Scenario: Storage plus a timeline serves reads
+- **WHEN** a stack is configured with storage and a head timeline but no sequencer
+- **THEN** reads are served against the archive opened at the timeline's latest head
+
+#### Scenario: A write on a read-only stack is refused explicitly
+- **WHEN** a contribution is requested on a stack with no sequencer
+- **THEN** it is refused at dispatch, with no attempt to reach an absent writer
+
+#### Scenario: A configuration with no head source fails at launch
+- **WHEN** a configuration offers neither a sequencer nor a head timeline
+- **THEN** launch fails with a message naming what is missing, rather than starting and failing at the first read

@@ -14,10 +14,14 @@ the payload, so a caller switches once and streams that field."*
 - [ ] 2.4 Pull and write incrementally, so neither a large result set nor a large blob is buffered whole.
 - [ ] 2.5 Test that `detail: claims` + `form: original` + `encoding: cbor` reaches the wire byte-identical and still verifies against the id.
 
-## 3. Settle the read-only question
+## 3. Read-only launch
 
-- [ ] 3.1 Decide between opening the archive directly from the history's latest head when no sequencer is configured, and making the sequencer mandatory. `design.md` recommends the former.
-- [ ] 3.2 Implement it in `config.build`, so a stack without a sequencer either works read-only or fails at launch with a clear message — never builds cleanly and then fails at the first read.
+Decided: a stack with no sequencer section serves read-only rather than failing. See
+`design.md` § Resolved while planning.
+
+- [ ] 3.1 When no sequencer is configured, open the archive directly — `ranke.NewArchive(ctx, u, k)` with `k` from `History.Latest()` — so storage-plus-history serves reads with no writer.
+- [ ] 3.2 Build the history whether or not a sequencer is configured; it is the only source of `k`. A configuration with neither sequencer nor history fails at launch with a clear message.
+- [ ] 3.3 Refuse every write operation on such a stack at the dispatch boundary, so the refusal is one explicit check rather than a nil dereference somewhere downstream.
 
 ## 4. Dispatch and the read arms
 
@@ -25,7 +29,7 @@ Each arm is one library call plus the serve loop from group 2. If an arm grows l
 it is in the wrong repo.
 
 - [ ] 4.1 Resolve the archive snapshot once per request and hold it for that request.
-- [ ] 4.2 `OpHealthGet` — liveness plus the signing identity, sourced so it still answers when the archive cannot be opened (see the open question in `design.md`).
+- [ ] 4.2 `OpHealthGet` — liveness plus the signing identity, taken from the signer port and not from the sequencer, so it still answers when no archive or sequencer could be assembled. Test that it answers on a deliberately broken stack.
 - [ ] 4.3 `OpBranchHead` → `GetBranch`; `OpBranchList` → `GetBranches`.
 - [ ] 4.4 `OpClaimGet` → `GetClaim`; `OpClaimContent` → `GetClaimContent`, streamed as raw bytes. Includes the `$universe` privileged form.
 - [ ] 4.5 `OpClaimQuery` → `Query`, serving the `ResultStream` through group 2 and appending the execution report when `Execution.Report` is set.

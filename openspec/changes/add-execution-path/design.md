@@ -159,10 +159,24 @@ unsatisfiable by this backend.
   each launch, its id reproducing only because `created_at` is pinned to the epoch. A
   key rotation therefore changes the merge identity silently instead of being rejected.
 
-## Open Questions
+## Resolved while planning
 
-- **Read-only mode: direct archive open, or mandatory sequencer?** Recommending the
-  former.
-- **Does `/health` take the signing identity from the sequencer's `GetContributor` or
-  from the signer port?** Via the sequencer, a broken stack makes `/health` fail —
-  precisely when it is wanted.
+Two questions were open through drafting and are settled here, so nothing is left for
+whoever executes to guess at.
+
+**Read-only opens the archive directly.** Not the alternative of making the sequencer
+mandatory. `adapters/sequencer` already documents the promise — *"omit the section to
+launch read-only"* — so honouring it is finishing something started, not adding a
+feature. `ranke.NewArchive(ctx, u, k)` is public and `History.Latest()` supplies `k`,
+so the cost is small, and storage-plus-history with no writer is a real deployment: a
+replica, or a frozen bundle served for inspection. The consequence to accept is that
+history becomes required in every configuration, read-only included — consistent with
+it being the only source of `k`.
+
+**`/health` takes the signing identity from the signer port.** Not from the
+sequencer's `GetContributor`. Health exists to answer when things are broken, and
+routing it through the sequencer means a stack that failed to assemble one cannot
+report why — the single case where the endpoint matters most. The signer is also the
+authority the identity derives from: the sequencer's contributor is minted *from* the
+signer's public key, so asking the signer is asking the source rather than a
+downstream copy.
