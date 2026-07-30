@@ -18,14 +18,13 @@ answers it, and turning what comes back into bytes on the wire. That is four thi
 
 - Pin **dispatch**: one path per operation, resolving the archive snapshot once per
   request so results stay consistent while the head advances.
-- Pin that the server **serves the result set rather than shaping it**. The library
-  already honours four output axes — `Shape`, `Detail`, `Form`, `Content`. The fifth,
-  `Output.Encoding`, is declared at `query.go:121-126` and consumed nowhere, so a
-  `QueryResult` arrives as Go values even when the query asked for cbor. That is an
-  upstream fix, not a server abstraction: the canonical form is the library's, and
-  serialising it here is how a claim stops verifying against its id. Once the axis is
-  honoured, serving is a loop — write the bytes, add the separator the media type
-  requires, set the content type.
+- Pin that the server **serves the result set rather than shaping it**. ranke-go owns
+  query execution entirely, and as of v0.4.0 that includes serialisation: every output
+  axis is answered by the engine, and `QueryResult` is a tagged union whose `Kind`
+  *"names the one field carrying the payload, so a caller switches once and streams
+  that field."* So serving is a switch plus the separator the media type requires — no
+  rendering layer, because re-encoding the canonical form here would make the server
+  the thing that decides a claim's identity.
 - Pin **error mapping**: library errors resolve to the sentinels `Categorize` already
   translates, and an out-of-closure read is reported as not-found, indistinguishable
   from absent.
@@ -56,7 +55,10 @@ answers it, and turning what comes back into bytes on the wire. That is four thi
 - **Not affected**: `core-query`, `core-contribution`, `core-verification`,
   `core-access`, `adapter-storage` and `adapter-sequencer`. Their semantics are
   ranke-go's or already specified; this change restates none of them.
-- **Blocked upstream, not planned here**: three asks, recorded in `design.md` with
-  tasks to raise them. `Output.Encoding` must be honoured before any read arm can
-  serve bytes; and the contribute arm needs a wire format for a multi-claim body and a
-  per-claim read check during closure, neither of which ranke-go offers.
+- **`go.mod`**: `ranke-go` v0.3.2 → v0.4.0, which is what makes the read arms
+  buildable. It reshapes `QueryResult` into a tagged union and drops its `Content`
+  field, so the bump lands first with `make verify` green.
+- **Blocked upstream, not planned here**: two asks against ranke-go, tracked as
+  `td-0da051` — a wire format for a multi-claim contribution body, and a per-claim read
+  check on `CompleteAndVerify`, which still takes `(ctx)` and offers no hook. Both
+  block the contribute arm only; the read arms are unblocked.

@@ -37,38 +37,45 @@ misplaced and belongs upstream.
 
 ## Decisions
 
-### There is nothing to render — the server serves what the library shapes
+### There is nothing to render — the engine serves the result already shaped
 
-The library already shapes the result set to the query's output axes. Four of the five
-are honoured today:
+ranke-go owns query execution entirely, and as of **v0.4.0** that includes
+serialisation. Every output axis is answered by the engine:
 
 | Axis | Honoured at |
 |---|---|
 | `Shape` | `query_default.go:45,87`, `archive.go:148`, `neo4j/query.go:22` |
 | `Detail` | `query_default.go:88`, `neo4j/query.go:43,49` |
-| `Form` | `stack/query.go:20` |
+| `Form` | `stack/query.go:27` |
 | `Content` | `query_default.go:98`, `stack/query.go:80` |
+| `Encoding` | `query_encode.go` — `EncodeResults`, called from `query_default.go:108` and `stack/query.go:56` |
 
-The fifth is not. **`Output.Encoding` is declared at `query.go:121-126` and consumed
-nowhere** — `ResultJSON` and `ResultCBOR` are defined and never referenced — so
-`QueryResult` comes back as Go values (`Id`, `Claim`, `[]Claim`, `[]byte`) even when
-the client's query asked for cbor.
+`QueryResult` is now a tagged union: a `Kind` plus `ClaimId` / `PathId` /
+`ClaimNative` / `PathNative` / `ClaimEncoded` / `PathEncoded`, with
+`Claim.EncodeCBOR(form)` and `EncodeJSON(form)` producing the bytes. `ResultNative`
+(also what `""` means) returns the Go objects; `ResultCBOR` and `ResultJSON` fill the
+encoded fields.
 
-That is an upstream gap, not a server concern. `Output.Encoding` sits in the query AST
-the client sends, so the engine is what should answer in it — exactly as it already
-answers `Shape`, `Detail`, `Form` and `Content`. Building a serialisation layer here
-to compensate would put the graph's canonical form in the server's hands, which is the
-one place the razor says it must not be: get it wrong and a claim no longer verifies
-against its id.
+So the server's job is a switch, and the library says so itself:
 
-So once the library honours the axis, the server's job is a loop — write each result's
-bytes, add the separator the media type requires, set the content type. RFC 7464
-prefixes each record with RS; RFC 8742 concatenates. A single object and a raw blob are
-degenerate cases of the same loop. No abstraction earns its keep here.
+> `QueryResult` is one reached claim, shaped per `Output`. **Kind names the one field
+> carrying the payload, so a caller switches once and streams that field.**
+
+Switch once on `Kind`, stream that field, add the separator the media type requires —
+RFC 7464 prefixes each record with RS, RFC 8742 concatenates — and set the content
+type. A single object and a raw blob are degenerate cases of the same loop. No
+abstraction earns its keep, and building one would put the canonical form in the
+server's hands: `detail: claims` + `form: original` + `encoding: cbor` *is* the
+serialization a claim's id is computed over, so a server that re-encodes it is a
+server that decides identity.
 
 The same applies to the execution report: `Report()` returns a `*QueryReport`, and the
 spec requires it to reach the reader *"typed distinctly from result claims"*. The
 typing is the library's to preserve, not the server's to invent.
+
+One consequence to absorb on the bump: `QueryResult.Content []byte` is gone. Inline
+content now rides inside the encoded claim, so the query arm no longer handles content
+as a separate field — the content *route* (`GetClaimContent`) is unaffected.
 
 Vocabulary note, so nobody trips: Paper 02 §Filtered Reads describes `output.encoding`
 as `json-seq`/`cbor-seq`, conflating serialization with framing. The normative spec
@@ -109,14 +116,9 @@ dispatch arm.
 
 ## Upstream asks
 
-All three are ranke-go's by the razor. None should be worked around here.
-
-**`Output.Encoding` must be honoured.** Declared at `query.go:121-126`, consumed
-nowhere; `ResultJSON`/`ResultCBOR` are never referenced. The client asks for a
-serialized form in the query and the engine ignores it, so a `QueryResult` arrives as
-Go values. Every read arm waits on this: without it the server would have to serialise,
-and serialising the canonical form outside the library is how a claim stops verifying
-against its id.
+Both are ranke-go's by the razor, and both block the contribute arm only — the read
+arms are unblocked by v0.4.0. Neither should be worked around here. Tracked as
+`td-0da051`.
 
 **A wire format for a multi-claim body.** `openapi.yaml` promises "signed CBOR in
 ranke's bundle format"; no such format exists. ranke-go has per-claim `Encode()` and
@@ -148,12 +150,9 @@ unsatisfiable by this backend.
 
 ## Risks / Trade-offs
 
-- **Every read arm waits on `Output.Encoding`** → the read path is otherwise trivial,
-  so one upstream fix gates the bulk of the change. There is no server-side fallback:
-  the combination `detail: claims` + `form: original` + `encoding: cbor` *is* the
-  canonical serialization a claim's id is computed over, so producing those bytes
-  anywhere but the library means the server decides identity. A read arm waits rather
-  than compensates.
+- **The v0.4.0 bump reshapes `QueryResult`** → it becomes a tagged union and loses its
+  `Content` field. Small, but it lands before any arm is written, so the bump is task 1
+  with `make verify` green as its gate rather than a step inside the read work.
 - **`concurrent` holds its committed-id set in memory** and it "grows with the archive"
   (its own doc) → unbounded growth on a long-lived server. Upstream.
 - **The contributor identity is minted, never looked up** → a fresh contributor claim

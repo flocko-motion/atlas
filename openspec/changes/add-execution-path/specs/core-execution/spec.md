@@ -29,14 +29,15 @@ the head advances while it runs.
 
 ### Requirement: The server serves the library's result set rather than shaping it
 
-The system SHALL take the result set the library produces — already shaped to the
-query's output axes — and SHALL write it to the wire, adding only the sequence
-separators the media type requires and the content type that describes them. It SHALL
-NOT re-serialise, re-shape or re-encode a result, so the bytes a client receives are
-the bytes the library produced.
+The system SHALL take the result set the library produces — already shaped and
+serialized to the query's output axes — and SHALL write it to the wire, adding only the
+sequence separators the media type requires and the content type that describes them.
+It SHALL select the payload by the result's declared kind, and SHALL NOT re-serialise,
+re-shape or re-encode it, so the bytes a client receives are the bytes the library
+produced.
 
-Where the library does not yet produce a serialized result, the fix SHALL be made in
-the library, not compensated for here.
+Where the library does not produce what a query asked for, the fix SHALL be made in the
+library, not compensated for here.
 
 #### Scenario: Bytes pass through unaltered
 - **WHEN** a query result is written to the response
