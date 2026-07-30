@@ -3,31 +3,19 @@
 // job:     the navigable, lazily-resolved handoff between the composition root and one adapter
 // limits:  interfaces only; the concrete tree + env()/vault() resolution live in config (-> config)
 //
-// This file defines the handoff contract between the composition root and an
-// adapter. The root parses the launch config, then hands each adapter one
-// Section — its own slice — and nothing else. A Section is navigable (nested
-// Sections, leaf Values) but holds no path back to the rest of the config, so
-// the narrowing is by containment, not visibility: an adapter can read neither
-// a sibling instance's settings nor another port's secrets, because they are
-// simply not in the object it was handed. A Value resolves lazily on Get, and
-// whether it came from a literal, an env() reference, or a vault() reference is
-// decided by config and opaque to the adapter.
+// Narrowing is by containment: a sibling's settings and another port's secrets are simply
+// not in the object an adapter was handed.
 package scope
 
 import "context"
 
-// Section is one instance's slice of the launch config: a navigable node that
-// yields nested Sections and reads leaf values. It holds no reference to its
-// parent or siblings, so an adapter handed a Section can reach only what is inside
-// it.
+// Section is one instance's slice of the launch config, reaching only inward.
 type Section interface {
-	// GetSection descends into a nested object. A missing or non-object key
-	// yields an empty Section (never nil), so navigation cannot panic.
+	// GetSection descends; a missing key yields an empty Section, never nil.
 	GetSection(key string) Section
 
-	// Get resolves the leaf at key to its plaintext, expanding an env()/vault()
-	// reference on demand — so a rotating vault secret is fetched when the adapter
-	// reads it rather than frozen at launch. The source (literal, env(), vault())
+	// Get resolves the leaf at key, expanding an env()/vault() reference on demand, so a
+	// rotating secret is fetched at use. The source (literal, env(), vault())
 	// is chosen by config and opaque here. It errors when the key is absent, or
 	// when resolving its source (an unset env var, an unreachable vault) fails; an
 	// adapter judges required-ness from that error, or checks HasValue first.

@@ -1,11 +1,12 @@
 // package: rest_http / transport
 // type:    logic
 // job:     the read endpoints — POST /query and the cacheable by-id GET reads — with wire→RQL query mapping
-// limits:  translation only; the query language is ranke-go's, the reads run behind core.Handle and render inside the Stream (-> internal/core)
+// limits:  translation only; the language is ranke-go's, the reads core's (-> internal/core)
 package rest_http
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -25,7 +26,13 @@ func (s *Server) Query(w http.ResponseWriter, r *http.Request) {
 	}
 	rq, err := rankeQuery(q)
 	if err != nil {
-		writeError(w, core.CatInvalid, err.Error())
+		// A malformed query is the caller's fault (400). One asking for a capability the
+		// bound library does not offer is not, and reports as unconfigured (501).
+		cat := core.CatInvalid
+		if errors.Is(err, core.ErrNotImplemented) {
+			cat = core.CatUnimplemented
+		}
+		writeError(w, cat, err.Error())
 		return
 	}
 	// The scope is what the grant is held against: a branch name, $archive, or the
@@ -132,7 +139,9 @@ func rankeQuery(q openapi.Query) (ranke.Query, error) {
 	}
 
 	if q.Output != nil {
-		outputInto(&rq.Output, *q.Output)
+		if err := outputInto(&rq.Output, *q.Output); err != nil {
+			return rq, err
+		}
 	}
 
 	for _, k := range deref(q.Order) {
@@ -219,9 +228,8 @@ func selectInto(sel *ranke.Select, s openapi.Select) error {
 	return nil
 }
 
-// outputInto resolves the output shaping. Each wire axis is one library axis, so
-// only the content cap changes form: an optional object becomes an optional pointer.
-func outputInto(out *ranke.Output, o openapi.Output) {
+// outputInto resolves the output shaping: each wire axis is one library axis.
+func outputInto(out *ranke.Output, o openapi.Output) error {
 	if o.Shape != nil {
 		out.Shape = ranke.Shape(*o.Shape)
 	}
@@ -235,13 +243,14 @@ func outputInto(out *ranke.Output, o openapi.Output) {
 		out.Encoding = ranke.ResultEncoding(*o.Encoding)
 	}
 	if o.Content != nil {
-		content := &ranke.Content{Max: int64(o.Content.Max)}
-		if o.Content.Overflow != nil {
-			content.Overflow = ranke.Overflow(*o.Content.Overflow)
-		}
-		out.Content = content
+		return errContentUnsupported
 	}
+	return nil
 }
+
+// errContentUnsupported refuses a query the bound ranke.Output has no field to carry,
+// so the caller learns their cap went unapplied.
+var errContentUnsupported = fmt.Errorf("%w: output.content", core.ErrNotImplemented)
 
 // whereOf maps the wire's boolean tree onto the library's. The wire models the
 // tree as a oneOf — and/or/not subtrees, or a {field, test} leaf — so the variant

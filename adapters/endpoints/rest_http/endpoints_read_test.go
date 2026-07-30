@@ -103,21 +103,11 @@ func TestRankeQuery(t *testing.T) {
 			},
 		},
 		{
-			name: "absent content inlines none",
+			name: "an output with no content axis maps cleanly",
 			body: `{"select": {"branch": "foo"}, "output": {}}`,
 			want: func(t *testing.T, q ranke.Query) {
-				if q.Output.Content != nil {
-					t.Fatalf("content = %+v, want nil", q.Output.Content)
-				}
-			},
-		},
-		{
-			name: "content caps the bytes inlined, with overflow",
-			body: `{"select": {"branch": "foo"}, "output": {"content": {"max": 4096, "overflow": "reference"}}}`,
-			want: func(t *testing.T, q ranke.Query) {
-				want := ranke.Content{Max: 4096, Overflow: ranke.OverflowReference}
-				if q.Output.Content == nil || *q.Output.Content != want {
-					t.Fatalf("content = %+v, want %+v", q.Output.Content, want)
+				if !reflect.DeepEqual(q.Output, ranke.Output{}) {
+					t.Fatalf("output = %+v, want the zero value", q.Output)
 				}
 			},
 		},

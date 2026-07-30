@@ -1,7 +1,7 @@
 // package: core / orchestration
 // type:    domain types
-// job:     the capability surface's domain values — the server's own: merge outcome, liveness, storage introspection, verification runs
-// limits:  types only; the query language and its results are ranke-go's (-> github.com/flocko-motion/ranke-go)
+// job:     the server's own domain values — merge outcome, liveness, layers, runs
+// limits:  types only; the query language is ranke-go's (-> ranke-go)
 //
 // These are the typed values a Request carries in and out. What they are NOT is
 // the graph's vocabulary: the RQL query AST and its result/report shapes were
@@ -14,28 +14,28 @@ package core
 import (
 	"io"
 	"time"
-
-	"github.com/flocko-motion/ranke-go"
 )
 
 // --- Contribute / operate --------------------------------------------------
 
 // Contribution is the outcome of a merge: the new head and the contributed ids.
 type Contribution struct {
-	Head ranke.Id
-	Ids  []ranke.Id
+	Head string   `json:"head"`
+	Ids  []string `json:"ids"`
 }
 
-// Health is liveness plus the contributor identity the stack signs merges with.
+// Health is liveness plus the contributor identity the stack signs merges with. The
+// tags are the wire's: these values are served as they stand, so the names a client
+// reads are fixed here rather than translated on the way out.
 type Health struct {
-	Status string // "ok" when serving
-	Signer string // signing/contributor identity (e.g. "ed25519:…")
+	Status string `json:"status"`           // "ok" when serving
+	Signer string `json:"signer,omitempty"` // signing/contributor identity (e.g. "ed25519:…")
 }
 
 // StorageLayer names one storage layer — name and type only, by design.
 type StorageLayer struct {
-	Name string
-	Type string // backend kind: mem, fs, sqlite, s3, postgres, neo4j, …
+	Name string `json:"name"`
+	Type string `json:"type"` // backend kind: mem, fs, sqlite, s3, postgres, neo4j, …
 }
 
 // Content streams a blob's bytes; the read side of Contribute's io.Reader body.
@@ -45,10 +45,10 @@ type Content = io.ReadCloser
 
 // VerificationConfig parameters a run.
 type VerificationConfig struct {
-	Closure          string            // root — a branch name or a head id
-	Layer            string            // optional single storage layer to check directly
-	Depth            VerificationDepth //
-	ContentThreshold int64             // for full-content, max bytes checked per claim; 0 = all
+	Closure          string            `json:"closure"`                    // root — a branch name or a head id
+	Layer            string            `json:"layer,omitempty"`            // optional single storage layer to check directly
+	Depth            VerificationDepth `json:"depth,omitempty"`            //
+	ContentThreshold int64             `json:"contentThreshold,omitempty"` // for full-content, max bytes checked per claim; 0 = all
 }
 
 // VerificationDepth is how thoroughly a run checks each claim.
@@ -72,24 +72,24 @@ const (
 
 // VerificationReport is a point-in-time record of a run.
 type VerificationReport struct {
-	ID            string
-	Config        VerificationConfig
-	Head          ranke.Id // the head the run pinned at start
-	Status        RunStatus
-	StartedAt     time.Time
-	CompletedAt   time.Time // zero while running
-	ClaimsChecked int64
-	BytesRead     int64
-	OK            bool // true when no failures were found
-	Failures      []VerificationFailure
+	ID            string                `json:"id"`
+	Config        VerificationConfig    `json:"config"`
+	Head          string                `json:"head,omitempty"` // the head the run pinned at start
+	Status        RunStatus             `json:"status"`
+	StartedAt     time.Time             `json:"startedAt"`
+	CompletedAt   time.Time             `json:"completedAt,omitzero"` // zero while running
+	ClaimsChecked int64                 `json:"claimsChecked"`
+	BytesRead     int64                 `json:"bytesRead"`
+	OK            bool                  `json:"ok"` // true when no failures were found
+	Failures      []VerificationFailure `json:"failures,omitempty"`
 }
 
 // VerificationFailure is one integrity problem a run found.
 type VerificationFailure struct {
-	ID     ranke.Id
-	Mode   FailureMode
-	Layer  string // where it was found
-	Detail string
+	ID     string      `json:"id"`
+	Mode   FailureMode `json:"mode"`
+	Layer  string      `json:"layer,omitempty"` // where it was found
+	Detail string      `json:"detail,omitempty"`
 }
 
 // FailureMode classifies an integrity problem.

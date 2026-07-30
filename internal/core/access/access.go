@@ -1,30 +1,15 @@
 // package: access / policy
 // type:    checker
 // job:     decide whether a system account may exercise a CRUD right on a branch
-// limits:  pure policy parsed from config; no ports, no ctx; core loops it for the cross-branch delete rule (-> config, core)
+// limits:  pure policy from config; no ports, no ctx; core loops it for delete (-> config, core)
 //
-// Package access is the server's access checker. Access is this deployment's
-// policy, declared in the configuration as system accounts each holding grants of
-// CRUD rights over branches named by globs — never content, never in the graph.
-// A request authenticates as a system account through the auth port; the account's
-// grants then decide access. The checker is pure and immutable: built once from
-// config (no runtime mutation), it answers a single (principal, right, branch)
-// question. Composite rules live above it — the "D on every holding branch" purge
-// rule is core calling Allow once per branch — and verifiability never consults it:
-// a third party verifies an archive with no grant from this server.
+// Access is this deployment's policy: accounts holding CRUD grants over branch globs,
+// declared in config, never in the graph. The checker answers one (principal, right,
+// branch) question, and verifiability never consults it at all.
 //
-// Rights are CRUD. The paper's fifth right, A (admin: create or hide branches), is
-// not a separate right: the branch table is itself a claim, so creating or hiding
-// a branch is contributing a new branch-table revision — a C aimed at the branch
-// table. That target will be a reserved branch name (planned: "$branches",
-// analogous to $universe); it is not yet wired here pending the model's sign-off,
-// and the reserved-name matching below already generalises to it.
-//
-// Grants and caveats share one algebra and one type (Grant). A grant is a positive
-// capability an account holds; a caveat is a bearer-supplied restriction that rides
-// in an attenuated token (a macaroon) and NARROWS what the account may do. The
-// effective permission is their intersection: the account's grants must allow the
-// action AND, if the principal carries caveats, the caveats must allow it too.
+// The paper's fifth right, A, is not separate: the branch table is a claim, so creating
+// or hiding a branch is a C aimed at it. A caveat is a grant of opposite polarity, and
+// the effective permission is their intersection.
 package access
 
 import (
@@ -44,9 +29,8 @@ const (
 	Delete     Right = 'D' // delete claims (needs D on every branch that holds the claim)
 )
 
-// The reserved branches a grant may target: $universe (by-head-id read), $archive (the
-// whole archive, spec §RankeQL), $branches (the branch table), $sequencer (BTH
-// advancement). '$' is illegal in ordinary names, so no glob confers them by accident.
+// The reserved branches a grant may target. '$' is illegal in an ordinary name, so no
+// glob confers one by accident.
 const (
 	Universe  = "$universe"
 	Archive   = "$archive"

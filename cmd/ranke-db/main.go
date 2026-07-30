@@ -1,14 +1,11 @@
 // package: main / cmd
 // type:    entrypoint
-// job:     the ranke-db binary — a cobra CLI whose "run"/"verify" verbs open a config, build the age key source, and hand off to config
+// job:     the ranke-db binary — a cobra CLI handing a config to the config package
 // limits:  CLI wiring only; decrypt/parse/resolve/assemble live in config (-> config)
 //
-// Command ranke-db is the single binary. It opens the launch artifact (a file or
-// stdin), builds an age PassphraseSource from --age-key (prompt|stdin|env:VAR|
-// file:path — never a command-line literal), and hands both to config: "run"
-// assembles the stack and serves until SIGINT/SIGTERM; "verify" checks the config
-// to a chosen depth and exits. The config package owns everything past the
-// handoff; the CLI only generalises its inputs into config's two entry points.
+// The binary opens the launch artifact, builds an age passphrase source from --age-key,
+// and hands both to config: "run" serves until signalled, "verify" checks and exits.
+// Everything past that handoff is config's.
 package main
 
 import (
@@ -202,8 +199,9 @@ func promptPassphrase() (string, error) {
 	return string(b), nil
 }
 
-// requireServing enforces what serving cannot do without: a signer, storage, and an
-// endpoint to reach them. Run assembles only what is configured; the policy lives here.
+// requireServing enforces what serving cannot do without: a signer, storage, a
+// sequencer to reach the archive through, and an endpoint to reach them. Run assembles
+// only what is configured; the policy lives here.
 func requireServing(app *config.App) error {
 	var missing []string
 	if app.Signer == nil {
@@ -211,6 +209,11 @@ func requireServing(app *config.App) error {
 	}
 	if app.Storage == nil {
 		missing = append(missing, "storage")
+	}
+	if app.Sequencer == nil {
+		// GetArchive is the sequencer's, and an archive is what every read opens, so a
+		// stack without one answers nothing.
+		missing = append(missing, "sequencer")
 	}
 	if len(app.Endpoints) == 0 {
 		missing = append(missing, "endpoints")

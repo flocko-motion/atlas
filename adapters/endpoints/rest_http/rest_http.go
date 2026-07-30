@@ -1,6 +1,6 @@
 // package: rest_http / transport
 // type:    adapter
-// job:     REST/HTTP endpoint backend (OpenAPI) — implement endpoints.Endpoints, own the HTTP server lifecycle
+// job:     REST/HTTP endpoint backend — the Endpoints port and its server lifecycle
 // limits:  transport + translation only; all capability lives behind core.Core (-> internal/core)
 //
 // Package rest_http serves the ranke-db REST API over HTTP. It implements the

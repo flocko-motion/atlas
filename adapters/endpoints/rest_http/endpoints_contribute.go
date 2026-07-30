@@ -8,15 +8,14 @@ import (
 	"net/http"
 
 	"github.com/flocko-motion/rankedb/internal/core"
-	"github.com/flocko-motion/rankedb/openapi"
 )
 
-// Contribute serves POST /contribute?branch=.
-func (s *Server) Contribute(w http.ResponseWriter, r *http.Request, params openapi.ContributeParams) {
+// Contribute serves POST /contribute. The body names the branch each claim joins, so
+// core reads them from it and checks the C right on each.
+func (s *Server) Contribute(w http.ResponseWriter, r *http.Request) {
 	req := &core.Request{
 		Credential: credentialOf(r.Context()),
 		Op:         core.OpClaimContribute,
-		Branch:     params.Branch,
 		Body:       r.Body,
 	}
 	stream, err := s.core.Handle(r.Context(), req)

@@ -33,21 +33,21 @@ func newTestCore(t *testing.T) *Core {
 }
 
 // TestHandleFlow walks a request through the whole pipeline: an empty-credential
-// request falls back to NoAuth, authorizes against the grant, and reaches the
-// execute stub — the Report showing each stage it passed.
+// request falls back to NoAuth, authorizes against the grant, and reaches execution —
+// which here has no archive to open, since the test core binds no ports.
 func TestHandleFlow(t *testing.T) {
 	c := newTestCore(t)
 	req := &Request{Op: OpClaimQuery, Branch: "foo-bar"}
 
 	_, err := c.Handle(context.Background(), req)
 	if !errors.Is(err, ErrNotImplemented) {
-		t.Fatalf("Handle err = %v, want ErrNotImplemented (execute is a stub)", err)
+		t.Fatalf("Handle err = %v, want ErrNotImplemented (no archive is bound)", err)
 	}
 	if req.Principal.Account != "ops" {
 		t.Fatalf("principal = %q, want ops", req.Principal.Account)
 	}
-	if len(req.Report.Steps) != 3 {
-		t.Fatalf("report steps = %v, want authenticate+authorize+execute", req.Report.Steps)
+	if len(req.Report.Steps) != 2 {
+		t.Fatalf("report steps = %v, want authenticate+authorize", req.Report.Steps)
 	}
 }
 

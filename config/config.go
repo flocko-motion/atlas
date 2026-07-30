@@ -3,16 +3,12 @@
 // job:     decrypt/parse the launch config and either check it (Verify) or assemble the adapter stack (Run)
 // limits:  the only component that sees the whole config; adapters get scope.Section slices (-> Verify, Run)
 //
-// Package config is the composition root. Its public surface is two entry points
-// that mirror the CLI verbs: Verify checks an (optionally age-encrypted) config
-// to a chosen depth without assembling anything; Run decrypts, parses, and
-// assembles the live adapter stack. Both take the config bytes and a
-// PassphraseSource the frontend supplies. config hands each adapter its own slice
-// as a scope.Section — that section's keys and nothing else; env(KEY)/vault(ref)
-// delegations resolve lazily when the adapter reads them, so a rotating secret is
-// fetched at use. config is the ONE component that sees the whole config; a
-// backend can read neither another port's secrets nor a sibling instance's — the
-// narrowing is by containment, not visibility.
+// Two entry points mirror the CLI verbs: Verify checks without assembling, Run assembles
+// the live stack. Each adapter is handed its own scope.Section and nothing else, its
+// env()/vault() delegations resolved lazily at use.
+//
+// config is the one component that sees the whole config; the narrowing below it is by
+// containment, not visibility.
 package config
 
 import (
@@ -70,6 +66,8 @@ type App struct {
 	Signer    signer.Signer
 	Sequencer sequencer.Sequencer
 	Endpoints []endpoints.Endpoints
+	// Layers names the configured storage layers, name and type only.
+	Layers []storage.Layer
 	// The secret store is omitted on purpose: it lives in the section box, and nobody
 	// downstream holds it.
 }
@@ -199,8 +197,16 @@ func (c *Config) build(ctx context.Context) (*App, error) {
 		app.Sequencer = seq
 	}
 
+	if len(c.Storage) > 0 {
+		layers, err := storage.Describe(ctx, c.section(c.Storage))
+		if err != nil {
+			return nil, err
+		}
+		app.Layers = layers
+	}
+
 	for i, ec := range c.Endpoints {
-		cr, err := c.buildEndpoint(ctx, ec, app.Storage, app.Sequencer)
+		cr, err := c.buildEndpoint(ctx, ec, &app)
 		if err != nil {
 			return nil, fmt.Errorf("config: endpoints[%d]: %w", i, err)
 		}
@@ -216,7 +222,7 @@ func (c *Config) build(ctx context.Context) (*App, error) {
 
 // buildEndpoint composes one endpoint's core: its auth backends indexed for scheme
 // dispatch, and a checker over the accounts it admits alone.
-func (c *Config) buildEndpoint(ctx context.Context, ec endpointConfig, store storage.Storage, seq sequencer.Sequencer) (*core.Core, error) {
+func (c *Config) buildEndpoint(ctx context.Context, ec endpointConfig, app *App) (*core.Core, error) {
 	var auths []auth.Auth
 	for j, a := range ec.Auth {
 		au, err := auth.New(ctx, c.section(a))
@@ -239,7 +245,14 @@ func (c *Config) buildEndpoint(ctx context.Context, ec endpointConfig, store sto
 		return nil, err
 	}
 
-	return core.New(set, chk, seq, store), nil
+	layers := make([]core.StorageLayer, 0, len(app.Layers))
+	for _, l := range app.Layers {
+		layers = append(layers, core.StorageLayer{Name: l.Name, Type: l.Type})
+	}
+	return core.New(set, chk, app.Sequencer, app.Storage,
+		core.WithSigner(app.Signer),
+		core.WithLayers(layers),
+	), nil
 }
 
 // resolveAll resolves every env()/vault() reference and assembles nothing, failing on

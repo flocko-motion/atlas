@@ -1,7 +1,7 @@
 // package: inmemorytest / crypto
 // type:    test-support
 // job:     the inmemory signer's conformance setup hook and key fixtures, beside the backend
-// limits:  a test helper; imported only by the signer conformance driver, never linked into production (-> adapters/signer)
+// limits:  a test helper; only the conformance driver imports it (-> adapters/signer)
 //
 // Package inmemorytest is the inmemory signer's setup hook for the signer
 // conformance suite. It lives beside the backend (not in the port test) and out

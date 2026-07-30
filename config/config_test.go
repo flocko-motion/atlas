@@ -84,7 +84,7 @@ func TestBuildEndpointAdmits(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
-	cr, err := c.buildEndpoint(context.Background(), c.Endpoints[0], nil, nil)
+	cr, err := c.buildEndpoint(context.Background(), c.Endpoints[0], &App{})
 	if err != nil {
 		t.Fatalf("buildEndpoint: %v", err)
 	}
@@ -117,7 +117,7 @@ func TestBuildEndpointRejectsUnadmitted(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
-	cr, err := c.buildEndpoint(context.Background(), c.Endpoints[0], nil, nil)
+	cr, err := c.buildEndpoint(context.Background(), c.Endpoints[0], &App{})
 	if err != nil {
 		t.Fatalf("buildEndpoint: %v", err)
 	}
@@ -147,7 +147,7 @@ func TestBuildEndpointAPIKey(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
-	cr, err := c.buildEndpoint(context.Background(), c.Endpoints[0], nil, nil)
+	cr, err := c.buildEndpoint(context.Background(), c.Endpoints[0], &App{})
 	if err != nil {
 		t.Fatalf("buildEndpoint: %v", err)
 	}
@@ -181,7 +181,7 @@ func TestBuildEndpointAPIKeyRejectsBadDigest(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
-	if _, err := c.buildEndpoint(context.Background(), c.Endpoints[0], nil, nil); err == nil {
+	if _, err := c.buildEndpoint(context.Background(), c.Endpoints[0], &App{}); err == nil {
 		t.Fatal("malformed sha256: want buildEndpoint error")
 	}
 }

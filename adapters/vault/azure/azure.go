@@ -1,7 +1,7 @@
 // package: azure / secrets
 // type:    adapter
 // job:     resolve vault(ref) secrets from Azure Key Vault
-// limits:  SCAFFOLD — wired for dispatch and construction; secret fetching is not yet implemented (-> adapters/vault)
+// limits:  SCAFFOLD — construction only, no fetching yet (-> adapters/vault)
 //
 // Package azure is the Azure Key Vault secret backend. It is scaffolded: it
 // constructs from the vault section's "url" (the Key Vault URI) so the dispatch

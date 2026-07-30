@@ -114,22 +114,25 @@ sequencer to do so, since health is wanted precisely when the stack is degraded.
 - **WHEN** neither the archive nor the sequencer could be assembled
 - **THEN** the health request still returns, reporting the signing identity from the signer
 
-### Requirement: A stack with no sequencer serves reads and refuses writes
+### Requirement: A stack without a sequencer does not serve
 
-The system SHALL serve reads when no sequencer is configured, opening the archive
-directly from the head the timeline records as latest, and SHALL refuse every write
-operation on such a stack at the dispatch boundary rather than failing further down.
-The head timeline SHALL be required in every configuration, being the only source of
-that head; a configuration offering neither sequencer nor timeline SHALL fail at launch.
+The system SHALL require a sequencer to serve. The archive every read opens is
+`RA_k = (𝒰, k)`, and the sequencer is what holds `k` and hands back the snapshot, so a
+stack configured without one has nothing to answer from. Such a configuration SHALL fail
+at launch, naming what is missing, rather than starting and failing at the first request.
 
-#### Scenario: Storage plus a timeline serves reads
-- **WHEN** a stack is configured with storage and a head timeline but no sequencer
-- **THEN** reads are served against the archive opened at the timeline's latest head
+Serving an archive nothing may write to SHALL therefore be a sequencer backend that
+refuses to advance the head, behind the same port. The core SHALL NOT reach an archive by
+any route that bypasses the sequencer.
 
-#### Scenario: A write on a read-only stack is refused explicitly
-- **WHEN** a contribution is requested on a stack with no sequencer
-- **THEN** it is refused at dispatch, with no attempt to reach an absent writer
+#### Scenario: A configuration with no sequencer fails at launch
+- **WHEN** a configuration omits the sequencer section
+- **THEN** launch fails with a message naming the sequencer as missing, rather than starting and answering nothing
 
-#### Scenario: A configuration with no head source fails at launch
-- **WHEN** a configuration offers neither a sequencer nor a head timeline
-- **THEN** launch fails with a message naming what is missing, rather than starting and failing at the first read
+#### Scenario: Health still answers when the archive does not
+- **WHEN** a stack is degraded such that no archive can be opened
+- **THEN** a health request still returns, reporting the signing identity from the signer
+
+#### Scenario: Read-only is a backend, not a bypass
+- **WHEN** an archive is to be served that nothing may write to
+- **THEN** it is served through a sequencer backend that refuses to advance the head, not by opening the archive around the port

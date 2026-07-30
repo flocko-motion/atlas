@@ -1,7 +1,7 @@
 // package: apikey / authn
 // type:    adapter
 // job:     authenticate a request by matching its API key against configured account keys
-// limits:  recognises keys, does not mint them; holds only digests, never the raw keys (-> auth.New, internal/core/access)
+// limits:  recognises keys, never mints them; holds digests only (-> auth.New, internal/core/access)
 //
 // Package apikey is the API-key authentication backend: it maps a presented key to
 // the system account it authenticates as. The config carries the SHA-256 digest of

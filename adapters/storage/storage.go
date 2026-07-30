@@ -1,21 +1,13 @@
 // package: storage / composition
 // type:    factory
-// job:     build one ranke.Universe from a storage section — a leaf backend, or a stack/partition composed of more universes
+// job:     build one ranke.Universe from a storage section — a leaf, or a composite
 // limits:  wiring only; the persistence logic is ranke-go's adapters (-> github.com/flocko-motion/ranke-go)
 //
-// Package storage is ranke-db's storage port. A composed stack or partition is
-// itself a Universe (the paper's composable-universe property), so the whole
-// store — however deeply layered — is one recursive descriptor and presents as
-// one type. New reads that descriptor from its scope.Section: a "type" selects a
-// leaf backend (mem, fs, sqlite, minimal, s3) or a composite ("stack" over its
-// "layers", "partition" over its "shards"), and composites recurse, so a layer
-// or a shard may itself be a stack or a partition. Each leaf reads its own
-// settings from its section, resolving env()/vault() delegations as it does.
+// A composed stack or partition is itself a Universe, so the whole store is one
+// recursive descriptor: a "type" selects a leaf or a composite, and composites recurse.
 //
-// A layer's write role and content cap are not ours to set: ranke-go reports
-// them per universe as ranke.Capabilities, fixed by the backend's own adapter
-// options, so this package only holds a layer's declared "mode"/"maxContentSize"
-// against what the built universe reports and fails when they disagree.
+// A layer's write role and content cap are the backend's, reported as
+// ranke.Capabilities, so this package only fails a declaration that disagrees.
 package storage
 
 import (
@@ -35,9 +27,8 @@ import (
 	"github.com/flocko-motion/rankedb/config/scope"
 )
 
-// Storage is the storage port's product: a ranke.Universe. Because a composed
-// stack or partition implements Universe too, the whole store presents as this
-// one type regardless of how it is layered.
+// Storage is the storage port's product: a ranke.Universe. A composed stack or partition
+// implements Universe too, so the whole store presents as this one type.
 type Storage = ranke.Universe
 
 // New builds the storage universe described by sec (see the package doc for the
@@ -46,8 +37,59 @@ func New(ctx context.Context, sec scope.Section) (Storage, error) {
 	return build(ctx, sec)
 }
 
-// build dispatches one descriptor to a leaf backend or a composite, recursing
-// for composites.
+// Layer is what introspection may report of a configured layer: a name and a type.
+type Layer struct {
+	Name string
+	Type string
+}
+
+// Describe reports the configured layers top to bottom, touching no backend. A layer
+// takes its optional "name" key, else its type.
+func Describe(ctx context.Context, sec scope.Section) ([]Layer, error) {
+	t, err := typeOf(ctx, sec)
+	if err != nil {
+		return nil, err
+	}
+	descriptors := []scope.Section{sec}
+	switch t {
+	case "stack":
+		descriptors = sec.GetArray("layers")
+	case "partition":
+		descriptors = sec.GetArray("shards")
+	}
+
+	layers := make([]Layer, 0, len(descriptors))
+	for _, d := range descriptors {
+		lt, err := typeOf(ctx, d)
+		if err != nil {
+			return nil, err
+		}
+		name := lt
+		if d.HasValue("name") {
+			if name, err = d.Get(ctx, "name"); err != nil {
+				return nil, fmt.Errorf("storage: layer name: %w", err)
+			}
+		}
+		layers = append(layers, Layer{Name: name, Type: lt})
+	}
+	return distinct(layers), nil
+}
+
+// distinct suffixes a repeated name with its position, so every name identifies one layer.
+func distinct(layers []Layer) []Layer {
+	seen := make(map[string]int, len(layers))
+	for _, l := range layers {
+		seen[l.Name]++
+	}
+	for i, l := range layers {
+		if seen[l.Name] > 1 {
+			layers[i].Name = fmt.Sprintf("%s-%d", l.Name, i)
+		}
+	}
+	return layers
+}
+
+// build dispatches one descriptor to a leaf backend or a composite, recursing.
 func build(ctx context.Context, sec scope.Section) (ranke.Universe, error) {
 	t, err := typeOf(ctx, sec)
 	if err != nil {
@@ -85,12 +127,9 @@ func build(ctx context.Context, sec scope.Section) (ranke.Universe, error) {
 	}
 }
 
-// buildStack composes ordered layer descriptors into a stack. A layer is a bare
-// universe descriptor: since ranke-go v0.3.0 the write role (eager cache, lazy
-// cache, authoritative source of truth) and the content cap are properties the
-// *universe* reports through ranke.Capabilities, chosen by its adapter, not
-// options of the composition. The stack reads top-down in config order and
-// requires at least one authoritative layer.
+// buildStack composes ordered layer descriptors into a stack, read top-down in config
+// order. Since ranke-go v0.3.0 the write role and content cap are what the universe
+// reports through ranke.Capabilities, not options of the composition.
 func buildStack(ctx context.Context, layers []scope.Section) (ranke.Universe, error) {
 	if len(layers) == 0 {
 		return nil, fmt.Errorf("storage: stack has no layers")
@@ -109,10 +148,8 @@ func buildStack(ctx context.Context, layers []scope.Section) (ranke.Universe, er
 	return stack.NewStack(built...)
 }
 
-// checkLayer holds a layer's declared role and cap against what the built
-// universe actually reports. Because the backend now decides both, a wish it
-// cannot honour is a configuration error — never a silent downgrade, which for
-// `mode` would quietly change where writes durably land.
+// checkLayer holds a layer's declared role and cap against what the built universe
+// reports, so a wish the backend cannot honour fails rather than downgrading silently.
 func checkLayer(ctx context.Context, l scope.Section, u ranke.Universe) error {
 	caps := u.Capabilities()
 	if l.HasValue("mode") {
@@ -156,8 +193,7 @@ func checkLayer(ctx context.Context, l scope.Section, u ranke.Universe) error {
 	return nil
 }
 
-// buildPartition composes shard descriptors into a partition that routes content
-// by id mod shard-count. Shards are bare universes, not stack layers.
+// buildPartition routes content by id mod shard-count. Shards are bare universes.
 func buildPartition(ctx context.Context, shards []scope.Section) (ranke.Universe, error) {
 	if len(shards) == 0 {
 		return nil, fmt.Errorf("storage: partition has no shards")

@@ -1,7 +1,7 @@
 // package: rest_http / transport
 // type:    logic
 // job:     extract the request's auth credential from the wire and carry it to the handlers
-// limits:  extraction only; core resolves the credential to a Principal and applies grants (-> internal/core, adapters/auth)
+// limits:  extraction only; core resolves it and applies grants (-> internal/core)
 package rest_http
 
 import (

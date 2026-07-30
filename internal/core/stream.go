@@ -1,7 +1,7 @@
 // package: core / orchestration
 // type:    interface
 // job:     the response — a lazy byte stream that declares its own content type
-// limits:  core produces the framed body bytes; the endpoint sets status/headers and copies (-> adapters/endpoints)
+// limits:  core frames the body; the endpoint sets status and copies (-> adapters/endpoints)
 //
 // A response is a Stream: every HTTP body is ultimately a byte stream — a single
 // JSON object, a json-seq run, a cbor-seq run, or a raw blob are all just bytes

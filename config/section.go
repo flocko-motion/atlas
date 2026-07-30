@@ -1,7 +1,7 @@
 // package: config / composition
 // type:    struct
 // job:     the concrete scope.Section handed to each adapter — a lazily-resolved slice of the parsed config
-// limits:  navigates one parsed JSON object and resolves its leaves on demand; holds no path to the rest of the config (-> config, config/scope)
+// limits:  one parsed object, leaves resolved on demand, no path to the rest (-> config)
 //
 // This file is the handout itself: the concrete type that fulfils the scope
 // contract. cfgSection wraps one parsed JSON object plus the vault box its leaves
