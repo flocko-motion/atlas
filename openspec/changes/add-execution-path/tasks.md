@@ -1,6 +1,7 @@
-## 1. Bump ranke-go (v0.4.0, v0.5.0 for the wire codec, v0.6.0 for the declared header)
+## 1. Bump ranke-go (v0.4.0, v0.5.0 for the wire codec, v0.6.0 for the declared header, v0.7.0 current)
 
 - [x] 1.1 `go get github.com/flocko-motion/ranke-go@v0.4.0`, tidy, `make verify` green. v0.4.0 honours `Output.Encoding`: `EncodeResults` (`query_encode.go`) fills `ClaimEncoded`/`PathEncoded` via `Claim.EncodeCBOR(form)` / `EncodeJSON(form)`, called from `query_default.go:108` and `stack/query.go:56`.
+- [x] 1.3 v0.7.0 is comment-only against v0.6.0 (`claim_assemble.go`, `claim_type_contributor.go`, `verify_content.go`), so the bump carries no behavioural change and is taken to stay current.
 - [x] 1.2 Absorb the `QueryResult` reshape: it is now a tagged union — `Kind` plus `ClaimId`/`PathId`/`ClaimNative`/`PathNative`/`ClaimEncoded`/`PathEncoded`. The duplicate `Content []byte` field is gone (inline content is in the claim; `Output.Content` still caps it). Check `endpoints_read.go`'s query mapping still holds, and that `ResultNative` — the new default, and what `""` means — is never what the endpoint asks for.
 
 ## 2. Serve the result set
@@ -80,3 +81,4 @@ Last: a subsystem with its own state, not another dispatch arm.
 - [x] 8.3 Implement start, list, get, cancel and delete. Cancellation goes through context; a cancelled run reports stopped and keeps its partial findings.
 - [x] 8.4 Enforce the active-run limit, refusing as busy beyond it.
 - [x] 8.5 Test that a completed run's report survives retrieval and a cancelled run keeps what it found.
+- [x] 8.6 Send the headers the contract promises on the run API, which the endpoint had left as a TODO pending an execute stage that produced reports: `Location` and a first-poll `Retry-After` on `202`, `Retry-After` while a report reads `running`, and `Retry-After` on the `429` a full run queue answers. The create-response is buffered to read its own id back out — safe for a small report, which is why it is not done for a query or a blob.

@@ -5,6 +5,7 @@
 package rest_http
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http"
 
@@ -26,12 +27,19 @@ func (s *Server) StartVerification(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err)
 		return
 	}
-	// TODO(location): once execute produces the report, buffer the stream instead of
-	// streaming it through, read the run id from the buffered body, set
-	// Location: /system/verification/{id}, then write the buffer. The body already
-	// carries the id; buffering lets this route derive the header with no core change
-	// (a small create-response is cheap to buffer, unlike a query or a blob).
-	s.respond(w, stream, http.StatusAccepted)
+	// The contract promises Location and a first-poll hint on 202. Both come from the
+	// report itself, so the body is buffered — cheap for a create-response, unlike a
+	// query — and the id read back out of it rather than threaded through core.
+	body, id, err := bufferRun(stream)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	if id != "" {
+		w.Header().Set("Location", "/system/verification/"+id)
+	}
+	w.Header().Set("Retry-After", retryAfterSeconds)
+	s.respondBytes(w, mediaJSON, http.StatusAccepted, body)
 }
 
 // ListVerifications serves GET /system/verification.
@@ -53,7 +61,16 @@ func (s *Server) GetVerification(w http.ResponseWriter, r *http.Request, reportI
 		s.fail(w, err)
 		return
 	}
-	s.respond(w, stream, http.StatusOK)
+	// A running report is polled, so it carries the hint that paces the next poll.
+	body, _, err := bufferRun(stream)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	if runStatusOf(body) == string(core.RunRunning) {
+		w.Header().Set("Retry-After", retryAfterSeconds)
+	}
+	s.respondBytes(w, mediaJSON, http.StatusOK, body)
 }
 
 // CancelVerification serves POST /system/verification/{id}/cancel.
@@ -92,4 +109,35 @@ func coreVerConfig(c openapi.VerificationConfig) core.VerificationConfig {
 		cfg.ContentThreshold = int64(*c.ContentThreshold)
 	}
 	return cfg
+}
+
+// retryAfterSeconds paces a poll of a verification run. A run is long — hours over a large
+// closure — so the hint is generous enough that polling costs nothing and short enough
+// that a finished run is noticed promptly.
+const retryAfterSeconds = "5"
+
+// bufferRun reads a run's report into memory and reports the id it carries. Buffering is
+// what lets this route derive a header from the body; it is safe here and only here,
+// because a report is small where a query or a blob is not.
+func bufferRun(stream core.Stream) ([]byte, string, error) {
+	defer func() { _ = stream.Close() }()
+	var body bytes.Buffer
+	if _, err := stream.WriteTo(&body); err != nil {
+		return nil, "", err
+	}
+	var report struct {
+		ID string `json:"id"`
+	}
+	// A body that does not carry an id is still served; only the header is skipped.
+	_ = json.Unmarshal(body.Bytes(), &report)
+	return body.Bytes(), report.ID, nil
+}
+
+// runStatusOf reads a report's status, empty when the body carries none.
+func runStatusOf(body []byte) string {
+	var report struct {
+		Status string `json:"status"`
+	}
+	_ = json.Unmarshal(body, &report)
+	return report.Status
 }
