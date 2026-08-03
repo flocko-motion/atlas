@@ -4,7 +4,7 @@ go 1.26.4
 
 require (
 	filippo.io/age v1.3.1
-	github.com/flocko-motion/ranke-go v0.7.0
+	github.com/flocko-motion/ranke-go v0.9.0
 	github.com/getkin/kin-openapi v0.145.0
 	github.com/oapi-codegen/runtime v1.6.0
 	github.com/openbao/openbao/api/v2 v2.6.0

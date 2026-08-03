@@ -1,7 +1,7 @@
-## 1. Bump ranke-go (v0.4.0, v0.5.0 for the wire codec, v0.6.0 for the declared header, v0.7.0 current)
+## 1. Bump ranke-go (v0.4.0, v0.5.0 for the wire codec, v0.6.0 for the declared header, v0.9.0 current)
 
 - [x] 1.1 `go get github.com/flocko-motion/ranke-go@v0.4.0`, tidy, `make verify` green. v0.4.0 honours `Output.Encoding`: `EncodeResults` (`query_encode.go`) fills `ClaimEncoded`/`PathEncoded` via `Claim.EncodeCBOR(form)` / `EncodeJSON(form)`, called from `query_default.go:108` and `stack/query.go:56`.
-- [x] 1.3 v0.7.0 is comment-only against v0.6.0 (`claim_assemble.go`, `claim_type_contributor.go`, `verify_content.go`), so the bump carries no behavioural change and is taken to stay current.
+- [x] 1.3 v0.7.0 is comment-only against v0.6.0 (`claim_assemble.go`, `claim_type_contributor.go`, `verify_content.go`), and v0.9.0 changes no library code at all against v0.7.0 — its diff is CI, the Makefile, `cmd/` tooling and conformance fixtures. Both bumps are taken to stay current and carry no behavioural change; neither adds the read check 6.3 waits on.
 - [x] 1.2 Absorb the `QueryResult` reshape: it is now a tagged union — `Kind` plus `ClaimId`/`PathId`/`ClaimNative`/`PathNative`/`ClaimEncoded`/`PathEncoded`. The duplicate `Content []byte` field is gone (inline content is in the claim; `Output.Content` still caps it). Check `endpoints_read.go`'s query mapping still holds, and that `ResultNative` — the new default, and what `""` means — is never what the endpoint asks for.
 
 ## 2. Serve the result set
