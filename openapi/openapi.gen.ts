@@ -342,6 +342,45 @@ export interface BranchHead {
   head: string;
 }
 
+export interface BranchInfo {
+  /** The branch name, as the branch table holds it. */
+  name: string;
+  /** The content-addressed head claim id. */
+  head: string;
+  /**
+   * The head claim's generation number (§4.1) — 0 on an initial node, else
+   * 1 + max over what it references. The depth of what the branch points at.
+   * @format int64
+   */
+  height: number;
+  /**
+   * The head claim's `created_at` — when the branch last moved. Soft: a
+   * contributor writes it, so it is not the witnessed merge time.
+   * @format date-time
+   */
+  updatedAt: string;
+}
+
+export interface ArchiveInfo {
+  /**
+   * The branch-table head id — the root of every `$archive`-scoped read, and the
+   * only place this contract reports it.
+   */
+  head: string;
+  /**
+   * The branch-table head claim's generation number.
+   * @format int64
+   */
+  height: number;
+  /**
+   * The branch-table head's `created_at` — when the archive last moved.
+   * @format date-time
+   */
+  updatedAt: string;
+  /** How many branches the table holds. */
+  branches: number;
+}
+
 export interface BranchEntry {
   /** The branch name, as the branch table holds it. */
   name: string;
@@ -933,6 +972,24 @@ export class Api<
       }),
 
     /**
+     * @description Reports a branch beyond its head id: the head's **height** — the generation number of the branch's newest claim, so the depth of what it points at — and **when it last moved**, which is the head claim's `created_at`. Everything here comes from the head claim, so it costs one claim read. A claim count is deliberately absent: counting a branch's claims is a walk of its closure, which is a query (`POST /query`) and not a field. Requires the **R** right on the branch. Cacheable **with revalidation** — every field moves when the branch does.
+     *
+     * @tags read
+     * @name GetBranchInfo
+     * @summary What is known about a branch
+     * @request GET:/branches/{branch}/info
+     * @secure
+     */
+    getBranchInfo: (branch: string, params: RequestParams = {}) =>
+      this.request<BranchInfo, Error>({
+        path: `/branches/${branch}/info`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description Returns claim `{id}` as its signed CBOR bytes, **only if it lies in branch `{branch}`'s closure**. A claim that is superseded, contradicted, or otherwise outside the closure returns `404`, indistinguishable from one that does not exist. Requires the **R** right on that branch. `{branch}` names an **ordinary branch**. A reserved scope name supplied here names a branch that does not exist and is answered as `404`; each scope has exactly one route (`/archive/…`, `/universe/…`). Immutably **cacheable** by id (strong `ETag`, `Cache-Control: public, immutable`): the id content-addresses the bytes, so they never change.
      *
      * @tags read
@@ -971,6 +1028,24 @@ export class Api<
       }),
   };
   archive = {
+    /**
+     * @description Reports the Ranke-Archive as a whole: the **branch-table head** — the id every archive-scoped read is rooted at — with its height and when it last moved, and how many branches the table holds. This is the only route that reports the branch-table head, which is what a client needs to name the `$archive` scope in a query or a grant. Reads the `$archive` scope and requires the **R** right on `$archive`. Cacheable **with revalidation**: the head advances on every contribution.
+     *
+     * @tags read
+     * @name GetArchiveInfo
+     * @summary What is known about the archive
+     * @request GET:/archive/info
+     * @secure
+     */
+    getArchiveInfo: (params: RequestParams = {}) =>
+      this.request<ArchiveInfo, Error>({
+        path: `/archive/info`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
     /**
      * @description Returns claim `{id}` as its signed CBOR bytes if it lies in the closure of the **whole Ranke-Archive** — the current branch-table head — whichever branch holds it. A client reaches a claim without naming the branch it is on; a claim outside that closure returns `404`. This collection reads the `$archive` scope: the same scope a RankeQL body names as `select.branch: "$archive"`, and the same target a grant is written against. It requires the **R** right on `$archive`. Immutably cacheable by id.
      *

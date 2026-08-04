@@ -250,7 +250,66 @@ func TestCachePosture(t *testing.T) {
 	})
 }
 
+// TestInfoRoutes pins what /info answers beyond a head id, and that the archive head — the
+// one a client needs to name the $archive scope — is reported nowhere else.
+func TestInfoRoutes(t *testing.T) {
+	h, _ := newServingStack(t, everyReadRight)
+	seedBranches(t, h, "main")
+
+	var branch openapi.BranchInfo
+	decode(t, do(t, h, http.MethodGet, "/branches/main/info"), &branch)
+	if branch.Name != "main" {
+		t.Errorf("name = %q, want main", branch.Name)
+	}
+	if branch.Head == "" {
+		t.Error("no head reported")
+	}
+	if branch.Height == 0 {
+		t.Error("height = 0 — the head of a seeded branch references its contribution, so it climbs")
+	}
+	if branch.UpdatedAt.IsZero() {
+		t.Error("no updatedAt — a branch that moved has a head with a created_at")
+	}
+
+	var arch openapi.ArchiveInfo
+	decode(t, do(t, h, http.MethodGet, "/archive/info"), &arch)
+	if arch.Head == "" {
+		t.Fatal("no archive head — nothing else in the contract reports it")
+	}
+	if arch.Head == branch.Head {
+		t.Error("the archive head equals the branch head; the branch table is a claim of its own")
+	}
+	if arch.Branches != 1 {
+		t.Errorf("branches = %d, want 1", arch.Branches)
+	}
+
+	// The head a query would be rooted at: reading the archive scope by that id resolves.
+	if rec := do(t, h, http.MethodGet, "/archive/claims/"+arch.Head); rec.Code != http.StatusOK {
+		t.Errorf("the reported archive head does not resolve in its own scope: %d", rec.Code)
+	}
+}
+
+// TestInfoNeedsItsScopeRight pins that each info route is gated by the scope it reads.
+func TestInfoNeedsItsScopeRight(t *testing.T) {
+	h, _ := newServingStack(t, []string{"CR *", "C $branches", "R $branches"})
+	seedBranches(t, h, "main")
+	if rec := do(t, h, http.MethodGet, "/archive/info"); rec.Code != http.StatusForbidden {
+		t.Fatalf("archive info without R $archive = %d, want 403", rec.Code)
+	}
+}
+
 // --- helpers --------------------------------------------------------------
+
+// decode reads a JSON body, failing on a non-200 or an unparseable one.
+func decode(t *testing.T, rec *httptest.ResponseRecorder, into any) {
+	t.Helper()
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), into); err != nil {
+		t.Fatalf("decode: %v (body %s)", err, rec.Body.String())
+	}
+}
 
 // do issues one request against the handler.
 func do(t *testing.T, h http.Handler, method, path string) *httptest.ResponseRecorder {

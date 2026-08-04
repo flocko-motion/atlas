@@ -188,6 +188,10 @@ export function generate(n: number, seedOrOpts: number | GenerateOptions = 0x5ee
       created_at: clock,
       label,
       contribution: contributions,
+      // Set once the contribution's branch is chosen. The contributors emitted before any
+      // contribution keep '', meaning every branch: each claim references one, so a scoped
+      // read has to carry them whatever it is scoped to.
+      branch: '',
       edges,
     };
     if (size !== undefined) {
@@ -298,8 +302,11 @@ export function generate(n: number, seedOrOpts: number | GenerateOptions = 0x5ee
     const added: number[] = [];
     for (let k = 0; k < size && claims.length < n; k++) added.push(contentClaim());
 
-    // Branch selection: `main` takes most contributions, the rest share the tail.
+    // Branch selection: `main` takes most contributions, the rest share the tail. Chosen
+    // after the content is emitted, so the branch is stamped rather than threaded — which
+    // keeps the random sequence, and so the archive a seed produces, unchanged.
     const branch = rnd() < 0.6 ? BRANCH_NAMES[0] : pick(BRANCH_NAMES, rnd);
+    for (const idx of added) claims[idx].branch = branch;
 
     // The head consolidates the previous head (all of history) plus what is new.
     const headEdges: MockEdge[] = [contributorEdge()];
@@ -311,6 +318,7 @@ export function generate(n: number, seedOrOpts: number | GenerateOptions = 0x5ee
       headEdges.push({ type: 'contribution/head', reference: claims[idx].id });
     }
     const head = emit('contribution/head', headEdges, `${branch}@${contributions}`, undefined);
+    claims[head].branch = branch;
     branchHeads.set(branch, head);
 
     // The branch table: a diff over its predecessor, naming the branch it moved.
@@ -320,6 +328,8 @@ export function generate(n: number, seedOrOpts: number | GenerateOptions = 0x5ee
     }
     tableEdges.push({ type: 'contribution/branch', reference: claims[head].id, name: branch });
     prevTable = emit('contribution/branches', tableEdges, `branches r${contributions}`, undefined);
+    // The branch table indexes every branch, so it is shared rather than owned by one.
+    claims[prevTable].branch = '';
 
     contributions++;
   }

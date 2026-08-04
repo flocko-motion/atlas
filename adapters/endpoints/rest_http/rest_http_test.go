@@ -116,6 +116,8 @@ func TestRoutes(t *testing.T) {
 		{http.MethodPost, "/contribute?branch=foo", ""},
 		{http.MethodGet, "/branches", ""},
 		{http.MethodGet, "/branches/foo/head", ""},
+		{http.MethodGet, "/branches/foo/info", ""},
+		{http.MethodGet, "/archive/info", ""},
 		{http.MethodGet, "/branches/foo/claims/" + id, ""},
 		{http.MethodGet, "/branches/foo/claims/" + id + "/content", ""},
 		{http.MethodGet, "/archive/claims/" + id, ""},

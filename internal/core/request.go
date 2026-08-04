@@ -42,7 +42,9 @@ const (
 	OpClaimContribute                     // merge claims onto a branch             (Contribute; branch-admin is C on the branch table)
 	OpClaimDelete                         // purge claims — physical removal, not a mutation (Delete)
 	OpBranchHead                          // a branch's current head id             (Read)
+	OpBranchInfo                          // a branch's head, height and last move  (Read)
 	OpBranchList                          // list the branch table's branches       (Read on $branches)
+	OpArchiveInfo                         // the branch-table head and its shape    (Read on $archive)
 	OpLayerList                           // list storage layers (name + type)      (no grant)
 	OpLayerInfo                           // runtime info on one storage layer      (no grant)
 	OpHealthGet                           // liveness                               (no grant)
@@ -57,7 +59,7 @@ const (
 // their CRUD letter; verification needs none, a core-access invariant.
 func (o Operation) Right() access.Right {
 	switch o {
-	case OpClaimQuery, OpClaimGet, OpClaimContent, OpBranchHead, OpBranchList:
+	case OpClaimQuery, OpClaimGet, OpClaimContent, OpBranchHead, OpBranchInfo, OpBranchList, OpArchiveInfo:
 		return access.Read
 	case OpClaimContribute:
 		return access.Contribute

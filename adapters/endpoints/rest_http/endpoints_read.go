@@ -74,6 +74,29 @@ func (s *Server) GetBranchHead(w http.ResponseWriter, r *http.Request, branch st
 	s.respondRevalidated(w, r, stream)
 }
 
+// GetBranchInfo serves GET /branches/{branch}/info.
+func (s *Server) GetBranchInfo(w http.ResponseWriter, r *http.Request, branch string) {
+	req := &core.Request{Credential: credentialOf(r.Context()), Op: core.OpBranchInfo, Branch: branch}
+	stream, err := s.core.Handle(r.Context(), req)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	s.respondRevalidated(w, r, stream)
+}
+
+// GetArchiveInfo serves GET /archive/info — the branch-table head and its shape, read in
+// the $archive scope, which is the grant it needs.
+func (s *Server) GetArchiveInfo(w http.ResponseWriter, r *http.Request) {
+	req := &core.Request{Credential: credentialOf(r.Context()), Op: core.OpArchiveInfo, Branch: core.Archive}
+	stream, err := s.core.Handle(r.Context(), req)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	s.respondRevalidated(w, r, stream)
+}
+
 // GetBranchClaim serves GET /branches/{branch}/claims/{id}.
 func (s *Server) GetBranchClaim(w http.ResponseWriter, r *http.Request, branch string, idParam string) {
 	s.claim(w, r, core.OpClaimGet, branch, idParam)

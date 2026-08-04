@@ -11,6 +11,7 @@
 
 import { create } from 'zustand';
 import type { LayoutName } from './layout/layouts.ts';
+import type { Scope } from './scope.ts';
 
 /** A main-pane tab: a named selection over the union graph. */
 export interface ViewState {
@@ -18,6 +19,12 @@ export interface ViewState {
   label: string;
   /** Contribution range this view admits, or null for everything loaded. */
   contributionRange: [number, number] | null;
+  /**
+   * Scope this view is confined to, or null for everything loaded. Only the name and head
+   * live here; the ids the scope contains are the server's answer and stay out of React
+   * state (-> core/graph/members).
+   */
+  scope: Scope | null;
   /** Claim classes this view admits, empty meaning all. */
   classes: string[];
   layout: LayoutName;
@@ -29,6 +36,17 @@ export interface ViewState {
   /** Draw labels while the camera is moving. */
   labelsOnMove: boolean;
   sizeByDegree: boolean;
+}
+
+/**
+ * What the explorer knows about the archive's scopes. `unknown` before anything asked,
+ * since a branch name is a fact about the archive in front of us and never a default.
+ */
+export interface ScopesState {
+  state: 'unknown' | 'loading' | 'ready' | 'error';
+  scopes: Scope[];
+  /** Why the listing failed, when it did. */
+  error: string | null;
 }
 
 /** Side-pane tabs are fixed: tooling plus detail views. */
@@ -73,6 +91,7 @@ export interface ExplorerState {
   views: ViewState[];
   activeViewId: string | null;
   sidePane: SidePane;
+  scopes: ScopesState;
   status: StatusState;
   selection: SelectionState;
   /** Debounced, so sweeping the pointer cannot thrash the UI. */
@@ -84,6 +103,7 @@ export interface ExplorerState {
   activateView: (id: string) => void;
   patchView: (id: string, patch: Partial<ViewState>) => void;
   setSidePane: (pane: SidePane) => void;
+  setScopes: (scopes: ScopesState) => void;
   patchStatus: (patch: Partial<StatusState>) => void;
   select: (id: string | null) => void;
   hover: (id: string | null) => void;
@@ -97,6 +117,7 @@ export function defaultView(id: string, label: string): ViewState {
     id,
     label,
     contributionRange: null,
+    scope: null,
     classes: [],
     layout: 'history',
     edges: true,
@@ -113,6 +134,7 @@ export const useExplorer = create<ExplorerState>((set) => ({
   views: [],
   activeViewId: null,
   sidePane: 'query',
+  scopes: { state: 'unknown', scopes: [], error: null },
   status: {
     nodes: 0,
     edges: 0,
@@ -148,6 +170,8 @@ export const useExplorer = create<ExplorerState>((set) => ({
 
   setSidePane: (sidePane) => set({ sidePane }),
 
+  setScopes: (scopes) => set({ scopes }),
+
   patchStatus: (patch) => set((s) => ({ status: { ...s.status, ...patch } })),
 
   select: (selected) => set((s) => ({ selection: { ...s.selection, selected } })),
@@ -163,3 +187,4 @@ export const useExplorer = create<ExplorerState>((set) => ({
 export function activeView(s: ExplorerState): ViewState | null {
   return s.views.find((v) => v.id === s.activeViewId) ?? null;
 }
+

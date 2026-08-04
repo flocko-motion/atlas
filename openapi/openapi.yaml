@@ -308,6 +308,66 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
 
+  /branches/{branch}/info:
+    parameters:
+      - $ref: "#/components/parameters/BranchName"
+    get:
+      operationId: getBranchInfo
+      summary: What is known about a branch
+      description: |
+        Reports a branch beyond its head id: the head's **height** — the generation number
+        of the branch's newest claim, so the depth of what it points at — and **when it last
+        moved**, which is the head claim's `created_at`.
+
+        Everything here comes from the head claim, so it costs one claim read. A claim count
+        is deliberately absent: counting a branch's claims is a walk of its closure, which is
+        a query (`POST /query`) and not a field.
+
+        Requires the **R** right on the branch. Cacheable **with revalidation** — every
+        field moves when the branch does.
+      tags: [read]
+      responses:
+        "200":
+          description: What is known about the branch.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BranchInfo" }
+          headers:
+            ETag:
+              description: Weak validator for the branch's current state.
+              schema: { type: string }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /archive/info:
+    get:
+      operationId: getArchiveInfo
+      summary: What is known about the archive
+      description: |
+        Reports the Ranke-Archive as a whole: the **branch-table head** — the id every
+        archive-scoped read is rooted at — with its height and when it last moved, and how
+        many branches the table holds.
+
+        This is the only route that reports the branch-table head, which is what a client
+        needs to name the `$archive` scope in a query or a grant.
+
+        Reads the `$archive` scope and requires the **R** right on `$archive`. Cacheable
+        **with revalidation**: the head advances on every contribution.
+      tags: [read]
+      responses:
+        "200":
+          description: What is known about the archive.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ArchiveInfo" }
+          headers:
+            ETag:
+              description: Weak validator for the archive's current state.
+              schema: { type: string }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
   /branches/{branch}/claims/{id}:
     parameters:
       - $ref: "#/components/parameters/BranchName"
@@ -1093,6 +1153,50 @@ components:
         head:
           type: string
           description: The content-addressed head claim id.
+
+    BranchInfo:
+      type: object
+      required: [name, head, height, updatedAt]
+      properties:
+        name:
+          type: string
+          description: The branch name, as the branch table holds it.
+        head:
+          type: string
+          description: The content-addressed head claim id.
+        height:
+          type: integer
+          format: int64
+          description: |
+            The head claim's generation number (§4.1) — 0 on an initial node, else
+            1 + max over what it references. The depth of what the branch points at.
+        updatedAt:
+          type: string
+          format: date-time
+          description: |
+            The head claim's `created_at` — when the branch last moved. Soft: a
+            contributor writes it, so it is not the witnessed merge time.
+
+    ArchiveInfo:
+      type: object
+      required: [head, height, updatedAt, branches]
+      properties:
+        head:
+          type: string
+          description: |
+            The branch-table head id — the root of every `$archive`-scoped read, and the
+            only place this contract reports it.
+        height:
+          type: integer
+          format: int64
+          description: The branch-table head claim's generation number.
+        updatedAt:
+          type: string
+          format: date-time
+          description: The branch-table head's `created_at` — when the archive last moved.
+        branches:
+          type: integer
+          description: How many branches the table holds.
 
     BranchEntry:
       type: object

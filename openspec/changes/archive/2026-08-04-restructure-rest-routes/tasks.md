@@ -6,7 +6,7 @@
 - [x] 1.3 Rename `/system/verification` → `/system/verifications` and its sub-paths. `POST /system/verifications/{id}/cancel` keeps its verb — a state transition with no natural noun.
 - [x] 1.4 Update operation ids to match: `getUniverseClaim` → `getClaim`, `getUniverseClaimContent` → `getClaimContent`, `listVerifications` and friends onto the plural path. Add `listBranches`. The archive scope needed two more: `getArchiveClaim`, `getArchiveClaimContent`.
 - [x] 1.5 Document the cache posture per route: claims immutable by id, the branch listing and branch head with revalidation.
-- [x] 1.6 Document which right each route needs — **R** on the branch for branch-scoped reads, **R** on `$branches` for the listing, **R** on `$universe` for `/claims/{id}` — and confirm no path segment carries a `$`.
+- [x] 1.6 Document which right each route needs — **R** on the branch for branch-scoped reads, **R** on `$branches` for the listing, **R** on `$archive` for `/archive/claims/{id}` and **R** on `$universe` for `/universe/claims/{id}` — and confirm no path segment carries a `$`.
 - [x] 1.7 `make generate`. Hand-edit no `*.gen.*`.
 
 ## 2. The handlers

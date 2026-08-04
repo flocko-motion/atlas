@@ -11,6 +11,7 @@
 
 import Sigma from 'sigma';
 import { graph } from '../core/graph/universe.ts';
+import { inScope } from '../core/session.ts';
 import { useExplorer, activeView } from '../core/store.ts';
 import type { ViewState } from '../core/store.ts';
 
@@ -44,7 +45,9 @@ function rendererName(): string {
 }
 
 /** admits decides whether a claim is in a view's selection. */
-function admits(view: ViewState, contribution: number, cls: string): boolean {
+function admits(view: ViewState, node: string, contribution: number, cls: string): boolean {
+  // The id set is the source's answer to "what is in this scope"; this only looks in it.
+  if (view.scope && !inScope(view.scope, node)) return false;
   if (view.contributionRange) {
     const [lo, hi] = view.contributionRange;
     if (contribution < lo || contribution > hi) return false;
@@ -75,7 +78,7 @@ export function mount(container: HTMLElement): Sigma {
     nodeReducer: (node, data) => {
       const view = activeView(useExplorer.getState());
       if (!view) return data;
-      const visible = admits(view, data.contribution as number, data.cls as string);
+      const visible = admits(view, node, data.contribution as number, data.cls as string);
       if (!visible) return { ...data, hidden: true };
       if (counting) admittedNodes++;
       const { selected, hovered } = useExplorer.getState().selection;
@@ -91,8 +94,8 @@ export function mount(container: HTMLElement): Sigma {
       const source = g.source(edge);
       const target = g.target(edge);
       const admitted =
-        admits(view, g.getNodeAttribute(source, 'contribution') as number, g.getNodeAttribute(source, 'cls') as string) &&
-        admits(view, g.getNodeAttribute(target, 'contribution') as number, g.getNodeAttribute(target, 'cls') as string);
+        admits(view, source, g.getNodeAttribute(source, 'contribution') as number, g.getNodeAttribute(source, 'cls') as string) &&
+        admits(view, target, g.getNodeAttribute(target, 'contribution') as number, g.getNodeAttribute(target, 'cls') as string);
       if (admitted && counting) admittedEdges++;
       return admitted ? data : { ...data, hidden: true };
     },

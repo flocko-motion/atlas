@@ -15,15 +15,22 @@ import { create } from 'zustand';
 export const CLAIM_CLASSES = ['source', 'derivation', 'entity', 'relation', 'contribution'];
 
 export interface Query {
-  /** Branch to read — `select.branch` in the contract. Ignored by mock sources. */
-  branch: string;
+  /**
+   * Scope to read — `select.branch` in the contract — or null until one is known.
+   *
+   * There is deliberately no default. A branch name is a fact about the archive in front
+   * of the explorer, so guessing one is wrong whenever it is wrong and silently so; every
+   * name comes from the branch listing instead, which makes discovery precede any
+   * scope-confined read.
+   */
+  branch: string | null;
   /** Cap on claims returned — `limit.results`. */
   limit: number;
   /** Restrict to these classes, empty for all. Applied as the view's selection. */
   classes: string[];
 }
 
-export const DEFAULT_QUERY: Query = { branch: 'main', limit: 100000, classes: [] };
+export const DEFAULT_QUERY: Query = { branch: null, limit: 100000, classes: [] };
 
 interface QueryState {
   query: Query;

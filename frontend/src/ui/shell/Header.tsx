@@ -10,13 +10,80 @@
  */
 
 import { useConnections } from '../../core/connections.ts';
-import { useExplorer } from '../../core/store.ts';
+import { discoverScopes, scopeShortfall, selectScope } from '../../core/session.ts';
+import { scopeOptions } from '../../core/scope.ts';
+import { activeView, useExplorer } from '../../core/store.ts';
 
 const TOOLS = [
   { id: 'pick', glyph: '⌖', label: 'Pick' },
   { id: 'select', glyph: '▭', label: 'Select' },
   { id: 'drag', glyph: '✥', label: 'Drag' },
 ];
+
+/**
+ * ScopePicker offers the scopes the archive holds. Selecting one narrows the view through
+ * a reducer, so it costs a re-index rather than a read.
+ *
+ * A scope whose head never loaded is marked rather than left to draw as an empty view.
+ */
+function ScopePicker() {
+  const scopes = useExplorer((s) => s.scopes);
+  const view = useExplorer(activeView);
+  const shortfall = scopeShortfall(view?.scope ?? null);
+  const selected = view?.scope?.name ?? '';
+
+  if (scopes.state === 'unknown' || scopes.state === 'error') {
+    return (
+      <div className="scope-picker">
+        <button
+          type="button"
+          className="scope-load"
+          onClick={() => void discoverScopes()}
+          title={scopes.error ?? 'list the branches this archive holds'}
+        >
+          branches…
+        </button>
+        {scopes.state === 'error' ? <span className="scope-note">{scopes.error}</span> : null}
+      </div>
+    );
+  }
+
+  if (scopes.state === 'loading') {
+    return (
+      <div className="scope-picker">
+        <span className="scope-note">listing branches…</span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="scope-picker">
+      <select
+        className="scope-select"
+        value={selected}
+        aria-label="Scope"
+        onChange={(e) => {
+          const next = scopes.scopes.find((s) => s.name === e.target.value) ?? null;
+          void selectScope(next);
+        }}
+      >
+        {scopeOptions(scopes.scopes, view?.scope ?? null).map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+      {shortfall > 0 ? (
+        <span
+          className="scope-note scope-absent"
+          title="claims this scope contains that the session has not read — the archive moved, or the load was capped"
+        >
+          {shortfall.toLocaleString('en-US')} not cached
+        </span>
+      ) : null}
+    </div>
+  );
+}
 
 export function Header() {
   const { connections, activeId } = useConnections();
@@ -46,6 +113,8 @@ export function Header() {
           </button>
         ))}
       </div>
+
+      <ScopePicker />
 
       <div className="topbar-spacer" />
 

@@ -12,12 +12,12 @@ import { activeConnection, useConnections } from '../../core/connections.ts';
 import { CLAIM_CLASSES, useQuery } from '../../core/query.ts';
 import { load } from '../../core/session.ts';
 import { useExplorer } from '../../core/store.ts';
-import { Button, Field, Select, TextInput, Toggle } from '../components/Field.tsx';
+import { Button, Field, Select, Toggle } from '../components/Field.tsx';
 
 const LIMITS = [1000, 10000, 50000, 100000, 300000];
 
 export function QueryPane() {
-  const { query, patchQuery, toggleClass } = useQuery();
+  const { query, toggleClass } = useQuery();
   const connections = useConnections((s) => s.connections);
   const activeId = useConnections((s) => s.activeId);
   const status = useExplorer((s) => s.status);
@@ -32,11 +32,11 @@ export function QueryPane() {
         {isMock ? ' — a generated archive' : ' — a ranke-db instance'}.
       </p>
 
-      {!isMock ? (
-        <Field label="branch" hint="select.branch">
-          <TextInput value={query.branch} onChange={(branch) => patchQuery({ branch })} placeholder="main" />
-        </Field>
-      ) : null}
+      <Field label="scope" hint="select.branch">
+        <span className="static-value">
+          {query.branch ?? 'none selected — pick one in the header'}
+        </span>
+      </Field>
 
       <Field
         label="limit"
@@ -45,7 +45,7 @@ export function QueryPane() {
         <Select
           value={query.limit}
           options={LIMITS.map((n) => ({ value: n, label: n.toLocaleString('en-US') }))}
-          onChange={(limit) => patchQuery({ limit })}
+          onChange={(limit) => useQuery.getState().patchQuery({ limit })}
         />
       </Field>
 
