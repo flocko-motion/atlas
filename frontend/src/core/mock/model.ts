@@ -52,6 +52,13 @@ export interface MockClaim {
    * *not* the same as provenance depth.
    */
   contribution: number;
+  /**
+   * Branch whose contribution introduced this claim. Not part of the ADT either — an
+   * archive answers "which branch" by closure, and that is the engine's work — but a mock
+   * standing in for a server has to answer a scoped read somehow, and recording it as it
+   * generates is the one way that costs nothing.
+   */
+  branch: string;
   edges: MockEdge[];
 }
 

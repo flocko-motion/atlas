@@ -58,6 +58,20 @@ body {
 }
 .connection-chip:hover { border-color: var(--accent); color: var(--ink); }
 
+/* The scope picker: which branch (or the whole archive) the view is confined to. */
+.scope-picker { display: flex; align-items: center; gap: 0.4rem; }
+.scope-select, .scope-load {
+  padding: 0.2rem 0.4rem;
+  background: var(--sunken); color: var(--ink);
+  border: 1px solid var(--line); border-radius: 0.3rem;
+  font: inherit; cursor: pointer;
+}
+.scope-select { max-width: 18rem; }
+.scope-load:hover, .scope-select:hover { border-color: var(--accent); }
+.scope-note { color: var(--dim); font-size: 0.85em; }
+.scope-absent { color: var(--warn); }
+.static-value { color: var(--ink); font-size: 0.9em; }
+
 /* --- main / canvas --- */
 .main { grid-area: main; position: relative; display: flex; flex-direction: column; min-width: 0; }
 .canvas-host { flex: 1; min-height: 0; }

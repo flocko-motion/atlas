@@ -4,7 +4,7 @@
 # Dependencies install themselves on first use, so a clean checkout needs nothing
 # but node.
 
-.PHONY: all run build single bench bench-render check clean help
+.PHONY: all run build single bench bench-render check test clean help
 .DEFAULT_GOAL := all
 
 VITE  := node node_modules/vite/bin/vite.js
@@ -41,6 +41,11 @@ bench-render: node_modules ## Frame timings in a real browser (needs a GPU; skip
 
 check: node_modules ## Type-check without emitting
 	@node_modules/typescript/bin/tsc --noEmit
+
+# Node's own runner, which strips the types — the same way the benches run. Core is
+# headless, so its behaviour is testable without a DOM or a browser.
+test: node_modules ## Run the headless core tests
+	@node --test 'src/**/*.test.ts'
 
 clean: ## Remove build output (explorer.html is committed, so it stays)
 	@rm -rf dist

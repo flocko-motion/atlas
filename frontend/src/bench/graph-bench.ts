@@ -331,7 +331,7 @@ function sweepGranularity(): void {
     const { depth, stats } = depths(graph);
     const [, layeredMs] = ms(() => assignLayered(graph, depth));
     const hist = historyStats(graph, (node) => graph.getNodeAttribute(node, 'contribution') as number);
-    const [, randomMs] = ms(() => random.assign(graph, { scale: 1000 }));
+  const [, randomMs] = ms(() => random.assign(graph, { scale: 1000 }));
     const degree = degreeStats(graph);
     const fa2 = fa2Cost(graph, graph.order > 150000 ? 2 : FA2_PROBE, true);
     const contribution = (archive.stats.byClass['contribution'] ?? 0) / archive.stats.claims;

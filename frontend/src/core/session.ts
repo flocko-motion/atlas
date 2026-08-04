@@ -12,6 +12,7 @@ import { activeConnection, useConnections } from './connections.ts';
 import { useQuery } from './query.ts';
 import { sourceFor } from './data/source.ts';
 import { mergeClaimsProgressively, graph, totalContributions } from './graph/universe.ts';
+import { membersOf, setMembers } from './graph/members.ts';
 import { yieldToPaint } from './scheduler.ts';
 import { contributionOf, depths, historyStats } from './graph/shape.ts';
 import { degreeStats, sizeByDegree } from './graph/build.ts';
@@ -19,6 +20,8 @@ import { apply } from './layout/layouts.ts';
 import type { LayoutName } from './layout/layouts.ts';
 import { defaultView, useExplorer } from './store.ts';
 import type { ViewState } from './store.ts';
+import { ARCHIVE_SCOPE, scopeLabel } from './scope.ts';
+import type { Scope } from './scope.ts';
 
 export interface LoadRequest {
   /** Cap on claims read — `limit.results` in the query contract. */
@@ -132,6 +135,119 @@ export async function load(req: LoadRequest = {}): Promise<void> {
   await yieldToPaint();
   onLoaded?.();
   useExplorer.getState().patchStatus({ busy: null, progress: null });
+}
+
+/**
+ * discoverScopes asks the active source what scopes the archive holds. Until it answers
+ * the explorer knows no branch name, so nothing scope-confined can be read.
+ *
+ * One branch is selected outright — there is no choice to make. Several are left unset:
+ * picking by name, position or convention would be the guess this replaced.
+ */
+export async function discoverScopes(): Promise<void> {
+  const store = useExplorer.getState();
+  const connection = activeConnection();
+  if (!connection) {
+    store.setScopes({ state: 'error', scopes: [], error: 'no source configured' });
+    return;
+  }
+
+  store.setScopes({ state: 'loading', scopes: [], error: null });
+  const source = sourceFor(connection, useConnections.getState().secretOf(connection.id));
+  let scopes: Scope[];
+  try {
+    scopes = await source.branches();
+  } catch (err) {
+    log(`branches    failed — ${String(err)}`);
+    useExplorer.getState().setScopes({ state: 'error', scopes: [], error: String(err) });
+    return;
+  }
+
+  useExplorer.getState().setScopes({ state: 'ready', scopes, error: null });
+  const named = scopes.filter((s) => s.name !== ARCHIVE_SCOPE);
+  log(
+    `branches    ${named.length} branch(es)${scopes.length > named.length ? ' + the archive' : ''}` +
+      `${named.length > 0 ? ` · ${named.map((s) => s.name).join(', ')}` : ''}`,
+  );
+  if (named.length === 1) await selectScope(named[0]);
+}
+
+/**
+ * selectScope confines the active view to a scope, or lifts the confinement with null.
+ *
+ * The membership question goes to the source: a scoped query with `output.detail: id`
+ * returns the identities in that scope, and the view then draws the intersection with what
+ * is cached. So the engine decides what a branch contains, and this decides what to show.
+ *
+ * Ids the answer names but the cache lacks are counted rather than hidden: they are claims
+ * the server has and this session has not read, which is the honest reading of a graph
+ * loaded once against an archive that moves.
+ */
+export async function selectScope(scope: Scope | null): Promise<void> {
+  const store = useExplorer.getState();
+  const active = store.views.find((v) => v.id === store.activeViewId);
+  if (active) store.patchView(active.id, { scope });
+  useQuery.getState().patchQuery({ branch: scope ? scope.name : null });
+
+  if (!scope) {
+    log('scope       everything loaded');
+    onLoaded?.();
+    return;
+  }
+
+  const connection = activeConnection();
+  if (!connection) {
+    log('scope       no source to ask which claims are in it');
+    return;
+  }
+
+  store.patchStatus({ busy: `scoping to ${scopeLabel(scope)}`, progress: null });
+  await yieldToPaint();
+
+  const source = sourceFor(connection, useConnections.getState().secretOf(connection.id));
+  const t0 = performance.now();
+  let ids: string[];
+  try {
+    ids = await source.scopeIds(scope);
+  } catch (err) {
+    log(`scope       ${scopeLabel(scope)} failed — ${String(err)}`);
+    useExplorer.getState().patchStatus({ busy: null, progress: null });
+    return;
+  }
+
+  const members = setMembers(scope.name, ids);
+  const g = graph();
+  let missing = 0;
+  for (const id of members) if (!g.hasNode(id)) missing++;
+  log(
+    `scope       ${scopeLabel(scope)} · ${members.size.toLocaleString('en-US')} claims ` +
+      `(${(performance.now() - t0).toFixed(0)} ms)` +
+      `${missing > 0 ? ` · ${missing.toLocaleString('en-US')} not cached yet` : ''}`,
+  );
+
+  onLoaded?.();
+  useExplorer.getState().patchStatus({ busy: null, progress: null });
+}
+
+/**
+ * inScope is the membership test the renderer applies per node: a lookup in the id set the
+ * source returned. A scope never asked admits everything, so a view is never blank for
+ * want of an answer.
+ */
+export function inScope(scope: Scope, node: string): boolean {
+  const members = membersOf(scope.name);
+  return members === null || members.has(node);
+}
+
+/** scopeShortfall counts claims a scope names that this session has not cached. */
+export function scopeShortfall(scope: Scope | null): number {
+  if (!scope) return 0;
+  const members = membersOf(scope.name);
+  if (!members) return 0;
+  const g = graph();
+  let missing = 0;
+  for (const id of members) if (!g.hasNode(id)) missing++;
+  return missing;
 }
 
 /**

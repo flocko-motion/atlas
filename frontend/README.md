@@ -40,9 +40,31 @@ Configured in the client, several at a time, switchable — the auth kinds mirro
 server's adapters and `openapi.yaml`'s security schemes: no-auth, `X-API-Key`,
 `Authorization: Bearer` (JWT), and `Authorization: Macaroon`. Secrets stay in memory
 for the session unless you tick *remember*, which writes them to `localStorage` where
-any script on the page can read them. Reading claims from a connection is not wired
-yet: the REST query contract has merged (`rest-api`), but nothing here imports a
+any script on the page can read them. Reading claim *bodies* from a connection is not
+wired yet: the REST query contract has merged (`rest-api`), but nothing here imports a
 generated client from it so far.
+
+## Branches, and where a query is answered
+
+The header's picker lists what the archive holds — the whole archive and each named
+branch, each with the head its closure is rooted at — read through the data-source port,
+so it works against a server (`GET /branches`) and against mock data alike. `$universe`
+is absent: a browsable scope needs a head, and it has none, which is also why RankeQL
+refuses to read there without an explicit one. No branch name is built in; `main` is a
+fact about someone else's archive, so every name comes from the listing.
+
+**The engine answers what a branch contains, not this client.** Selecting a scope runs a
+query for identities only — `select.branch` names the scope, `output.detail: id` asks for
+the ids — and the view then draws the intersection with what is cached. Switching scopes
+therefore costs a query for ids and a `Set.has` per claim, never a re-read of a claim body.
+
+An earlier attempt walked the closure here instead, which is a second query engine in the
+layer least able to optimise one. It also cost **398 ms at 100k claims and 1.7 s at 300k**
+for the widest scope. Both are reasons; the boundary is the better one.
+
+A scope's answer can name claims this session never read — the archive advanced, or the
+load was capped — so the count is reported next to the picker rather than the overlap being
+drawn silently.
 
 # Performance
 

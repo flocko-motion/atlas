@@ -48,7 +48,17 @@ A view predicate is a closure test, and a closure needs a root. So the picker of
 archive and the named branches, and `$universe` stays what it is: a by-id read for
 reaching a claim the branch table does not, not a scope a view can sit in.
 
-### Membership is reachability from the head, not a label
+### Membership is reachability from the head — computed by the engine
+
+*Revised during execution.* This section originally had the client walk the closure. It is
+right that membership *is* reachability and wrong about who computes it: a closure walk is a
+query, and queries belong to ranke-go. The explorer asks a scoped query for identities only
+(`output.detail: id`) and intersects the answer with its cache. Measured cost of the walk it
+no longer does: 398 ms at 100k claims, 1.7 s at 300k.
+
+The model argument below stands unchanged — a claim reached from two branches belongs to
+both, so membership is a set and never a label.
+
 
 A branch *is* the closure of its head, and `$archive` the closure of the archive head.
 So "is this claim in scope `s`" is a reachability question from `s`'s head, answered
