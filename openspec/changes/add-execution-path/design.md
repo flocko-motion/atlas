@@ -114,10 +114,11 @@ no id, no persistence, no cancel beyond ctx. `domain.go` already models `ID`, `S
 active-run limit are server state. Last in the order, being a subsystem rather than a
 dispatch arm.
 
-## Upstream asks
+## Upstream asks, and how they closed
 
-One genuine ask remains, and it blocks only the paper's step-3 read check. Tracked as
-`td-0da051`.
+Every ask this change raised is now answered upstream, each in a release of its own; what
+follows is the record of what was asked and what arrived, since several were reshaped along
+the way and the reasoning is worth more than the outcome alone.
 
 **A wire format for a multi-claim body — answered upstream.** *Corrected twice during
 execution.* It was first recorded as a blocker, which it was not; the format is the
@@ -142,27 +143,52 @@ branch is refused, so the declaration binds. The arm is now: read the declaratio
 on each branch, `AddWire`. Authorization is settled before any payload is read, nothing is
 buffered, and a contribution of any size streams.
 
-**A per-claim read check during closure.** Paper 02 §Sequencer step 3 requires that
-closing a contribution draw in referenced claims from other branches or the wider
-Universe, and that *"read access to all branch-external claims is required"*. There is
-no seam for it:
+**Bounding a contribution's reach, step 3.** The paper requires that closing a contribution
+draw in referenced claims from other branches or the wider Universe, and that *"read access
+to all branch-external claims is required"*. The reach being bounded is a write's: closing a
+contribution *pulls* a referenced claim into the branch being written, and §Access Control
+puts it plainly — R on one branch with C on another "allows referencing a claim from B₁ in
+B₂, effectively importing the full closure of the referenced claim into B₂".
 
-```go
-// contribution.go:26
-CompleteAndVerify(ctx context.Context) (VerifiedContribution, error)
-```
+v0.11.0 and v0.12.0 supply the seam. `WithReferencableBranches` bounds what may be
+referenced and `AdmitReferences` enforces it at completion; `WithCreatableBranches` with
+`Archive.MissingBranches` makes bringing a branch into being its own right. So this server
+composes: R grants become the referencable scopes, the declared branches the base lacks
+become the creatable list gated on C over `$branches`, and `Narrow` takes the overlap with
+what the body asked for.
 
-No options, no hook. Steps 3 and 4 run as one traversal inside, and the only extension
-point in the path is `g.Verify(ranke.WithTrusted(c.s.isCommitted))` — the sequencer's
-own pruning, not the caller's.
+**The division of labour.** ranke-db *manages* constraints and ranke-go *enforces* them: this
+server composes what a request asked for with what its account's grants allow, and the
+Sequencer applies the result without knowing an account exists. That is why a constraint scope
+belongs in the library's vocabulary — `$universe` and `$archive` are already there, and
+`$branches` is to join them. Where it has no name for a capability yet, this server bridges to
+the nearest one it does have and says so.
 
-The shape to ask for is the one `WithTrusted` already sets: a caller-supplied predicate,
-passed as an option, called per claim the walk draws in from outside the contribution and
-given that claim's id together with the branch it was found on — empty where no branch
-holds it. That is all this repo needs, because the paper fixes the rest: a branch-external
-claim arrives "from another branch of the archive or the wider Universe", so `core-access`
-answers with R on the naming branch, or `R $universe` where none does. The policy is
-settled; only the seam is missing.
+**v0.10.0 supplies the mechanism.** `Constraints`, declared at `NewContribution` and enforced
+by the Sequencer, are "the tools an access system is built from: the caller declares, the
+Sequencer enforces, and nothing here knows who is asking" — the split this change had been
+asking for, and the reason nothing crosses the wire: a constraint arriving from a client would
+be a request, never a declaration, so the server sets it. The one option shipped,
+`WithLiftedTypes`, closes the reserved-type half of finding 6.4.
+
+What still needs bounding is **how far a contribution may reach across branches**, and that is a
+write-side constraint rather than a read one. Closing a contribution *pulls* each referenced
+claim from another branch into the branch being written, where it joins that branch's closure.
+Nobody is reading a branch here; a write is absorbing one. The paper calls the required right R
+because pulling a claim in exposes it, but the operation being constrained is the merge.
+
+So the ask is an option naming the branches a contribution may draw references from, with the
+completion walk refusing a reference reachable from none of them. That value is structural and
+written in the ADT's own vocabulary of branch names, so no access model crosses — the test being
+that a caller with no notion of users could produce it. This server translates, expanding the
+principal's grants against the branch table, so accounts stay in configuration and out of the
+graph. A value rather than a callback also avoids reentrancy mid-walk, and can be logged,
+tested and replayed.
+
+The rule itself is settled. A branch-external claim arrives "from another branch of the
+archive or the wider Universe", and §Access Control makes R on *any* holding branch enough —
+only a delete needs the right on every holder, because a purge removes bytes the other
+branches share while a read removes nothing.
 
 Approximating it here was considered and rejected. The walk is recursive, so a check over
 only the references visible in the submitted body would enforce the common case while
@@ -177,11 +203,11 @@ the error path instead of matching on a message. And `QueryReport` carries no JS
 so serving it as the library types it puts Go field names on a wire whose contract
 declares `startedAt`/`elapsedMs`/`events`.
 
-Two smaller observations from the same read, for whoever raises the above:
-`admissible()` rejects `NodeBranches` but not limiting claims, though the paper reserves
-both to the Sequencer; and step 6's `expires_after_request` → `contribution/expiry`
-mint does not exist in `concurrent` at all, which also leaves `core-limiting-claims`
-unsatisfiable by this backend.
+Of two smaller observations from the same read, one is closed: `admissible()` rejected
+`NodeBranches` but not the limiting claims, and v0.10.0 has it defer to
+`Constraints.AdmitType`, whose reserved set carries all three. The other stands, deferred by
+decision: step 6's `expires_after_request` → `contribution/expiry` mint does not exist in
+`concurrent`, leaving `core-limiting-claims` unsatisfiable by that backend.
 
 ## Risks / Trade-offs
 

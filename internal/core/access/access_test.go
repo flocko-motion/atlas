@@ -125,3 +125,39 @@ func TestParseGrantReserved(t *testing.T) {
 		}
 	}
 }
+
+// TestPaperAccessExample pins the paper's own example (§Access Control): with
+// `webapp CR foo_*, provisioner C $branches`, provisioner creates branches such as foo-bar
+// and webapp reads and contributes to them. Neither grant confers the other's job, and
+// $branches carries no glob — it is one server-wide surface.
+func TestPaperAccessExample(t *testing.T) {
+	c, err := New(map[string][]string{
+		"webapp":      {"CR foo-*"},
+		"provisioner": {"C $branches"},
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	for _, tc := range []struct {
+		name  string
+		acct  string
+		right Right
+		br    string
+		want  bool
+	}{
+		{"provisioner creates branches", "provisioner", Contribute, Branches, true},
+		{"provisioner does not write foo-bar", "provisioner", Contribute, "foo-bar", false},
+		{"provisioner does not read foo-bar", "provisioner", Read, "foo-bar", false},
+		{"webapp contributes to foo-bar", "webapp", Contribute, "foo-bar", true},
+		{"webapp reads foo-bar", "webapp", Read, "foo-bar", true},
+		{"webapp cannot create a branch", "webapp", Contribute, Branches, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p := Principal{Account: tc.acct}
+			if got := c.Allow(p, tc.right, tc.br); got != tc.want {
+				t.Fatalf("Allow(%s, %c, %s) = %v, want %v", tc.acct, tc.right, tc.br, got, tc.want)
+			}
+		})
+	}
+}

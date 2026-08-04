@@ -58,7 +58,11 @@ answers it, and turning what comes back into bytes on the wire. That is four thi
 - **`go.mod`**: `ranke-go` v0.3.2 → v0.4.0, which is what makes the read arms
   buildable. It reshapes `QueryResult` into a tagged union and drops its `Content`
   field, so the bump lands first with `make verify` green.
-- **Blocked upstream, not planned here**: two asks against ranke-go, tracked as
-  `td-0da051` — a wire format for a multi-claim contribution body, and a per-claim read
-  check on `CompleteAndVerify`, which still takes `(ctx)` and offers no hook. Both
-  block the contribute arm only; the read arms are unblocked.
+- **`ranke-go` grew with this change**: v0.4.0 for the read arms, v0.5.0 for the
+  contribution codec, v0.6.0 for the branch header a stream declares, and v0.10.0–v0.12.0
+  for the contribution constraints — lifted types, referencable branches, creatable
+  branches — with `Archive.MissingBranches` to match a declaration against the base. Each
+  bump landed with `make verify` green.
+- **Deferred by decision**: step 6's `expires_after_request` → `contribution/expiry` mint
+  is absent from the `concurrent` sequencer, leaving `core-limiting-claims` unsatisfiable
+  by that backend. Deletion and expiry are their own subject.

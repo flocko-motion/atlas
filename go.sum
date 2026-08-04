@@ -31,6 +31,16 @@ github.com/flocko-motion/ranke-go v0.5.0 h1:4SdH0pZ2QfR8zwWfbHahW7TDiGlhndm1zWK9
 github.com/flocko-motion/ranke-go v0.5.0/go.mod h1:Mx/cYAmJMYfJ5hgq9F1PMjx0PLX/rc6FIMEVPzypxrM=
 github.com/flocko-motion/ranke-go v0.6.0 h1:5dtx4fk4kkaf+jUuwoAkGh32lalobRvJXuT/lwiNsOU=
 github.com/flocko-motion/ranke-go v0.6.0/go.mod h1:Mx/cYAmJMYfJ5hgq9F1PMjx0PLX/rc6FIMEVPzypxrM=
+github.com/flocko-motion/ranke-go v0.7.0 h1:6DElZbyfLUZeEOH8abIaAUEtZwNRQiCOtDuJ6ipqiJA=
+github.com/flocko-motion/ranke-go v0.7.0/go.mod h1:Mx/cYAmJMYfJ5hgq9F1PMjx0PLX/rc6FIMEVPzypxrM=
+github.com/flocko-motion/ranke-go v0.9.0 h1:IJq07UHaQCT2vt883T06xV4Puy68s4WspIBm49C7m88=
+github.com/flocko-motion/ranke-go v0.9.0/go.mod h1:Mx/cYAmJMYfJ5hgq9F1PMjx0PLX/rc6FIMEVPzypxrM=
+github.com/flocko-motion/ranke-go v0.10.0 h1:/6qnuWiabyEgQqPpzdUaAc0JN+Gzk5OeMV72gdmvGe4=
+github.com/flocko-motion/ranke-go v0.10.0/go.mod h1:Mx/cYAmJMYfJ5hgq9F1PMjx0PLX/rc6FIMEVPzypxrM=
+github.com/flocko-motion/ranke-go v0.11.0 h1:mdnLpfbbFPNQeDDUn+v0odhtJruZeN3X3NSQorLMp6g=
+github.com/flocko-motion/ranke-go v0.11.0/go.mod h1:Mx/cYAmJMYfJ5hgq9F1PMjx0PLX/rc6FIMEVPzypxrM=
+github.com/flocko-motion/ranke-go v0.12.0 h1:6TX0SZ2c0m5A7oymdTaP7g7PEe+pIyxYzmIv1AwCg08=
+github.com/flocko-motion/ranke-go v0.12.0/go.mod h1:Mx/cYAmJMYfJ5hgq9F1PMjx0PLX/rc6FIMEVPzypxrM=
 github.com/fsnotify/fsnotify v1.4.7/go.mod h1:jwhsz4b93w/PPRr/qN1Yymfu8t87LnFCMoQvtojpjFo=
 github.com/fsnotify/fsnotify v1.4.9 h1:hsms1Qyu0jgnwNXIxa+/V/PDsU6CfLf6CNO8H7IWoS4=
 github.com/fsnotify/fsnotify v1.4.9/go.mod h1:znqG4EE+3YCdAaPaxE2ZRY/06pZUdp0tY4IgpuI1SZQ=

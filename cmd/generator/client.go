@@ -74,9 +74,8 @@ func (c *client) head(ctx context.Context, branch string) (string, error) {
 	return res.Head, nil
 }
 
-// waitReady polls /health until the server answers, so a script can launch a server
-// and seed it without sleeping a guessed interval. A refusal that is not the listener
-// missing — an auth failure, say — stops the wait: retrying it would never succeed.
+// waitReady polls /health so a script can seed a server without sleeping a guessed interval.
+// A refusal other than a missing listener stops the wait, retrying it never succeeding.
 func (c *client) waitReady(ctx context.Context, within time.Duration) error {
 	deadline := time.Now().Add(within)
 	for {
@@ -162,10 +161,15 @@ func refusal(status int, body []byte) error {
 }
 
 // encodeContribution writes claims as ranke's contribution stream, declaring the branch
-// they join so the server settles access before reading the body.
+// they join and the scope they may reference, so the server settles access before reading
+// the body. A generated graph cites only itself and that branch.
 func encodeContribution(branch string, claims []ranke.Claim) ([]byte, error) {
 	var buf bytes.Buffer
-	w := ranke.NewWireWriter(&buf, branch)
+	w := ranke.NewWireWriter(&buf, ranke.WireConstraints{
+		Branches:     []string{branch},
+		Referencable: []string{branch},
+		Creatable:    []string{branch},
+	})
 	for _, claim := range claims {
 		if err := w.WriteClaim(branch, claim); err != nil {
 			return nil, fmt.Errorf("encode claim %s: %w", claim.ID(), err)

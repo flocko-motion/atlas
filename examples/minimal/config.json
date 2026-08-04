@@ -20,7 +20,9 @@
   "accounts": {
     "ops": {
       "grants": [
-        "CR *"
+        "CR *",
+        "C $branches",
+        "R $archive"
       ]
     }
   },

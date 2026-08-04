@@ -63,5 +63,20 @@ func writeJSON(w http.ResponseWriter, code int, v any) {
 // error path — transport-level (a malformed body) and core (via fail) — goes
 // through a category, so status and code always agree.
 func writeError(w http.ResponseWriter, cat core.Category, msg string) {
+	if cat == core.CatBusy {
+		// A refusal for want of a free slot is worth retrying, so say when.
+		w.Header().Set("Retry-After", retryAfterSeconds)
+	}
 	writeJSON(w, httpStatus(cat), openapi.Error{Code: string(cat), Error: msg})
+}
+
+// mediaJSON is the content type a JSON response carries.
+const mediaJSON = "application/json"
+
+// respondBytes writes a body this package already holds, for the routes that must read it
+// to derive a header before sending it.
+func (s *Server) respondBytes(w http.ResponseWriter, contentType string, status int, body []byte) {
+	w.Header().Set("Content-Type", contentType)
+	w.WriteHeader(status)
+	_, _ = w.Write(body)
 }
