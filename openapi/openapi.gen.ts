@@ -342,6 +342,21 @@ export interface BranchHead {
   head: string;
 }
 
+export interface BranchEntry {
+  /** The branch name, as the branch table holds it. */
+  name: string;
+  /** That branch's current head claim id. */
+  head: string;
+}
+
+export interface BranchList {
+  /**
+   * Every branch the branch table holds, from one archive snapshot — so the
+   * heads are consistent with each other. Empty on an archive with no branches.
+   */
+  branches: BranchEntry[];
+}
+
 export interface Health {
   /** @example "ok" */
   status: string;
@@ -733,15 +748,27 @@ export class HttpClient<SecurityDataType = unknown> {
  * meanings are the spec's. Cypher/GQL is **never** a client route — it is an
  * internal execution engine the planner lowers a query to.
  *
- * A **cacheable GET subset** covers the by-id reads without a query body:
- * `GET /{branch}/head`, `GET /{branch}/claim/{id}`,
- * `GET /{branch}/claim/{id}/content`, and the privileged `GET /$universe/claim/{id}` /
- * `GET /$universe/claim/{id}/content`. Content is addressed by the **claim** that
- * holds it (not a raw hash), so whether the bytes are inline or a separate blob is
- * hidden and the read is scoped to the claim's branch. Content also rides **inline**
- * in query results via `output.content`; the content route fetches the bytes for a
- * single claim — including the blob an `output.content.overflow: reference` stub
- * leaves behind.
+ * A **cacheable GET subset** covers the by-id reads without a query body. Every one
+ * of them is a **scope** followed by what is read within it, so the three scopes the
+ * access model reserves read alike and differ only in which scope they name:
+ *
+ *   - `GET /branches` — the branch table's branches, by name and head
+ *   - `GET /branches/{branch}/head`
+ *   - `GET /branches/{branch}/claims/{id}` and its `/content` form
+ *   - `GET /archive/claims/{id}` and its `/content` form — the `$archive` scope
+ *   - `GET /universe/claims/{id}` and its `/content` form — the privileged
+ *     `$universe` scope
+ *
+ * `GET /branches` needs no branch name, so a client discovers what it may address.
+ * Content is addressed by the **claim** that holds it (not a raw hash), so whether the
+ * bytes are inline or a separate blob is hidden and the read stays scoped as its route
+ * is scoped. Content also rides **inline** in query results via `output.content`; the
+ * content route fetches the bytes for a single claim — including the blob an
+ * `output.content.overflow: reference` stub leaves behind.
+ *
+ * No path segment carries a `$`. The reserved names live in grants (`R $universe`) and
+ * in a RankeQL body (`select.branch`), and a route names the same scope as a plain
+ * segment — which also means these paths survive being typed into a shell.
  *
  * ## Scopes and closures
  *
@@ -799,11 +826,11 @@ export class HttpClient<SecurityDataType = unknown> {
  *
  * ## Closure and the 404 rule
  *
- * Every branch read is bounded by that branch's closure. A claim or content that
- * exists in the Universe but lies **outside** the named branch's closure returns
- * `404` — indistinguishable from one that does not exist. Head-id reads that
- * bypass the branch table are privileged and reached only through the reserved
- * `$universe` name (`$` is illegal in ordinary branch names).
+ * Every branch read is bounded by that branch's closure, and every archive read by
+ * the current head's closure. A claim or content that exists in the Universe but lies
+ * **outside** the closure the route names returns `404` — indistinguishable from one
+ * that does not exist. Reads under no closure at all are privileged: they are the
+ * `/universe/…` collection, gated by **R** on `$universe`.
  */
 export class Api<
   SecurityDataType extends unknown,
@@ -868,19 +895,19 @@ export class Api<
         ...params,
       }),
   };
-  branch = {
+  branches = {
     /**
-     * @description Returns the branch's current head id — a moving target (it advances on every contribution). Cacheable **with revalidation** (weak `ETag`, `Cache-Control: no-cache`): a conditional request is cheap when the head has not moved. To inspect the head claim itself, fetch it via `GET /{branch}/claim/{id}`.
+     * @description Returns every branch the branch table holds, each with its name and current head id. Reachable **without knowing any branch name**, so a client discovers what it may address before using the routes that take one; an archive with no branches yet answers with an empty list. Requires the **R** right on the reserved `$branches` target, which is what core-access grants as "enumerates the table". Cacheable **with revalidation** (weak `ETag`, `Cache-Control: no-cache`): every head in the list moves as its branch is contributed to. The listing is answered from **one archive snapshot**, so the heads are consistent with each other.
      *
      * @tags read
-     * @name GetBranchHead
-     * @summary Current head id of a branch
-     * @request GET:/{branch}/head
+     * @name ListBranches
+     * @summary List the branch table's branches
+     * @request GET:/branches
      * @secure
      */
-    getBranchHead: (branch: string, params: RequestParams = {}) =>
-      this.request<BranchHead, Error>({
-        path: `/${branch}/head`,
+    listBranches: (params: RequestParams = {}) =>
+      this.request<BranchList, Error>({
+        path: `/branches`,
         method: "GET",
         secure: true,
         format: "json",
@@ -888,29 +915,47 @@ export class Api<
       }),
 
     /**
-     * @description Returns claim `{id}` as its signed CBOR bytes, **only if it lies in branch `{name}`'s closure**. A claim that is superseded, contradicted, or otherwise outside the closure returns `404`, indistinguishable from one that does not exist. Immutably **cacheable** by id (strong `ETag`, `Cache-Control: public, immutable`): the id content-addresses the bytes, so they never change.
+     * @description Returns the branch's current head id — a moving target (it advances on every contribution). Requires the **R** right on that branch. Cacheable **with revalidation** (weak `ETag`, `Cache-Control: no-cache`): a conditional request is cheap when the head has not moved. To inspect the head claim itself, fetch it via `GET /branches/{branch}/claims/{id}`.
+     *
+     * @tags read
+     * @name GetBranchHead
+     * @summary Current head id of a branch
+     * @request GET:/branches/{branch}/head
+     * @secure
+     */
+    getBranchHead: (branch: string, params: RequestParams = {}) =>
+      this.request<BranchHead, Error>({
+        path: `/branches/${branch}/head`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Returns claim `{id}` as its signed CBOR bytes, **only if it lies in branch `{branch}`'s closure**. A claim that is superseded, contradicted, or otherwise outside the closure returns `404`, indistinguishable from one that does not exist. Requires the **R** right on that branch. `{branch}` names an **ordinary branch**. A reserved scope name supplied here names a branch that does not exist and is answered as `404`; each scope has exactly one route (`/archive/…`, `/universe/…`). Immutably **cacheable** by id (strong `ETag`, `Cache-Control: public, immutable`): the id content-addresses the bytes, so they never change.
      *
      * @tags read
      * @name GetBranchClaim
      * @summary Fetch a claim within a branch's closure
-     * @request GET:/{branch}/claim/{id}
+     * @request GET:/branches/{branch}/claims/{id}
      * @secure
      */
     getBranchClaim: (branch: string, id: string, params: RequestParams = {}) =>
       this.request<File, Error>({
-        path: `/${branch}/claim/${id}`,
+        path: `/branches/${branch}/claims/${id}`,
         method: "GET",
         secure: true,
         ...params,
       }),
 
     /**
-     * @description Streams the content of claim `{id}` — **only if it lies in branch `{name}`'s closure** (same closure guarantee as the claim itself; out-of-closure or unknown → `404`). Content is addressed by the claim that holds it, not by a raw hash: the server resolves whether the bytes live inline in the claim or in a separate blob, so the client can't tell and doesn't need to — and the read is scoped to the claim's branch. Immutably **cacheable** by the claim id.
+     * @description Streams the content of claim `{id}` — **only if it lies in branch `{branch}`'s closure** (same closure guarantee as the claim itself; out-of-closure or unknown → `404`). Requires the **R** right on that branch. Content is addressed by the claim that holds it, not by a raw hash: the server resolves whether the bytes live inline in the claim or in a separate blob, so the client can't tell and doesn't need to — and the read stays scoped as the route is scoped. Immutably **cacheable** by the claim id.
      *
      * @tags read
      * @name GetBranchClaimContent
      * @summary Fetch the content of a claim within a branch's closure
-     * @request GET:/{branch}/claim/{id}/content
+     * @request GET:/branches/{branch}/claims/{id}/content
      * @secure
      */
     getBranchClaimContent: (
@@ -919,7 +964,42 @@ export class Api<
       params: RequestParams = {},
     ) =>
       this.request<Blob, Error>({
-        path: `/${branch}/claim/${id}/content`,
+        path: `/branches/${branch}/claims/${id}/content`,
+        method: "GET",
+        secure: true,
+        ...params,
+      }),
+  };
+  archive = {
+    /**
+     * @description Returns claim `{id}` as its signed CBOR bytes if it lies in the closure of the **whole Ranke-Archive** — the current branch-table head — whichever branch holds it. A client reaches a claim without naming the branch it is on; a claim outside that closure returns `404`. This collection reads the `$archive` scope: the same scope a RankeQL body names as `select.branch: "$archive"`, and the same target a grant is written against. It requires the **R** right on `$archive`. Immutably cacheable by id.
+     *
+     * @tags read
+     * @name GetArchiveClaim
+     * @summary Fetch a claim within the archive head's closure
+     * @request GET:/archive/claims/{id}
+     * @secure
+     */
+    getArchiveClaim: (id: string, params: RequestParams = {}) =>
+      this.request<File, Error>({
+        path: `/archive/claims/${id}`,
+        method: "GET",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Streams the content of claim `{id}` if it lies in the archive head's closure, across every branch (same closure guarantee as the claim itself; outside it or unknown → `404`). Reads the `$archive` scope and requires **R** on `$archive`. Content is addressed by the claim; whether the bytes are inline or a separate blob is hidden. Immutably cacheable by the claim id.
+     *
+     * @tags read
+     * @name GetArchiveClaimContent
+     * @summary Fetch the content of a claim within the archive head's closure
+     * @request GET:/archive/claims/{id}/content
+     * @secure
+     */
+    getArchiveClaimContent: (id: string, params: RequestParams = {}) =>
+      this.request<Blob, Error>({
+        path: `/archive/claims/${id}/content`,
         method: "GET",
         secure: true,
         ...params,
@@ -927,34 +1007,34 @@ export class Api<
   };
   universe = {
     /**
-     * @description Returns claim `{id}` as its signed CBOR bytes directly from the Universe, bypassing any branch table. This is a **privileged** head-id read, conferred only through the reserved `$universe` name (see core-access). Immutably cacheable by id.
+     * @description Returns claim `{id}` as its signed CBOR bytes from the Universe under **no closure at all** — no branch table, and no confinement to the current head. This is what makes it privileged, and what it exists for: reaching an archive from a Universe and a head id alone, as when restoring from a head kept outside the server. A claim the Universe holds is returned even where `GET /archive/claims/{id}` reports it not-found. This collection reads the `$universe` scope: the same scope a RankeQL body names as `select.branch: "$universe"`, and the same target a grant is written against. It requires the **R** right on `$universe`, to which only **R** applies. An ordinary glob confers it by no accident — a `$`-prefixed target needs an exact grant, so `R *` reaches neither reserved scope. Immutably cacheable by id.
      *
      * @tags read
-     * @name GetUniverseClaim
+     * @name GetClaim
      * @summary Fetch a claim by id from the Universe (privileged)
-     * @request GET:/$universe/claim/{id}
+     * @request GET:/universe/claims/{id}
      * @secure
      */
-    getUniverseClaim: (id: string, params: RequestParams = {}) =>
+    getClaim: (id: string, params: RequestParams = {}) =>
       this.request<File, Error>({
-        path: `/$universe/claim/${id}`,
+        path: `/universe/claims/${id}`,
         method: "GET",
         secure: true,
         ...params,
       }),
 
     /**
-     * @description Streams the content of claim `{id}` directly from the Universe, bypassing any branch table — a **privileged** read conferred only through `$universe`. Content is addressed by the claim; whether the bytes are inline or a separate blob is hidden. Immutably cacheable by the claim id.
+     * @description Streams the content of claim `{id}` from the Universe under no closure — the privileged read, conferred only through **R** on `$universe`. Content is addressed by the claim; whether the bytes are inline or a separate blob is hidden. Immutably cacheable by the claim id.
      *
      * @tags read
-     * @name GetUniverseClaimContent
+     * @name GetClaimContent
      * @summary Fetch the content of a claim by id from the Universe (privileged)
-     * @request GET:/$universe/claim/{id}/content
+     * @request GET:/universe/claims/{id}/content
      * @secure
      */
-    getUniverseClaimContent: (id: string, params: RequestParams = {}) =>
+    getClaimContent: (id: string, params: RequestParams = {}) =>
       this.request<Blob, Error>({
-        path: `/$universe/claim/${id}/content`,
+        path: `/universe/claims/${id}/content`,
         method: "GET",
         secure: true,
         ...params,
@@ -980,17 +1060,17 @@ export class Api<
       }),
 
     /**
-     * @description Verification runs across the whole stack, newest first. Each report is a **point-in-time record**: a layer repaired externally shows clean in a later run, so reports accumulate rather than overwrite — until explicitly removed with `DELETE /system/verification/{reportId}`. The API lives under `/system/` (rather than the paper's root `/verification…`) for two reasons: a root-level `/verification/{id}` would collide with `/{branch}/head` under net/http (both match `/verification/head`, neither more specific), and a run is a stack-wide operational resource — it roots at a closure named in the request body, not in the path.
+     * @description Verification runs across the whole stack, newest first. Each report is a **point-in-time record**: a layer repaired externally shows clean in a later run, so reports accumulate rather than overwrite — until explicitly removed with `DELETE /system/verifications/{reportId}`. The API lives under `/system/` because a verification run is a ranke-db extension beyond the paper's surface rather than archive content: it is a stack-wide operational resource, rooted at a closure named in the request body and not in the path. (Branch reads no longer occupy the root, so nothing here is avoiding a collision.)
      *
      * @tags system
      * @name ListVerifications
      * @summary List verification runs
-     * @request GET:/system/verification
+     * @request GET:/system/verifications
      * @secure
      */
     listVerifications: (params: RequestParams = {}) =>
       this.request<VerificationReportList, Error>({
-        path: `/system/verification`,
+        path: `/system/verifications`,
         method: "GET",
         secure: true,
         format: "json",
@@ -998,17 +1078,17 @@ export class Api<
       }),
 
     /**
-     * @description Starts a run from a `VerificationConfig`: walk the closure rooted at `closure` (a branch name — resolved to its current head and **pinned** for the life of the run — or a head id directly), reading the named `layer` directly, re-checking each claim to the configured depth. It returns *findings*, not contents, so it never leaks across closures. A run may take a **very long time** (hours to days over a large closure at full-content depth), so it is always **asynchronous**: the call returns `202` immediately with the running report and a `Location` header pointing at the report resource. Poll it with `GET /system/verification/{reportId}`, pacing by the `Retry-After` hint; stop it with `DELETE`. Starting the same run twice yields two independent point-in-time reports (runs are not deduplicated). Verification is resource-heavy, so the stack caps the number of runs that may execute **concurrently** (configured; default 1). When that cap is already reached the call returns `429` — the server never stops a run to make room. To proceed, either wait (per `Retry-After`) or `GET /system/verification` to see what is running and free a slot deliberately: `cancel` a run to stop it while keeping its report, or `DELETE` it to remove it entirely.
+     * @description Starts a run from a `VerificationConfig`: walk the closure rooted at `closure` (a branch name — resolved to its current head and **pinned** for the life of the run — or a head id directly), reading the named `layer` directly, re-checking each claim to the configured depth. It returns *findings*, not contents, so it never leaks across closures. A run may take a **very long time** (hours to days over a large closure at full-content depth), so it is always **asynchronous**: the call returns `202` immediately with the running report and a `Location` header pointing at the report resource. Poll it with `GET /system/verifications/{reportId}`, pacing by the `Retry-After` hint; stop it with `DELETE`. Starting the same run twice yields two independent point-in-time reports (runs are not deduplicated). Verification is resource-heavy, so the stack caps the number of runs that may execute **concurrently** (configured; default 1). When that cap is already reached the call returns `429` — the server never stops a run to make room. To proceed, either wait (per `Retry-After`) or `GET /system/verifications` to see what is running and free a slot deliberately: `cancel` a run to stop it while keeping its report, or `DELETE` it to remove it entirely.
      *
      * @tags system
      * @name StartVerification
      * @summary Start a verification run
-     * @request POST:/system/verification
+     * @request POST:/system/verifications
      * @secure
      */
     startVerification: (data: VerificationConfig, params: RequestParams = {}) =>
       this.request<VerificationReport, Error>({
-        path: `/system/verification`,
+        path: `/system/verifications`,
         method: "POST",
         body: data,
         secure: true,
@@ -1023,12 +1103,12 @@ export class Api<
      * @tags system
      * @name GetVerification
      * @summary Show a verification run
-     * @request GET:/system/verification/{reportId}
+     * @request GET:/system/verifications/{reportId}
      * @secure
      */
     getVerification: (reportId: string, params: RequestParams = {}) =>
       this.request<VerificationReport, Error>({
-        path: `/system/verification/${reportId}`,
+        path: `/system/verifications/${reportId}`,
         method: "GET",
         secure: true,
         format: "json",
@@ -1041,12 +1121,12 @@ export class Api<
      * @tags system
      * @name DeleteVerification
      * @summary Delete a verification run
-     * @request DELETE:/system/verification/{reportId}
+     * @request DELETE:/system/verifications/{reportId}
      * @secure
      */
     deleteVerification: (reportId: string, params: RequestParams = {}) =>
       this.request<void, Error>({
-        path: `/system/verification/${reportId}`,
+        path: `/system/verifications/${reportId}`,
         method: "DELETE",
         secure: true,
         ...params,
@@ -1058,12 +1138,12 @@ export class Api<
      * @tags system
      * @name CancelVerification
      * @summary Cancel a running verification run
-     * @request POST:/system/verification/{reportId}/cancel
+     * @request POST:/system/verifications/{reportId}/cancel
      * @secure
      */
     cancelVerification: (reportId: string, params: RequestParams = {}) =>
       this.request<VerificationReport, Error>({
-        path: `/system/verification/${reportId}/cancel`,
+        path: `/system/verifications/${reportId}/cancel`,
         method: "POST",
         secure: true,
         format: "json",

@@ -65,10 +65,12 @@ The stack assembles fully — storage, sequencer, signer, and one REST endpoint 
 | Route | Answers |
 |---|---|
 | `GET /health` | the server's signing identity |
-| `GET /{branch}/head`, `GET /{branch}/claim/{id}` | the branch head, a claim |
+| `GET /branches` | every branch by name and head — start here, no branch name needed |
+| `GET /branches/{branch}/head`, `…/claims/{id}` | the branch head, a claim in its closure |
+| `GET /archive/claims/{id}`, `GET /universe/claims/{id}` | a claim by the scope it is read in |
 | `POST /contribute` | merges a contribution, returns the new head and the ids |
 | `POST /query` | the branch's closure, as `native`, `json` or `cbor` |
-| `GET /system/layers`, `POST /system/verification` | storage introspection, verification |
+| `GET /system/layers`, `POST /system/verifications` | storage introspection, verification |
 
 ### The sequencer section
 

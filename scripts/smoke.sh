@@ -55,6 +55,16 @@ echo ">> GET /health OK"
 echo ">> seeding over POST /contribute"
 "$GEN" example "$URL" --wait 5s
 
+# A client that knows no branch name starts here. Typed unquoted, as these routes are
+# pinned to be.
+echo ">> GET /branches discovers what was seeded"
+branches="$(curl -s -m 5 "$URL/branches")"
+if ! printf '%s' "$branches" | grep -q '"name":"main"'; then
+	echo "smoke: GET /branches did not list the seeded branch: $branches" >&2
+	exit 1
+fi
+echo ">> branch listing OK"
+
 # And what was written reads back. The seeded entity is the one claim whose content is
 # distinctive enough to find in the result without parsing the sequence.
 echo ">> POST /query reads the seeded graph back"

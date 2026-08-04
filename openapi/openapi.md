@@ -39,15 +39,27 @@ truncates it, and `output` shapes and encodes each surviving claim. This contrac
 meanings are the spec's. Cypher/GQL is **never** a client route — it is an
 internal execution engine the planner lowers a query to.
 
-A **cacheable GET subset** covers the by-id reads without a query body:
-`GET /{branch}/head`, `GET /{branch}/claim/{id}`,
-`GET /{branch}/claim/{id}/content`, and the privileged `GET /$universe/claim/{id}` /
-`GET /$universe/claim/{id}/content`. Content is addressed by the **claim** that
-holds it (not a raw hash), so whether the bytes are inline or a separate blob is
-hidden and the read is scoped to the claim's branch. Content also rides **inline**
-in query results via `output.content`; the content route fetches the bytes for a
-single claim — including the blob an `output.content.overflow: reference` stub
-leaves behind.
+A **cacheable GET subset** covers the by-id reads without a query body. Every one
+of them is a **scope** followed by what is read within it, so the three scopes the
+access model reserves read alike and differ only in which scope they name:
+
+  - `GET /branches` — the branch table's branches, by name and head
+  - `GET /branches/{branch}/head`
+  - `GET /branches/{branch}/claims/{id}` and its `/content` form
+  - `GET /archive/claims/{id}` and its `/content` form — the `$archive` scope
+  - `GET /universe/claims/{id}` and its `/content` form — the privileged
+    `$universe` scope
+
+`GET /branches` needs no branch name, so a client discovers what it may address.
+Content is addressed by the **claim** that holds it (not a raw hash), so whether the
+bytes are inline or a separate blob is hidden and the read stays scoped as its route
+is scoped. Content also rides **inline** in query results via `output.content`; the
+content route fetches the bytes for a single claim — including the blob an
+`output.content.overflow: reference` stub leaves behind.
+
+No path segment carries a `$`. The reserved names live in grants (`R $universe`) and
+in a RankeQL body (`select.branch`), and a route names the same scope as a plain
+segment — which also means these paths survive being typed into a shell.
 
 ## Scopes and closures
 
@@ -105,11 +117,11 @@ subject id.
 
 ## Closure and the 404 rule
 
-Every branch read is bounded by that branch's closure. A claim or content that
-exists in the Universe but lies **outside** the named branch's closure returns
-`404` — indistinguishable from one that does not exist. Head-id reads that
-bypass the branch table are privileged and reached only through the reserved
-`$universe` name (`$` is illegal in ordinary branch names).
+Every branch read is bounded by that branch's closure, and every archive read by
+the current head's closure. A claim or content that exists in the Universe but lies
+**outside** the closure the route names returns `404` — indistinguishable from one
+that does not exist. Reads under no closure at all are privileged: they are the
+`/universe/…` collection, gated by **R** on `$universe`.
 
 Base URLs:
 
@@ -246,16 +258,70 @@ To perform this operation, you must be authenticated by means of one of the foll
 None, jwt, apikey, macaroon
 </aside>
 
+## List the branch table's branches
+
+<a id="opIdlistBranches"></a>
+
+`GET /branches`
+
+Returns every branch the branch table holds, each with its name and current
+head id. Reachable **without knowing any branch name**, so a client discovers
+what it may address before using the routes that take one; an archive with no
+branches yet answers with an empty list.
+
+Requires the **R** right on the reserved `$branches` target, which is what
+core-access grants as "enumerates the table".
+
+Cacheable **with revalidation** (weak `ETag`, `Cache-Control: no-cache`): every
+head in the list moves as its branch is contributed to. The listing is answered
+from **one archive snapshot**, so the heads are consistent with each other.
+
+> Example responses
+
+> 200 Response
+
+```json
+{
+  "branches": [
+    {
+      "name": "string",
+      "head": "string"
+    }
+  ]
+}
+```
+
+<h3 id="list-the-branch-table's-branches-responses">Responses</h3>
+
+|Status|Meaning|Description|Schema|
+|---|---|---|---|
+|200|[OK](https://tools.ietf.org/html/rfc7231#section-6.3.1)|The branches, each by name and current head.|[BranchList](#schemabranchlist)|
+|401|[Unauthorized](https://tools.ietf.org/html/rfc7235#section-3.1)|Authentication is required or failed.|[Error](#schemaerror)|
+|403|[Forbidden](https://tools.ietf.org/html/rfc7231#section-6.5.3)|Access was denied by core-access. The body carries no subject id or
+onboarding hint.|[Error](#schemaerror)|
+
+### Response Headers
+
+|Status|Header|Type|Format|Description|
+|---|---|---|---|---|
+|200|ETag|string||Weak validator for the branch table's current state.|
+
+<aside class="warning">
+To perform this operation, you must be authenticated by means of one of the following methods:
+None, jwt, apikey, macaroon
+</aside>
+
 ## Current head id of a branch
 
 <a id="opIdgetBranchHead"></a>
 
-`GET /{branch}/head`
+`GET /branches/{branch}/head`
 
 Returns the branch's current head id — a moving target (it advances on every
-contribution). Cacheable **with revalidation** (weak `ETag`, `Cache-Control:
-no-cache`): a conditional request is cheap when the head has not moved. To
-inspect the head claim itself, fetch it via `GET /{branch}/claim/{id}`.
+contribution). Requires the **R** right on that branch. Cacheable **with
+revalidation** (weak `ETag`, `Cache-Control: no-cache`): a conditional request
+is cheap when the head has not moved. To inspect the head claim itself, fetch it
+via `GET /branches/{branch}/claims/{id}`.
 
 <h3 id="current-head-id-of-a-branch-parameters">Parameters</h3>
 
@@ -299,12 +365,18 @@ None, jwt, apikey, macaroon
 
 <a id="opIdgetBranchClaim"></a>
 
-`GET /{branch}/claim/{id}`
+`GET /branches/{branch}/claims/{id}`
 
 Returns claim `{id}` as its signed CBOR bytes, **only if it lies in branch
-`{name}`'s closure**. A claim that is superseded, contradicted, or otherwise
+`{branch}`'s closure**. A claim that is superseded, contradicted, or otherwise
 outside the closure returns `404`, indistinguishable from one that does not
-exist. Immutably **cacheable** by id (strong `ETag`, `Cache-Control: public,
+exist. Requires the **R** right on that branch.
+
+`{branch}` names an **ordinary branch**. A reserved scope name supplied here
+names a branch that does not exist and is answered as `404`; each scope has
+exactly one route (`/archive/…`, `/universe/…`).
+
+Immutably **cacheable** by id (strong `ETag`, `Cache-Control: public,
 immutable`): the id content-addresses the bytes, so they never change.
 
 <h3 id="fetch-a-claim-within-a-branch's-closure-parameters">Parameters</h3>
@@ -353,14 +425,15 @@ None, jwt, apikey, macaroon
 
 <a id="opIdgetBranchClaimContent"></a>
 
-`GET /{branch}/claim/{id}/content`
+`GET /branches/{branch}/claims/{id}/content`
 
-Streams the content of claim `{id}` — **only if it lies in branch `{name}`'s
+Streams the content of claim `{id}` — **only if it lies in branch `{branch}`'s
 closure** (same closure guarantee as the claim itself; out-of-closure or
-unknown → `404`). Content is addressed by the claim that holds it, not by a
-raw hash: the server resolves whether the bytes live inline in the claim or
-in a separate blob, so the client can't tell and doesn't need to — and the
-read is scoped to the claim's branch. Immutably **cacheable** by the claim id.
+unknown → `404`). Requires the **R** right on that branch. Content is addressed
+by the claim that holds it, not by a raw hash: the server resolves whether the
+bytes live inline in the claim or in a separate blob, so the client can't tell
+and doesn't need to — and the read stays scoped as the route is scoped.
+Immutably **cacheable** by the claim id.
 
 <h3 id="fetch-the-content-of-a-claim-within-a-branch's-closure-parameters">Parameters</h3>
 
@@ -404,16 +477,137 @@ To perform this operation, you must be authenticated by means of one of the foll
 None, jwt, apikey, macaroon
 </aside>
 
+## Fetch a claim within the archive head's closure
+
+<a id="opIdgetArchiveClaim"></a>
+
+`GET /archive/claims/{id}`
+
+Returns claim `{id}` as its signed CBOR bytes if it lies in the closure of the
+**whole Ranke-Archive** — the current branch-table head — whichever branch holds
+it. A client reaches a claim without naming the branch it is on; a claim outside
+that closure returns `404`.
+
+This collection reads the `$archive` scope: the same scope a RankeQL body names
+as `select.branch: "$archive"`, and the same target a grant is written against.
+It requires the **R** right on `$archive`.
+
+Immutably cacheable by id.
+
+<h3 id="fetch-a-claim-within-the-archive-head's-closure-parameters">Parameters</h3>
+
+|Name|In|Type|Required|Description|
+|---|---|---|---|---|
+|id|path|string|true|The content-addressed claim id.|
+
+> Example responses
+
+> 200 Response
+
+> 401 Response
+
+```json
+{
+  "code": "string",
+  "error": "string"
+}
+```
+
+<h3 id="fetch-a-claim-within-the-archive-head's-closure-responses">Responses</h3>
+
+|Status|Meaning|Description|Schema|
+|---|---|---|---|
+|200|[OK](https://tools.ietf.org/html/rfc7231#section-6.3.1)|The claim's signed CBOR bytes.|string|
+|401|[Unauthorized](https://tools.ietf.org/html/rfc7235#section-3.1)|Authentication is required or failed.|[Error](#schemaerror)|
+|403|[Forbidden](https://tools.ietf.org/html/rfc7231#section-6.5.3)|Access was denied by core-access. The body carries no subject id or
+onboarding hint.|[Error](#schemaerror)|
+|404|[Not Found](https://tools.ietf.org/html/rfc7231#section-6.5.4)|The branch, claim, or content is unknown — or lies outside the named
+branch's closure. The two are indistinguishable.|[Error](#schemaerror)|
+
+### Response Headers
+
+|Status|Header|Type|Format|Description|
+|---|---|---|---|---|
+|200|ETag|string||Strong validator — the claim id.|
+
+<aside class="warning">
+To perform this operation, you must be authenticated by means of one of the following methods:
+None, jwt, apikey, macaroon
+</aside>
+
+## Fetch the content of a claim within the archive head's closure
+
+<a id="opIdgetArchiveClaimContent"></a>
+
+`GET /archive/claims/{id}/content`
+
+Streams the content of claim `{id}` if it lies in the archive head's closure,
+across every branch (same closure guarantee as the claim itself; outside it or
+unknown → `404`). Reads the `$archive` scope and requires **R** on `$archive`.
+Content is addressed by the claim; whether the bytes are inline or a separate
+blob is hidden. Immutably cacheable by the claim id.
+
+<h3 id="fetch-the-content-of-a-claim-within-the-archive-head's-closure-parameters">Parameters</h3>
+
+|Name|In|Type|Required|Description|
+|---|---|---|---|---|
+|id|path|string|true|The content-addressed claim id.|
+
+> Example responses
+
+> 200 Response
+
+> 401 Response
+
+```json
+{
+  "code": "string",
+  "error": "string"
+}
+```
+
+<h3 id="fetch-the-content-of-a-claim-within-the-archive-head's-closure-responses">Responses</h3>
+
+|Status|Meaning|Description|Schema|
+|---|---|---|---|
+|200|[OK](https://tools.ietf.org/html/rfc7231#section-6.3.1)|The content bytes, streamed.|string|
+|401|[Unauthorized](https://tools.ietf.org/html/rfc7235#section-3.1)|Authentication is required or failed.|[Error](#schemaerror)|
+|403|[Forbidden](https://tools.ietf.org/html/rfc7231#section-6.5.3)|Access was denied by core-access. The body carries no subject id or
+onboarding hint.|[Error](#schemaerror)|
+|404|[Not Found](https://tools.ietf.org/html/rfc7231#section-6.5.4)|The branch, claim, or content is unknown — or lies outside the named
+branch's closure. The two are indistinguishable.|[Error](#schemaerror)|
+
+### Response Headers
+
+|Status|Header|Type|Format|Description|
+|---|---|---|---|---|
+|200|ETag|string||Strong validator — the claim id.|
+
+<aside class="warning">
+To perform this operation, you must be authenticated by means of one of the following methods:
+None, jwt, apikey, macaroon
+</aside>
+
 ## Fetch a claim by id from the Universe (privileged)
 
-<a id="opIdgetUniverseClaim"></a>
+<a id="opIdgetClaim"></a>
 
-`GET /$universe/claim/{id}`
+`GET /universe/claims/{id}`
 
-Returns claim `{id}` as its signed CBOR bytes directly from the Universe,
-bypassing any branch table. This is a **privileged** head-id read, conferred
-only through the reserved `$universe` name (see core-access). Immutably
-cacheable by id.
+Returns claim `{id}` as its signed CBOR bytes from the Universe under **no
+closure at all** — no branch table, and no confinement to the current head.
+This is what makes it privileged, and what it exists for: reaching an archive
+from a Universe and a head id alone, as when restoring from a head kept outside
+the server. A claim the Universe holds is returned even where
+`GET /archive/claims/{id}` reports it not-found.
+
+This collection reads the `$universe` scope: the same scope a RankeQL body names
+as `select.branch: "$universe"`, and the same target a grant is written against.
+It requires the **R** right on `$universe`, to which only **R** applies. An
+ordinary glob confers it by no accident — a `$`-prefixed target needs an exact
+grant, so `R *` reaches neither reserved scope.
+
+Immutably cacheable by id.
 
 <h3 id="fetch-a-claim-by-id-from-the-universe-(privileged)-parameters">Parameters</h3>
 
@@ -458,14 +652,14 @@ None, jwt, apikey, macaroon
 
 ## Fetch the content of a claim by id from the Universe (privileged)
 
-<a id="opIdgetUniverseClaimContent"></a>
+<a id="opIdgetClaimContent"></a>
 
-`GET /$universe/claim/{id}/content`
+`GET /universe/claims/{id}/content`
 
-Streams the content of claim `{id}` directly from the Universe, bypassing
-any branch table — a **privileged** read conferred only through `$universe`.
-Content is addressed by the claim; whether the bytes are inline or a separate
-blob is hidden. Immutably cacheable by the claim id.
+Streams the content of claim `{id}` from the Universe under no closure — the
+privileged read, conferred only through **R** on `$universe`. Content is
+addressed by the claim; whether the bytes are inline or a separate blob is
+hidden. Immutably cacheable by the claim id.
 
 <h3 id="fetch-the-content-of-a-claim-by-id-from-the-universe-(privileged)-parameters">Parameters</h3>
 
@@ -670,18 +864,18 @@ None, jwt, apikey, macaroon
 
 <a id="opIdlistVerifications"></a>
 
-`GET /system/verification`
+`GET /system/verifications`
 
 Verification runs across the whole stack, newest first. Each report is a
 **point-in-time record**: a layer repaired externally shows clean in a later
 run, so reports accumulate rather than overwrite — until explicitly removed
-with `DELETE /system/verification/{reportId}`.
+with `DELETE /system/verifications/{reportId}`.
 
-The API lives under `/system/` (rather than the paper's root `/verification…`)
-for two reasons: a root-level `/verification/{id}` would collide with
-`/{branch}/head` under net/http (both match `/verification/head`, neither more
-specific), and a run is a stack-wide operational resource — it roots at a
-closure named in the request body, not in the path.
+The API lives under `/system/` because a verification run is a ranke-db
+extension beyond the paper's surface rather than archive content: it is a
+stack-wide operational resource, rooted at a closure named in the request body
+and not in the path. (Branch reads no longer occupy the root, so nothing here
+is avoiding a collision.)
 
 > Example responses
 
@@ -736,7 +930,7 @@ None, jwt, apikey, macaroon
 
 <a id="opIdstartVerification"></a>
 
-`POST /system/verification`
+`POST /system/verifications`
 
 Starts a run from a `VerificationConfig`: walk the closure rooted at
 `closure` (a branch name — resolved to its current head and **pinned** for
@@ -747,14 +941,14 @@ directly, re-checking each claim to the configured depth. It returns
 A run may take a **very long time** (hours to days over a large closure at
 full-content depth), so it is always **asynchronous**: the call returns `202`
 immediately with the running report and a `Location` header pointing at the
-report resource. Poll it with `GET /system/verification/{reportId}`, pacing
+report resource. Poll it with `GET /system/verifications/{reportId}`, pacing
 by the `Retry-After` hint; stop it with `DELETE`. Starting the same run twice
 yields two independent point-in-time reports (runs are not deduplicated).
 
 Verification is resource-heavy, so the stack caps the number of runs that may
 execute **concurrently** (configured; default 1). When that cap is already
 reached the call returns `429` — the server never stops a run to make room. To
-proceed, either wait (per `Retry-After`) or `GET /system/verification` to see
+proceed, either wait (per `Retry-After`) or `GET /system/verifications` to see
 what is running and free a slot deliberately: `cancel` a run to stop it while
 keeping its report, or `DELETE` it to remove it entirely.
 
@@ -822,7 +1016,7 @@ cancelled; retry after a running one finishes or is stopped.|[Error](#schemaerro
 
 |Status|Header|Type|Format|Description|
 |---|---|---|---|---|
-|202|Location|string||The report resource to poll — `/system/verification/{reportId}`.|
+|202|Location|string||The report resource to poll — `/system/verifications/{reportId}`.|
 |202|Retry-After|integer||Suggested seconds to wait before the first poll.|
 |429|Retry-After|integer||Suggested seconds to wait before retrying.|
 
@@ -835,7 +1029,7 @@ None, jwt, apikey, macaroon
 
 <a id="opIdgetVerification"></a>
 
-`GET /system/verification/{reportId}`
+`GET /system/verifications/{reportId}`
 
 The report for a run. Poll until `status` leaves `running`; while it is still
 running the response carries a `Retry-After` hint and the progress counters
@@ -904,7 +1098,7 @@ None, jwt, apikey, macaroon
 
 <a id="opIddeleteVerification"></a>
 
-`DELETE /system/verification/{reportId}`
+`DELETE /system/verifications/{reportId}`
 
 Really deletes the run and its report. If the run is still `running` it is
 stopped first, then the record is removed — so this both aborts a run and
@@ -949,7 +1143,7 @@ None, jwt, apikey, macaroon
 
 <a id="opIdcancelVerification"></a>
 
-`POST /system/verification/{reportId}/cancel`
+`POST /system/verifications/{reportId}/cancel`
 
 Stops a `running` run but **keeps** its report: the record stays in history
 with `status` `stopped` and whatever partial findings it had gathered, and the
@@ -1589,6 +1783,53 @@ The outcome of a contribution — the new branch-table head and the appended cla
 |Name|Type|Required|Restrictions|Description|
 |---|---|---|---|---|
 |head|string|true|none|The content-addressed head claim id.|
+
+<h2 id="tocS_BranchEntry">BranchEntry</h2>
+<!-- backwards compatibility -->
+<a id="schemabranchentry"></a>
+<a id="schema_BranchEntry"></a>
+<a id="tocSbranchentry"></a>
+<a id="tocsbranchentry"></a>
+
+```json
+{
+  "name": "string",
+  "head": "string"
+}
+
+```
+
+### Properties
+
+|Name|Type|Required|Restrictions|Description|
+|---|---|---|---|---|
+|name|string|true|none|The branch name, as the branch table holds it.|
+|head|string|true|none|That branch's current head claim id.|
+
+<h2 id="tocS_BranchList">BranchList</h2>
+<!-- backwards compatibility -->
+<a id="schemabranchlist"></a>
+<a id="schema_BranchList"></a>
+<a id="tocSbranchlist"></a>
+<a id="tocsbranchlist"></a>
+
+```json
+{
+  "branches": [
+    {
+      "name": "string",
+      "head": "string"
+    }
+  ]
+}
+
+```
+
+### Properties
+
+|Name|Type|Required|Restrictions|Description|
+|---|---|---|---|---|
+|branches|[[BranchEntry](#schemabranchentry)]|true|none|Every branch the branch table holds, from one archive snapshot — so the<br>heads are consistent with each other. Empty on an archive with no branches.|
 
 <h2 id="tocS_Health">Health</h2>
 <!-- backwards compatibility -->

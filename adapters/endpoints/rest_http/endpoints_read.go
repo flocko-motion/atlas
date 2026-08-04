@@ -51,7 +51,19 @@ func (s *Server) Query(w http.ResponseWriter, r *http.Request) {
 	s.respond(w, stream, http.StatusOK)
 }
 
-// GetBranchHead serves GET /{branch}/head.
+// ListBranches serves GET /branches. The scope is what the grant is held against, so
+// the request names the reserved branch table: R on $branches is what admits it.
+func (s *Server) ListBranches(w http.ResponseWriter, r *http.Request) {
+	req := &core.Request{Credential: credentialOf(r.Context()), Op: core.OpBranchList, Branch: core.Branches}
+	stream, err := s.core.Handle(r.Context(), req)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	s.respondRevalidated(w, r, stream)
+}
+
+// GetBranchHead serves GET /branches/{branch}/head.
 func (s *Server) GetBranchHead(w http.ResponseWriter, r *http.Request, branch string) {
 	req := &core.Request{Credential: credentialOf(r.Context()), Op: core.OpBranchHead, Branch: branch}
 	stream, err := s.core.Handle(r.Context(), req)
@@ -59,73 +71,58 @@ func (s *Server) GetBranchHead(w http.ResponseWriter, r *http.Request, branch st
 		s.fail(w, err)
 		return
 	}
-	s.respond(w, stream, http.StatusOK)
+	s.respondRevalidated(w, r, stream)
 }
 
-// GetBranchClaim serves GET /{branch}/claim/{id}.
+// GetBranchClaim serves GET /branches/{branch}/claims/{id}.
 func (s *Server) GetBranchClaim(w http.ResponseWriter, r *http.Request, branch string, idParam string) {
-	id, err := ranke.ParseId(idParam)
-	if err != nil {
-		writeError(w, core.CatNotFound, "not found")
-		return
-	}
-	req := &core.Request{Credential: credentialOf(r.Context()), Op: core.OpClaimGet, Branch: branch, ClaimID: id}
-	stream, err := s.core.Handle(r.Context(), req)
-	if err != nil {
-		s.fail(w, err)
-		return
-	}
-	s.respond(w, stream, http.StatusOK)
+	s.claim(w, r, core.OpClaimGet, branch, idParam)
 }
 
-// GetBranchClaimContent serves GET /{branch}/claim/{id}/content — the content of
-// claim {id} within branch {name}'s closure (inline or blob, resolved by core).
+// GetBranchClaimContent serves GET /branches/{branch}/claims/{id}/content — the content
+// of claim {id} within that branch's closure (inline or blob, resolved by core).
 func (s *Server) GetBranchClaimContent(w http.ResponseWriter, r *http.Request, branch string, idParam string) {
-	id, err := ranke.ParseId(idParam)
-	if err != nil {
-		writeError(w, core.CatNotFound, "not found")
-		return
-	}
-	req := &core.Request{Credential: credentialOf(r.Context()), Op: core.OpClaimContent, Branch: branch, ClaimID: id}
-	stream, err := s.core.Handle(r.Context(), req)
-	if err != nil {
-		s.fail(w, err)
-		return
-	}
-	s.respond(w, stream, http.StatusOK)
+	s.claim(w, r, core.OpClaimContent, branch, idParam)
 }
 
-// GetUniverseClaim serves GET /$universe/claim/{id}.
-func (s *Server) GetUniverseClaim(w http.ResponseWriter, r *http.Request, idParam string) {
-	id, err := ranke.ParseId(idParam)
-	if err != nil {
-		writeError(w, core.CatNotFound, "not found")
-		return
-	}
-	req := &core.Request{Credential: credentialOf(r.Context()), Op: core.OpClaimGet, Branch: core.Universe, ClaimID: id}
-	stream, err := s.core.Handle(r.Context(), req)
-	if err != nil {
-		s.fail(w, err)
-		return
-	}
-	s.respond(w, stream, http.StatusOK)
+// GetArchiveClaim serves GET /archive/claims/{id} — the $archive scope, the closure of
+// the current head across every branch.
+func (s *Server) GetArchiveClaim(w http.ResponseWriter, r *http.Request, idParam string) {
+	s.claim(w, r, core.OpClaimGet, core.Archive, idParam)
 }
 
-// GetUniverseClaimContent serves GET /$universe/claim/{id}/content — the content
-// of claim {id}, privileged.
-func (s *Server) GetUniverseClaimContent(w http.ResponseWriter, r *http.Request, idParam string) {
+// GetArchiveClaimContent serves GET /archive/claims/{id}/content.
+func (s *Server) GetArchiveClaimContent(w http.ResponseWriter, r *http.Request, idParam string) {
+	s.claim(w, r, core.OpClaimContent, core.Archive, idParam)
+}
+
+// GetClaim serves GET /universe/claims/{id} — the $universe scope, reached under no
+// closure. The path drops the `$`, the grant checked does not.
+func (s *Server) GetClaim(w http.ResponseWriter, r *http.Request, idParam string) {
+	s.claim(w, r, core.OpClaimGet, core.Universe, idParam)
+}
+
+// GetClaimContent serves GET /universe/claims/{id}/content.
+func (s *Server) GetClaimContent(w http.ResponseWriter, r *http.Request, idParam string) {
+	s.claim(w, r, core.OpClaimContent, core.Universe, idParam)
+}
+
+// claim serves one by-id read in the scope its route named. Every such route is the same
+// request but for its scope and whether it wants the claim or its content, and each is
+// immutably cacheable: the id content-addresses the bytes.
+func (s *Server) claim(w http.ResponseWriter, r *http.Request, op core.Operation, scope, idParam string) {
 	id, err := ranke.ParseId(idParam)
 	if err != nil {
 		writeError(w, core.CatNotFound, "not found")
 		return
 	}
-	req := &core.Request{Credential: credentialOf(r.Context()), Op: core.OpClaimContent, Branch: core.Universe, ClaimID: id}
+	req := &core.Request{Credential: credentialOf(r.Context()), Op: op, Branch: scope, ClaimID: id}
 	stream, err := s.core.Handle(r.Context(), req)
 	if err != nil {
 		s.fail(w, err)
 		return
 	}
-	s.respond(w, stream, http.StatusOK)
+	s.respondImmutable(w, r, stream, id.String())
 }
 
 // rankeQuery maps the wire query onto ranke-go's RQL, which the engine executes
