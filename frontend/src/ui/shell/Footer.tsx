@@ -44,7 +44,7 @@ export function Footer() {
         </span>
       ) : null}
       {status.lastRefreshMs !== null ? (
-        <span title="cost of the last full refresh: re-index plus buffer upload, O(N)">
+        <span className="metric-refresh" title="cost of the last full refresh: re-index plus buffer upload, O(N)">
           refresh {status.lastRefreshMs.toFixed(0)} ms
         </span>
       ) : null}
@@ -53,13 +53,18 @@ export function Footer() {
           stall {status.stallMs?.toFixed(0)} ms
         </span>
       ) : null}
-      <span className="fps">
+      <span className="fps metric-fps">
         {status.fps === null ? '— fps' : `${status.fps.toFixed(0)} fps`}
         {status.frameMs !== null ? ` · ${status.frameMs.toFixed(1)} ms` : ''}
       </span>
-      <span className={`renderer${software ? ' warn' : ''}`} title={status.renderer}>
-        {software ? 'software renderer' : status.renderer.slice(0, 40)}
-      </span>
+      {/* The GPU's name is a fact about the machine, not about what is happening — it belongs
+          where it can be read once. A software renderer is different: it explains the frame
+          rate, so it stays. */}
+      {software ? (
+        <span className="renderer warn" title={status.renderer}>
+          software renderer
+        </span>
+      ) : null}
     </footer>
   );
 }

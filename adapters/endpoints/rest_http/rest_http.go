@@ -42,8 +42,16 @@ func New(ctx context.Context, cfg scope.Section, c *core.Core) (*Server, error) 
 			addr = a
 		}
 	}
+	cors, err := corsFrom(ctx, cfg)
+	if err != nil {
+		return nil, err
+	}
+
 	s := &Server{core: c}
-	s.srv = &http.Server{Addr: addr, Handler: s.withCredential(openapi.Handler(s)), ReadHeaderTimeout: 5 * time.Second}
+	// CORS outermost: a preflight carries no credential and must be answered before the
+	// credential is extracted, since a browser sends it without one.
+	handler := cors.withCORS(s.withCredential(openapi.Handler(s)))
+	s.srv = &http.Server{Addr: addr, Handler: handler, ReadHeaderTimeout: 5 * time.Second}
 	return s, nil
 }
 

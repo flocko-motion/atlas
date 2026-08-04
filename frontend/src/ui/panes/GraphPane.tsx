@@ -11,18 +11,99 @@
  */
 
 import { useState } from 'react';
-import { shapeOf } from '../../core/session.ts';
+import { scopeCounts, selectScope, shapeOf } from '../../core/session.ts';
+import { isArchive, shortHead } from '../../core/scope.ts';
+import type { Scope } from '../../core/scope.ts';
 import { useExplorer } from '../../core/store.ts';
 import { Button, Empty, KeyValue } from '../components/Field.tsx';
+
+/**
+ * ScopeInfo is where a head id belongs: the picker names a scope, and this says what that
+ * scope is. Under `$archive` the branch table is the interesting thing, so the branches are
+ * listed — each selectable, since a reader looking at the list is choosing from it.
+ */
+function ScopeInfo() {
+  const scopes = useExplorer((s) => s.scopes);
+  const selected = scopes.selected;
+
+  if (!selected) {
+    return (
+      <>
+        <h2>scope</h2>
+        <Empty>No branch selected — pick one in the header.</Empty>
+      </>
+    );
+  }
+
+  const counts = scopeCounts(selected);
+  const rows: [string, string][] = [
+    ['name', selected.name],
+    ['head', shortHead(selected.head)],
+  ];
+  if (counts) {
+    rows.push(['claims', counts.contains.toLocaleString('en-US')]);
+    if (counts.loaded < counts.contains) {
+      rows.push(['read', `${counts.loaded.toLocaleString('en-US')} of them`]);
+    }
+  }
+
+  return (
+    <>
+      <h2>scope</h2>
+      <KeyValue rows={rows} />
+      {isArchive(selected) ? <BranchTable scopes={scopes.scopes} selected={selected} /> : null}
+    </>
+  );
+}
+
+/** BranchTable lists what the branch table holds, with each branch's head. */
+function BranchTable({ scopes, selected }: { scopes: Scope[]; selected: Scope }) {
+  const branches = scopes.filter((s) => !isArchive(s));
+  if (branches.length === 0) return <Empty>The branch table holds no branches.</Empty>;
+  return (
+    <>
+      <h2>branches</h2>
+      <ul className="refs">
+        {branches.map((scope) => (
+          <li key={scope.name}>
+            <button
+              type="button"
+              className="ref-id"
+              onClick={() => void selectScope(scope)}
+              title={`select ${scope.name}`}
+            >
+              {scope.name}
+            </button>
+            <span className="ref-type">{shortHead(scope.head)}</span>
+          </li>
+        ))}
+      </ul>
+      <p className="note">
+        {branches.length.toLocaleString('en-US')} branch(es) under{' '}
+        <code>{selected.name}</code>.
+      </p>
+    </>
+  );
+}
 
 export function GraphPane() {
   const status = useExplorer((s) => s.status);
   const [shape, setShape] = useState<ReturnType<typeof shapeOf> | null>(null);
 
-  if (status.nodes === 0) return <Empty>Nothing loaded yet.</Empty>;
+  if (status.nodes === 0) {
+    return (
+      <div className="pane">
+        <ScopeInfo />
+        <Empty>Nothing loaded yet.</Empty>
+      </div>
+    );
+  }
 
   return (
     <div className="pane">
+      <ScopeInfo />
+
+      <h2>loaded</h2>
       <KeyValue
         rows={[
           ['nodes', status.nodes.toLocaleString('en-US')],

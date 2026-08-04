@@ -16,9 +16,34 @@ import (
 	"github.com/flocko-motion/ranke-go"
 )
 
-// batches is one slice of claims per contribution, merged in order, so the branch
-// table grows a revision per batch.
-type batches [][]ranke.Claim
+// batch is one contribution: the branch it lands on and the claims it carries.
+type batch struct {
+	branch string
+	claims []ranke.Claim
+}
+
+// batches are the contributions in the order they merge, so the branch table grows a
+// revision per batch — and, where they name different branches, more than one branch.
+type batches []batch
+
+// branchNames are the branches a generated archive spreads over. An archive with one branch
+// exercises nothing about branches, so a fixture has several; the first takes most of the
+// contributions, as a main line does.
+var branchNames = []string{"main", "notes", "review", "entities", "ingest"}
+
+// branchesFor returns the first n names, with the primary first.
+func branchesFor(primary string, n int) []string {
+	names := []string{primary}
+	for _, name := range branchNames {
+		if len(names) >= n {
+			break
+		}
+		if name != primary {
+			names = append(names, name)
+		}
+	}
+	return names
+}
 
 // identityDomain separates derived fixture keys from anything else derived from a name.
 const identityDomain = "ranke-db/generator/contributor/"
@@ -39,10 +64,12 @@ type grower struct {
 	made      []made
 }
 
-// made pairs a signed claim with the height a claim citing it must climb past.
+// made pairs a signed claim with the height a claim citing it must climb past, and the
+// branch holding it — a reference may only reach within its own branch's closure.
 type made struct {
 	claim  ranke.Claim
 	height uint64
+	branch string
 }
 
 // newGrower derives the fixture contributor named by `as` and binds its signing key.
@@ -88,7 +115,7 @@ func identity(as string) (ranke.Claim, ed25519.PrivateKey, error) {
 
 // example is the smallest graph with real provenance: two sources, a derivation citing
 // both, an entity from that derivation.
-func (g *grower) example() (batches, error) {
+func (g *grower) example(branches []string) (batches, error) {
 	first, err := g.claim("source/note", "a first note")
 	if err != nil {
 		return nil, err
@@ -105,7 +132,25 @@ func (g *grower) example() (batches, error) {
 	if err != nil {
 		return nil, err
 	}
-	return batches{{first.claim, second.claim, derivation.claim, entity.claim}}, nil
+	out := batches{{
+		branch: branches[0],
+		claims: []ranke.Claim{first.claim, second.claim, derivation.claim, entity.claim},
+	}}
+	// A second branch, so an archive has a branch table worth reading and a client has a
+	// choice to make. Its own sources, since a reference across branches is a separate
+	// question from a branch existing.
+	for _, name := range branches[1:] {
+		note, err := g.claim("source/note", "a note on "+name)
+		if err != nil {
+			return nil, err
+		}
+		summary, err := g.claim("derivation/summary", "what "+name+" says", note)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, batch{branch: name, claims: []ranke.Claim{note.claim, summary.claim}})
+	}
+	return out, nil
 }
 
 // chainTypes is the mix a grown archive gets — sources dominate, as they do in life.
@@ -120,24 +165,36 @@ var chainTypes = []string{
 
 // chain grows an archive contribution by contribution, each citing what came before:
 // climbing heights, a branch table of many revisions, references that reach back.
-func (g *grower) chain(contributions, per int) (batches, error) {
+func (g *grower) chain(contributions, per int, branches []string) (batches, error) {
 	out := make(batches, 0, contributions)
 	for i := range contributions {
-		batch := make([]ranke.Claim, 0, per)
+		// The primary takes every other contribution and the rest share the remainder, so one
+		// branch reads as the main line without the others being empty.
+		branch := branches[0]
+		if i%2 == 1 && len(branches) > 1 {
+			branch = branches[1+(i/2)%(len(branches)-1)]
+		}
+		claims := make([]ranke.Claim, 0, per)
 		for j := range per {
 			typ := chainTypes[(i*per+j)%len(chainTypes)]
 			// A source enters the archive, so it cites nothing; the rest draw on what is there.
 			var refs []made
 			if !isSource(typ) {
-				refs = g.pick(maxReferences)
+				refs = g.pickFrom(branch, maxReferences)
+				// Nothing on this branch to derive from yet, and the provenance invariant
+				// (§3.5) requires a derivation edge on every class but source — so the first
+				// claims a branch can hold are sources, which is also true of a real archive.
+				if len(refs) == 0 {
+					typ = chainTypes[0]
+				}
 			}
-			m, err := g.claim(typ, fmt.Sprintf("%s %d.%d", typ, i+1, j+1), refs...)
+			m, err := g.claimOn(branch, typ, fmt.Sprintf("%s %d.%d", typ, i+1, j+1), refs...)
 			if err != nil {
 				return nil, err
 			}
-			batch = append(batch, m.claim)
+			claims = append(claims, m.claim)
 		}
-		out = append(out, batch)
+		out = append(out, batch{branch: branch, claims: claims})
 	}
 	return out, nil
 }
@@ -155,22 +212,30 @@ const (
 	maxReferences = 3
 )
 
-// pick chooses up to n earlier claims to cite, biased to the recent, occasionally
-// reaching right back. Duplicates drop: the same edge twice is one edge.
-func (g *grower) pick(n int) []made {
-	if len(g.made) == 0 || n < 1 {
+// pickFrom chooses up to n earlier claims on this branch to cite, biased to the recent and
+// occasionally reaching right back. Confined to the branch because a contribution may only
+// reference what the branches it declares can reach. Duplicates drop: the same edge twice is
+// one edge.
+func (g *grower) pickFrom(branch string, n int) []made {
+	candidates := make([]made, 0, len(g.made))
+	for _, m := range g.made {
+		if m.branch == branch {
+			candidates = append(candidates, m)
+		}
+	}
+	if len(candidates) == 0 || n < 1 {
 		return nil
 	}
 	seen := make(map[string]bool, n)
 	refs := make([]made, 0, n)
 	for range g.rnd.IntN(n) + 1 {
-		i := len(g.made) - 1 - g.rnd.IntN(min(len(g.made), recentWindow))
+		i := len(candidates) - 1 - g.rnd.IntN(min(len(candidates), recentWindow))
 		if g.rnd.IntN(farReachOdds) == 0 {
-			i = g.rnd.IntN(len(g.made))
+			i = g.rnd.IntN(len(candidates))
 		}
-		if key := g.made[i].claim.ID().String(); !seen[key] {
+		if key := candidates[i].claim.ID().String(); !seen[key] {
 			seen[key] = true
-			refs = append(refs, g.made[i])
+			refs = append(refs, candidates[i])
 		}
 	}
 	return refs
@@ -180,6 +245,11 @@ func (g *grower) pick(n int) []made {
 // because a referencing claim must declare it (§4.1), and every claim cites its
 // contributor — an initial node at 0, so citing only it sits at 1.
 func (g *grower) claim(typ, text string, refs ...made) (made, error) {
+	return g.claimOn("", typ, text, refs...)
+}
+
+// claimOn signs a claim and records the branch that holds it.
+func (g *grower) claimOn(branch, typ, text string, refs ...made) (made, error) {
 	edges := make([]ranke.Edge, 0, len(refs))
 	var height uint64
 	for _, ref := range refs {
@@ -203,7 +273,7 @@ func (g *grower) claim(typ, text string, refs ...made) (made, error) {
 		return made{}, fmt.Errorf("sign %s: %w", typ, err)
 	}
 	g.at = g.at.Add(clockStep)
-	m := made{claim: claim, height: height}
+	m := made{claim: claim, height: height, branch: branch}
 	g.made = append(g.made, m)
 	return m, nil
 }

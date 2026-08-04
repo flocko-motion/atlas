@@ -44,6 +44,19 @@ func newServerFor(t *testing.T, seq sequencer.Sequencer, store storage.Storage) 
 // grants given, so a case can withhold one right and see what stops working.
 func newGrantedServer(t *testing.T, grants []string, seq sequencer.Sequencer, store storage.Storage) http.Handler {
 	t.Helper()
+	return newServerWith(t, grants, map[string]string{"addr": ":0"}, seq, store)
+}
+
+// newServerWith builds the endpoint from a transport config of the case's choosing, so a
+// case can declare things like allowedOrigins without a second copy of the wiring.
+func newServerWith(
+	t *testing.T,
+	grants []string,
+	transport map[string]string,
+	seq sequencer.Sequencer,
+	store storage.Storage,
+) http.Handler {
+	t.Helper()
 	ctx := context.Background()
 
 	a, err := auth.New(ctx, scope.Literal(map[string]string{"type": "noauth", "subject": "ops"}))
@@ -58,7 +71,7 @@ func newGrantedServer(t *testing.T, grants []string, seq sequencer.Sequencer, st
 	if err != nil {
 		t.Fatalf("access.New: %v", err)
 	}
-	s, err := New(ctx, scope.Literal(map[string]string{"addr": ":0"}), core.New(set, chk, seq, store))
+	s, err := New(ctx, scope.Literal(transport), core.New(set, chk, seq, store))
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}

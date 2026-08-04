@@ -10,15 +10,91 @@
  */
 
 import { useConnections } from '../../core/connections.ts';
-import { discoverScopes, scopeShortfall, selectScope } from '../../core/session.ts';
+import {
+  axisXOf,
+  discoverScopes,
+  instantAtX,
+  selectScope,
+  showAll,
+  stepFrom,
+  timeEnds,
+} from '../../core/session.ts';
+import { canvasWidth, fitHeight, graphXAt, panTo } from '../../render/renderer.ts';
 import { scopeOptions } from '../../core/scope.ts';
 import { activeView, useExplorer } from '../../core/store.ts';
 
-const TOOLS = [
-  { id: 'pick', glyph: '⌖', label: 'Pick' },
-  { id: 'select', glyph: '▭', label: 'Select' },
-  { id: 'drag', glyph: '✥', label: 'Drag' },
+/**
+ * The navigation tools. Each is one click for something the wheel can only approximate, and
+ * `show all` is the way back from anywhere — which is what makes zooming freely comfortable.
+ */
+const TOOLS: { id: string; glyph: string; label: string; run: () => void }[] = [
+  { id: 'all', glyph: '⤢', label: 'Show all — the whole archive, both axes', run: showAll },
+  { id: 'height', glyph: '⇕', label: 'Fit height — the strata, leaving time as it is', run: fitHeight },
+  { id: 'oldest', glyph: '⇤', label: 'Jump to the oldest claim', run: () => jumpTo('from') },
+  { id: 'prev', glyph: '◂', label: 'Step back one claim in time', run: () => step(-1) },
+  { id: 'next', glyph: '▸', label: 'Step forward one claim in time', run: () => step(1) },
+  { id: 'newest', glyph: '⇥', label: 'Jump to the newest claim', run: () => jumpTo('to') },
 ];
+
+/**
+ * step moves to the next claim along from the middle of the view. The centre rather than an edge,
+ * because that is where a reader is looking, and stepping is for a sparse stretch where the next
+ * claim may be off screen.
+ */
+function step(direction: 1 | -1): void {
+  const width = canvasWidth();
+  if (width <= 0) return;
+  const here = graphXAt(width / 2);
+  if (here === null) return;
+  const at = instantAtX(here);
+  if (at === null) return;
+  const next = stepFrom(at, direction);
+  if (next === null) return;
+  const x = axisXOf(next);
+  if (x !== null) panTo(x);
+}
+
+/** goTo pans to an instant a reader typed. */
+function goTo(value: string): void {
+  // The input has no zone, and every label in this client is UTC, so it is read as UTC.
+  const at = Date.parse(`${value}Z`);
+  if (!Number.isFinite(at)) return;
+  const x = axisXOf(at);
+  if (x !== null) panTo(x);
+}
+
+/** forInput writes an instant as the value a datetime-local input takes. */
+function forInput(at: number): string {
+  return new Date(at).toISOString().slice(0, 16);
+}
+
+/** jumpTo pans to one end of the archive in time. */
+function jumpTo(end: 'from' | 'to'): void {
+  const ends = timeEnds();
+  if (!ends) return;
+  const x = axisXOf(ends[end]);
+  if (x !== null) panTo(x);
+}
+
+/**
+ * JumpToDate pans to an instant, bounded by the archive's own ends so a date it does not cover
+ * cannot be asked for. In UTC, as every other time in this client is.
+ */
+function JumpToDate() {
+  const ends = timeEnds();
+  if (!ends || ends.from === ends.to) return null;
+  return (
+    <input
+      type="datetime-local"
+      className="jump-date"
+      aria-label="Jump to a date (UTC)"
+      title={`jump to a date · ${forInput(ends.from)} to ${forInput(ends.to)} UTC`}
+      min={forInput(ends.from)}
+      max={forInput(ends.to)}
+      onChange={(e) => goTo(e.target.value)}
+    />
+  );
+}
 
 /**
  * ScopePicker offers the scopes the archive holds. Selecting one narrows the view through
@@ -29,39 +105,33 @@ const TOOLS = [
 function ScopePicker() {
   const scopes = useExplorer((s) => s.scopes);
   const view = useExplorer(activeView);
-  const shortfall = scopeShortfall(view?.scope ?? null);
   const selected = view?.scope?.name ?? '';
 
   if (scopes.state === 'unknown' || scopes.state === 'error') {
+    // An action, not a status: what went wrong is reported on the canvas.
     return (
       <div className="scope-picker">
         <button
           type="button"
           className="scope-load"
           onClick={() => void discoverScopes()}
-          title={scopes.error ?? 'list the branches this archive holds'}
+          title="ask the archive again which branches it holds"
         >
-          branches…
+          retry branches
         </button>
-        {scopes.state === 'error' ? <span className="scope-note">{scopes.error}</span> : null}
       </div>
     );
   }
 
-  if (scopes.state === 'loading') {
-    return (
-      <div className="scope-picker">
-        <span className="scope-note">listing branches…</span>
-      </div>
-    );
-  }
-
+  // While a listing or a read is in flight the picker stays put and goes inert. Progress
+  // belongs on the canvas, where there is room to say which stage it is in.
   return (
     <div className="scope-picker">
       <select
         className="scope-select"
         value={selected}
         aria-label="Scope"
+        disabled={scopes.state === 'loading'}
         onChange={(e) => {
           const next = scopes.scopes.find((s) => s.name === e.target.value) ?? null;
           void selectScope(next);
@@ -73,14 +143,6 @@ function ScopePicker() {
           </option>
         ))}
       </select>
-      {shortfall > 0 ? (
-        <span
-          className="scope-note scope-absent"
-          title="claims this scope contains that the session has not read — the archive moved, or the load was capped"
-        >
-          {shortfall.toLocaleString('en-US')} not cached
-        </span>
-      ) : null}
     </div>
   );
 }
@@ -105,14 +167,16 @@ export function Header() {
             key={tool.id}
             type="button"
             className="tool"
-            disabled
-            title={`${tool.label} — not implemented yet`}
+            onClick={tool.run}
+            title={tool.label}
             aria-label={tool.label}
           >
             {tool.glyph}
           </button>
         ))}
       </div>
+
+      <JumpToDate />
 
       <ScopePicker />
 
