@@ -33,6 +33,7 @@ function viewWith(scope: Scope | null): ViewState {
     scope,
     classes: [],
     layout: 'history',
+    xStretch: 1,
     edges: true,
     edgesOnMove: false,
     labels: true,
@@ -110,7 +111,7 @@ test('no backend offers a $universe scope', async () => {
 });
 
 // 4.1 / 5.7 — what the picker offers, decided in core so it is testable without a browser.
-test('the picker offers everything loaded, the archive and each branch — and no $universe', async () => {
+test('the picker prompts, then offers the archive and each branch by name', async () => {
   const scopes = await new MockSource(MOCK_PARAMS).branches();
   const options = scopeOptions(scopes, null);
 
@@ -118,9 +119,10 @@ test('the picker offers everything loaded, the archive and each branch — and n
   assert.ok(options[0].selected, 'nothing is selected, yet no entry reads as selected');
   assert.equal(options.length, scopes.length + 1);
   assert.ok(!options.some((o) => o.value === '$universe'));
-  // Each entry names the head its closure is rooted at.
+  // A name, and nothing else: a head is a content address, which identifies a scope to a
+  // machine and tells a reader nothing. The Info pane shows it instead.
   for (const option of options.slice(1)) {
-    assert.match(option.label, / · \S+$/, `entry ${option.value} shows no head`);
+    assert.equal(option.label, option.value, `entry ${option.value} is captioned with more than its name`);
   }
 
   const branch = scopes.find((s) => s.name !== ARCHIVE_SCOPE) as Scope;
@@ -166,9 +168,12 @@ test('a scope narrows what is admitted while the cache keeps every claim', async
 
   const members = setMembers(branch.name, inBranch);
   assert.equal(members.size, new Set(inBranch).size);
-  // The cache is untouched by the answer: it holds the whole archive either way.
-  const page = await source.fetch({ limit: MOCK_PARAMS.claims });
+  // A read of the archive scope returns what that scope contains, so the two agree.
+  const page = await source.fetch({ limit: inArchive.length, scope: whole });
   assert.equal(page.claims.length, inArchive.length);
+  // And a scoped read returns that scope, not a prefix of the archive.
+  const scoped = await source.fetch({ limit: inBranch.length, scope: branch });
+  assert.equal(scoped.claims.length, inBranch.length);
 });
 
 // 5.4 — a claim in two branches is one claim, reported under either.

@@ -28,6 +28,11 @@ export interface ViewState {
   /** Claim classes this view admits, empty meaning all. */
   classes: string[];
   layout: LayoutName;
+  /**
+   * How far x is stretched, 1 being the layout's own scale. The timeline spreads y over the
+   * whole height already, so zooming stretches time and leaves the strata where they are.
+   */
+  xStretch: number;
   /** Draw edges at all. */
   edges: boolean;
   /** Draw edges while the camera is moving. */
@@ -45,12 +50,18 @@ export interface ViewState {
 export interface ScopesState {
   state: 'unknown' | 'loading' | 'ready' | 'error';
   scopes: Scope[];
+  /**
+   * The scope currently chosen, which a new view inherits — the same way a new view
+   * inherits the query's classes. A selection can be made before any view exists, so it
+   * cannot live only on one.
+   */
+  selected: Scope | null;
   /** Why the listing failed, when it did. */
   error: string | null;
 }
 
 /** Side-pane tabs are fixed: tooling plus detail views. */
-export type SidePane = 'query' | 'server' | 'view' | 'selection' | 'graph' | 'log';
+export type SidePane = 'query' | 'server' | 'view' | 'info' | 'log';
 
 /** What the footer reports. Written by the renderer, read by the UI. */
 export interface StatusState {
@@ -73,9 +84,38 @@ export interface StatusState {
   progress: number | null;
 }
 
+/**
+ * What the last action has to say for itself, shown on the canvas when there is nothing to
+ * draw. A blank canvas is indistinguishable from a broken one, so an empty result, a
+ * refusal and a scope nothing is cached for each say which they are.
+ */
+export interface Notice {
+  level: 'info' | 'error';
+  text: string;
+  /** What to do about it, when there is something to do. */
+  hint?: string;
+}
+
+/**
+ * One claim's content, fetched when it is selected. Held here rather than in the graph: a
+ * real archive's bytes are not something to carry a hundred thousand of, and a claim's
+ * content is wanted only while it is the one being looked at.
+ */
+export interface ContentState {
+  id: string;
+  state: 'loading' | 'ready' | 'too-large' | 'none' | 'error';
+  bytes?: Uint8Array;
+  /** Size as the claim declares it, which is what decides whether to ask for the bytes. */
+  size: number;
+  encoding?: string;
+  error?: string;
+}
+
 export interface SelectionState {
   /** Claim id the user clicked; drives the detail pane. */
   selected: string | null;
+  /** Edge key the user clicked. A node and an edge are alternatives, never both. */
+  selectedEdge: string | null;
   /** Claim id under the pointer; drives only the cheap preview. */
   hovered: string | null;
 }
@@ -96,6 +136,10 @@ export interface ExplorerState {
   selection: SelectionState;
   /** Debounced, so sweeping the pointer cannot thrash the UI. */
   preview: HoverPreview | null;
+  /** What the last action has to say — read by the canvas when it has nothing to draw. */
+  notice: Notice | null;
+  /** The selected claim's content, or null when none is selected. */
+  content: ContentState | null;
   log: string[];
 
   addView: (view: ViewState) => void;
@@ -106,8 +150,11 @@ export interface ExplorerState {
   setScopes: (scopes: ScopesState) => void;
   patchStatus: (patch: Partial<StatusState>) => void;
   select: (id: string | null) => void;
+  selectEdge: (key: string | null) => void;
   hover: (id: string | null) => void;
   setPreview: (preview: HoverPreview | null) => void;
+  setNotice: (notice: Notice | null) => void;
+  setContent: (content: ContentState | null) => void;
   appendLog: (line: string) => void;
 }
 
@@ -119,9 +166,13 @@ export function defaultView(id: string, label: string): ViewState {
     contributionRange: null,
     scope: null,
     classes: [],
-    layout: 'history',
+    // Time first: an archive is historical, so that is the axis a reader wants.
+    layout: 'timeline',
+    xStretch: 1,
     edges: true,
-    edgesOnMove: false,
+    // Edges while the camera moves: what is being looked at is the shape, and hiding them
+    // mid-gesture hides the thing.
+    edgesOnMove: true,
     labels: true,
     labelsOnMove: true,
     sizeByDegree: true,
@@ -133,8 +184,8 @@ const MAX_LOG = 200;
 export const useExplorer = create<ExplorerState>((set) => ({
   views: [],
   activeViewId: null,
-  sidePane: 'query',
-  scopes: { state: 'unknown', scopes: [], error: null },
+  sidePane: 'info',
+  scopes: { state: 'unknown', scopes: [], selected: null, error: null },
   status: {
     nodes: 0,
     edges: 0,
@@ -149,8 +200,10 @@ export const useExplorer = create<ExplorerState>((set) => ({
     busy: null,
     progress: null,
   },
-  selection: { selected: null, hovered: null },
+  selection: { selected: null, selectedEdge: null, hovered: null },
   preview: null,
+  notice: null,
+  content: null,
   log: [],
 
   addView: (view) => set((s) => ({ views: [...s.views, view], activeViewId: view.id })),
@@ -174,11 +227,19 @@ export const useExplorer = create<ExplorerState>((set) => ({
 
   patchStatus: (patch) => set((s) => ({ status: { ...s.status, ...patch } })),
 
-  select: (selected) => set((s) => ({ selection: { ...s.selection, selected } })),
+  // Selecting one clears the other: the detail pane answers about one thing at a time.
+  select: (selected) => set((s) => ({ selection: { ...s.selection, selected, selectedEdge: null } })),
+
+  selectEdge: (selectedEdge) =>
+    set((s) => ({ selection: { ...s.selection, selectedEdge, selected: null } })),
 
   hover: (hovered) => set((s) => ({ selection: { ...s.selection, hovered } })),
 
   setPreview: (preview) => set({ preview }),
+
+  setNotice: (notice) => set({ notice }),
+
+  setContent: (content) => set({ content }),
 
   appendLog: (line) => set((s) => ({ log: [...s.log, line].slice(-MAX_LOG) })),
 }));

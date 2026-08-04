@@ -96,6 +96,19 @@ info:
     distinct, so routing stays deterministic.) A `403` body never discloses the
     subject id.
 
+    ## Browsers
+
+    A browser refuses a cross-origin read unless the server admits the origin, so an
+    instance an explorer is meant to reach declares which origins may: the endpoint's
+    `allowedOrigins` (a comma-separated list, `*` for any). Declaring none — the default —
+    leaves the API unreachable from any page but its own origin, which is right for a server
+    nobody browses.
+
+    Where an origin is admitted, a preflight is answered with the methods and the credential
+    headers above, and `ETag` is **exposed**, without which the conditional reads this
+    contract describes cannot be made from a script. No origin is granted credentialed
+    access: a credential rides in a header here, never in a cookie.
+
     ## Closure and the 404 rule
 
     Every branch read is bounded by that branch's closure, and every archive read by

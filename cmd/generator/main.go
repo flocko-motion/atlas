@@ -28,11 +28,12 @@ func main() {
 
 // options are the flags every shape shares: where to write, as whom, with what key.
 type options struct {
-	branch string
-	as     string
-	token  string
-	apiKey string
-	wait   time.Duration
+	branch   string
+	branches int
+	as       string
+	token    string
+	apiKey   string
+	wait     time.Duration
 }
 
 // rootCmd builds the generator command tree: one subcommand per graph shape.
@@ -45,7 +46,8 @@ func rootCmd() *cobra.Command {
 		SilenceErrors: true,
 	}
 	f := root.PersistentFlags()
-	f.StringVar(&o.branch, "branch", "main", "branch the claims are merged onto")
+	f.StringVar(&o.branch, "branch", "main", "the primary branch; a shape spreading over several starts here")
+	f.IntVar(&o.branches, "branches", 3, "how many branches to spread over — an archive with one exercises nothing about branches")
 	f.StringVar(&o.as, "as", "dev", "contributor name; the same name always derives the same fixture identity")
 	f.StringVar(&o.token, "token", "", "Authorization: Bearer credential")
 	f.StringVar(&o.apiKey, "api-key", "", "X-API-Key credential")
@@ -61,7 +63,9 @@ func exampleCmd(o *options) *cobra.Command {
 		Short: "Write the smallest graph with real provenance (4 claims, one contribution)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return deliver(cmd, args[0], o, func(g *grower) (batches, error) { return g.example() })
+			return deliver(cmd, args[0], o, func(g *grower) (batches, error) {
+				return g.example(branchesFor(o.branch, max(o.branches, 1)))
+			})
 		},
 	}
 }
@@ -78,7 +82,7 @@ func chainCmd(o *options) *cobra.Command {
 				return fmt.Errorf("chain: --contributions and --claims must both be at least 1")
 			}
 			return deliver(cmd, args[0], o, func(g *grower) (batches, error) {
-				return g.chain(contributions, per)
+				return g.chain(contributions, per, branchesFor(o.branch, max(o.branches, 1)))
 			})
 		},
 	}
@@ -111,29 +115,40 @@ func deliver(cmd *cobra.Command, url string, o *options, shape func(*grower) (ba
 	}
 
 	out := cmd.OutOrStdout()
-	fmt.Fprintf(out, ">> %s — contributing as %q to branch %q\n", c.base, o.as, o.branch)
+	fmt.Fprintf(out, ">> %s — contributing as %q\n", c.base, o.as)
 	total := 0
-	for i, claims := range bs {
-		// The contributor claim rides along first: everything signed references it, so a
-		// closure cannot resolve without it.
-		if i == 0 {
+	perBranch := map[string]int{}
+	seeded := map[string]bool{}
+	for i, b := range bs {
+		claims := b.claims
+		// The contributor claim rides in each branch's first contribution: everything signed
+		// references it, so a branch that has never seen it cannot resolve the closure.
+		if !seeded[b.branch] {
 			claims = append([]ranke.Claim{g.selfClaim}, claims...)
+			seeded[b.branch] = true
 		}
-		body, err := encodeContribution(o.branch, claims)
+		body, err := encodeContribution(b.branch, claims)
 		if err != nil {
 			return err
 		}
 		res, err := c.contribute(ctx, body)
 		if err != nil {
-			return fmt.Errorf("contribution %d/%d: %w", i+1, len(bs), err)
+			return fmt.Errorf("contribution %d/%d onto %q: %w", i+1, len(bs), b.branch, err)
 		}
 		total += len(res.Ids)
+		perBranch[b.branch] += len(res.Ids)
 		if len(bs) > 1 && (i+1)%progressEvery == 0 {
 			fmt.Fprintf(out, "   %d/%d contributions · %d claims\n", i+1, len(bs), total)
 		}
 	}
 
-	fmt.Fprintf(out, ">> merged %d claim(s) in %d contribution(s)\n", total, len(bs))
+	fmt.Fprintf(out, ">> merged %d claim(s) in %d contribution(s) over %d branch(es)\n",
+		total, len(bs), len(perBranch))
+	for _, b := range branchesFor(o.branch, len(perBranch)) {
+		if n, ok := perBranch[b]; ok {
+			fmt.Fprintf(out, "   %-10s %d claims\n", b, n)
+		}
+	}
 	return report(ctx, cmd, c, o.branch)
 }
 

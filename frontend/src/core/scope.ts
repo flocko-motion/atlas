@@ -29,9 +29,9 @@ export function isArchive(scope: Scope): boolean {
   return scope.name === ARCHIVE_SCOPE;
 }
 
-/** scopeLabel is how a scope reads in the picker. */
+/** scopeLabel is how a scope reads in the picker: the name it is written as everywhere else. */
 export function scopeLabel(scope: Scope): string {
-  return isArchive(scope) ? 'whole archive' : scope.name;
+  return scope.name;
 }
 
 /** shortHead abbreviates a head id for a label, where the full id would not fit. */
@@ -54,10 +54,14 @@ export interface ScopeOption {
  */
 export function scopeOptions(scopes: Scope[], selected: Scope | null): ScopeOption[] {
   return [
-    { value: '', label: 'everything loaded', selected: selected === null },
+    // A prompt rather than a description: with nothing chosen this is the caption a reader
+    // sees, and it should say what to do.
+    { value: '', label: 'select branch…', selected: selected === null },
+    // The name alone. A head is a 100-character content address, which identifies a scope
+    // to a machine and tells a reader nothing — the Info pane has room to show it.
     ...scopes.map((scope) => ({
       value: scope.name,
-      label: `${scopeLabel(scope)} · ${shortHead(scope.head)}`,
+      label: scopeLabel(scope),
       selected: selected?.name === scope.name,
     })),
   ];

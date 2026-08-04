@@ -17,9 +17,17 @@ import { circlepack, circular, random } from 'graphology-layout';
 import type { DirectedGraph } from 'graphology';
 import { requireContribution } from '../graph/shape.ts';
 
-export type LayoutName = 'history' | 'layered' | 'random' | 'circular' | 'circlepack' | 'fa2-worker';
+export type LayoutName =
+  | 'timeline'
+  | 'history'
+  | 'layered'
+  | 'random'
+  | 'circular'
+  | 'circlepack'
+  | 'fa2-worker';
 
 export const LAYOUT_LABELS: Record<LayoutName, string> = {
+  timeline: 'time, in strata by class',
   history: 'rows by contribution',
   layered: 'layers by provenance depth',
   random: 'random',
@@ -27,6 +35,98 @@ export const LAYOUT_LABELS: Record<LayoutName, string> = {
   circlepack: 'circle-packed by class',
   'fa2-worker': 'ForceAtlas2 (worker)',
 };
+
+/**
+ * STRATA are the bands, bottom of the screen first. Sigma maps a larger graph y higher up
+ * (`y: (1 - y) * height / 2`), so the array index *is* the y ordering.
+ *
+ * The order follows the ADT: bookkeeping, then what entered, what was concluded, the things
+ * distilled, and the links between them. It is monotone with provenance, so an edge points
+ * down or sideways and almost never up — provenance becomes a direction rather than
+ * something to trace. Contribution sits at the edge because it is the band the class filter
+ * drops, and dropping the bottom band leaves the picture whole.
+ */
+export const STRATA = ['contribution', 'source', 'derivation', 'entity', 'relation'] as const;
+
+/** stratumOf is the band a claim class belongs to; an unknown class sits with the sources. */
+export function stratumOf(cls: string): number {
+  const at = STRATA.indexOf(cls as (typeof STRATA)[number]);
+  return at === -1 ? STRATA.indexOf('source') : at;
+}
+
+export interface TimelineContext {
+  /** Where each claim's instant sits on the axis. */
+  toX: (at: number) => number;
+  /** The instant a claim carries, in epoch ms. */
+  createdAt: (node: string) => number;
+  /** The claim's class — the band it sits in. */
+  classOf: (node: string) => string;
+  /**
+   * The strata to give room to, or empty for all of them. A hidden stratum takes no height,
+   * so the bands that remain fill the picture rather than leaving a gap where it was.
+   */
+  visible?: readonly string[];
+}
+
+/** How tall the whole picture is, in graph units — the extent the renderer normalises against. */
+export const TIMELINE_HEIGHT = 1000;
+
+/** Room one lane wants, which sets how many a band can hold. */
+const LANE_UNITS = 16;
+
+/**
+ * assignTimeline puts time on x and class strata on y.
+ *
+ * Claims sharing an instant share an x, so a stack means "simultaneous" and nothing else.
+ * Within a band, lanes are handed out round-robin in time order: consecutive claims land on
+ * different lanes, so neighbours in time do not draw over each other even where the axis puts
+ * them close together.
+ *
+ * The visible bands divide the whole height between them, so the picture is always full and
+ * hiding a stratum gives its room to the others rather than leaving a hole.
+ */
+export function assignTimeline(graph: DirectedGraph, ctx: TimelineContext): void {
+  const shown = ctx.visible && ctx.visible.length > 0 ? ctx.visible : STRATA;
+  const bands = STRATA.filter((stratum) => shown.includes(stratum));
+  if (bands.length === 0) return;
+
+  const bandHeight = TIMELINE_HEIGHT / bands.length;
+  const lanes = Math.max(1, Math.floor(bandHeight / LANE_UNITS));
+  const laneGap = bandHeight / lanes;
+  // Bottom of the picture first, matching STRATA — Sigma draws a larger y higher up.
+  const baseOf = new Map<string, number>(bands.map((stratum, i) => [stratum, i * bandHeight]));
+
+  // Time order per band, so the round robin walks the claims as a reader would.
+  const byBand = new Map<string, string[]>();
+  graph.forEachNode((node) => {
+    const stratum = STRATA[stratumOf(ctx.classOf(node))];
+    const bucket = byBand.get(stratum);
+    if (bucket) bucket.push(node);
+    else byBand.set(stratum, [node]);
+  });
+
+  const placed = new Map<string, { x: number; y: number }>();
+  for (const [stratum, nodes] of byBand) {
+    const base = baseOf.get(stratum);
+    nodes.sort((a, b) => ctx.createdAt(a) - ctx.createdAt(b));
+    nodes.forEach((node, i) => {
+      const x = ctx.toX(ctx.createdAt(node));
+      // A hidden band has no base; its claims keep a position so the reducer, not the
+      // layout, is what hides them.
+      const y = (base ?? 0) + (i % lanes) * laneGap;
+      placed.set(node, { x, y });
+    });
+  }
+
+  graph.updateEachNodeAttributes((node, attr) => {
+    const at = placed.get(node);
+    if (at) {
+      attr.x = at.x;
+      attr.y = at.y;
+    }
+    return attr;
+  });
+}
 
 /**
  * assignHistory positions claims by the contribution that added them: y is the
@@ -80,6 +180,8 @@ export function assignLayered(
 export interface LayoutContext {
   depth: Map<string, number>;
   contribution: (node: string) => number;
+  /** What the timeline layout needs; absent, it falls back to provenance depth. */
+  timeline?: TimelineContext;
   /** Wall-clock budget for the worker layout, in ms. */
   fa2Ms?: number;
 }
@@ -92,6 +194,12 @@ export async function apply(
 ): Promise<number> {
   const t0 = performance.now();
   switch (layout) {
+    case 'timeline':
+      // Without a scale there is no axis, so depth stands in rather than piling every claim
+      // at x = 0.
+      if (ctx.timeline) assignTimeline(graph, ctx.timeline);
+      else assignLayered(graph, ctx.depth);
+      break;
     case 'history':
       assignHistory(graph, ctx.contribution);
       break;

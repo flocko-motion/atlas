@@ -48,7 +48,10 @@ body {
   border: 1px solid var(--line); border-radius: 0.3rem; cursor: pointer;
 }
 .tool:disabled { opacity: 0.35; cursor: not-allowed; }
-.topbar-spacer, .statusbar-spacer, .tabs-trailing { flex: 1; }
+.topbar-spacer, .tabs-trailing { flex: 1; }
+/* The spacer is the one field allowed to shrink to nothing, so a full bar cuts the gap rather
+   than the numbers. */
+.statusbar-spacer { flex: 1 1 0; min-width: 0; }
 .connection-chip {
   display: flex; align-items: center; gap: 0.4rem;
   padding: 0.2rem 0.6rem;
@@ -69,16 +72,85 @@ body {
 .scope-select { max-width: 18rem; }
 .scope-load:hover, .scope-select:hover { border-color: var(--accent); }
 .scope-note { color: var(--dim); font-size: 0.85em; }
+.jump-date {
+  width: auto; padding: 0.15rem 0.3rem;
+  background: var(--sunken); color: var(--dim);
+  border: 1px solid var(--line); border-radius: 0.3rem; font: inherit; font-size: 0.85em;
+}
+.jump-date:hover, .jump-date:focus { color: var(--ink); border-color: var(--accent); }
 .scope-absent { color: var(--warn); }
 .static-value { color: var(--ink); font-size: 0.9em; }
 
 /* --- main / canvas --- */
-.main { grid-area: main; position: relative; display: flex; flex-direction: column; min-width: 0; }
-.canvas-host { flex: 1; min-height: 0; }
+.main { grid-area: main; display: flex; flex-direction: column; min-width: 0; }
+/* Everything drawn over the graph is positioned against this, which is the canvas alone. */
+.canvas-area { position: relative; flex: 1; min-height: 0; }
+.canvas-host { position: absolute; inset: 0; }
+/* The lens sits over the union and takes its place by becoming visible. */
+.canvas-lens { z-index: 1; }
 .canvas-overlay {
   position: absolute; inset: 0;
-  display: grid; place-items: center;
-  color: var(--dim); pointer-events: none;
+  display: grid; place-content: center; justify-items: center; gap: 0.3rem;
+  color: var(--dim); pointer-events: none; text-align: center; padding: 1rem;
+}
+/* The overlay itself must not intercept the canvas, but its text has to be selectable —
+   an error you cannot copy is an error you have to retype. */
+.canvas-overlay .overlay-text,
+.canvas-overlay .overlay-hint {
+  margin: 0;
+  pointer-events: auto;
+  user-select: text;
+  -webkit-user-select: text;
+}
+.canvas-overlay .overlay-text { color: var(--ink); font-size: 1.05em; }
+.canvas-overlay .overlay-hint { max-width: 34rem; }
+.canvas-overlay.is-error .overlay-text { color: var(--bad); }
+
+/* The time ruler: dates under the canvas, since the axis compresses silences and so
+   carries no measurable duration of its own. */
+.time-ruler {
+  position: absolute; left: 0; right: 0; bottom: 0; height: 1.5rem;
+  border-top: 1px solid var(--line);
+  background: color-mix(in srgb, var(--panel) 85%, transparent);
+  color: var(--dim); font-variant-numeric: tabular-nums; font-size: 10px;
+  pointer-events: none;
+}
+.time-tick {
+  position: absolute; top: 0.25rem;
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+/* A year outranks the finer units, and is drawn to say so. */
+.time-tick.is-major { color: var(--ink); font-weight: 600; }
+.time-tick.is-major::before {
+  content: ''; position: absolute; left: 50%; top: -1px; height: 0.3rem;
+  border-left: 1px solid var(--accent);
+}
+
+/* The marked region, while it is being drawn. */
+.zoom-box {
+  position: absolute; z-index: 2;
+  border: 1px solid var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  pointer-events: none;
+}
+
+/* The cursor: one line from the bubble down to the ruler, so the two read as one thing. */
+.time-cursor {
+  position: absolute; top: 0; bottom: 1.5rem;
+  border-left: 1px solid var(--accent);
+  pointer-events: none;
+}
+/* Directly on top of the ruler, which is where the reader is already looking: the label and
+   the scale it refers to want no gap between them. */
+.time-cursor-bubble {
+  position: absolute; bottom: 0; left: 0;
+  transform: translateX(-50%);
+  padding: 0.1rem 0.4rem;
+  background: var(--accent); color: var(--sunken);
+  border-radius: 0.2rem;
+  font: 10px/1.4 ui-monospace, monospace; font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 /* --- side pane --- */
@@ -112,17 +184,32 @@ body {
 .tab-handle-close:hover { color: var(--bad); }
 
 /* --- footer --- */
+/* One line, always. The bar reports numbers that change every half second, so its height is
+   fixed rather than derived: a wrap would move the canvas, and a canvas that resizes because
+   the frame rate gained a digit is intolerable. Overflow is cut at the bar, not by each field. */
 .statusbar {
   grid-area: footer;
-  display: flex; align-items: center; gap: 1rem;
-  padding: 0.3rem 0.75rem;
+  display: flex; align-items: center; flex-wrap: nowrap; gap: 1rem;
+  height: 1.7rem; padding: 0 0.75rem;
   border-top: 1px solid var(--line); background: var(--panel);
   color: var(--dim); font-variant-numeric: tabular-nums;
+  white-space: nowrap; overflow: hidden;
 }
+/* Fields keep their length; only the renderer name, which is the longest and the least
+   important, gives way — and it needs min-width for an ellipsis to be possible in a flex row. */
+.statusbar > * { flex: 0 0 auto; }
 .statusbar .fps { color: var(--accent); }
 .statusbar .busy { color: var(--warn); }
-.statusbar .renderer { max-width: 22rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.statusbar .renderer {
+  flex: 0 1 auto; min-width: 0; max-width: 22rem;
+  overflow: hidden; text-overflow: ellipsis;
+}
 .statusbar .renderer.warn { color: var(--warn); }
+/* Room reserved for the fields that change most often, so gaining a digit shifts nothing. */
+.statusbar .metric-fps { min-width: 8.5rem; }
+.statusbar .metric-refresh { min-width: 7rem; }
+/* Read once and then ignored, so it may wrap and take the room it needs. */
+.renderer-name { word-break: break-word; }
 
 /* --- panes and form primitives --- */
 .pane h2 {
@@ -157,10 +244,21 @@ select, input[type='text'], input[type='password'], input[type='url'] {
 .kv td { text-align: right; }
 .claim-id { font-size: 10px; word-break: break-all; }
 .refs { margin: 0; padding: 0; list-style: none; }
-.refs li { display: flex; gap: 0.4rem; align-items: baseline; padding: 0.1rem 0; }
+.refs li, .edge-end { display: flex; gap: 0.4rem; align-items: baseline; padding: 0.1rem 0; }
 .ref-type { color: var(--dim); font-size: 11px; }
 .ref-id { background: none; border: 0; color: var(--accent); cursor: pointer; font: 11px ui-monospace, monospace; }
 .log { margin: 0; color: var(--dim); font: 11px/1.45 ui-monospace, monospace; white-space: pre-wrap; }
+.content-body {
+  margin: 0; padding: 0.4rem;
+  max-height: 16rem; overflow: auto;
+  background: var(--sunken); border: 1px solid var(--line); border-radius: 0.3rem;
+  color: var(--ink); font: 11px/1.45 ui-monospace, monospace;
+  white-space: pre-wrap; word-break: break-word;
+}
+.content-body.is-hex { white-space: pre; word-break: normal; }
+.content-error { color: var(--bad); }
+/* The subtitle of the content it describes, so it sits tight above it. */
+.content-about { margin: 0 0 0.3rem; }
 
 /* --- connections --- */
 .connection { margin-bottom: 0.5rem; border: 1px solid var(--line); border-radius: 0.35rem; background: var(--sunken); }

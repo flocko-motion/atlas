@@ -55,13 +55,36 @@ export interface Connection {
 
 export const DEFAULT_MOCK: MockParams = { claims: 100000, claimsPerContribution: 10, seed: 0x5eed };
 
-/** builtInMock is the connection the explorer starts with: a generator, no server. */
+/** Where `make dev` serves, which is what a local dev instance answers on. */
+export const LOCAL_DEV_URL = 'http://localhost:8080';
+
+/** builtInMock is a generator: an archive to look at with no server running. */
 export function builtInMock(): Connection {
   return {
     id: 'mock-local',
     name: 'mock archive',
     kind: 'mock',
     baseUrl: '',
+    authKind: 'none',
+    remember: false,
+    mock: { ...DEFAULT_MOCK },
+  };
+}
+
+/**
+ * builtInLocalDev is the instance `make dev` starts, configured as it is configured: the
+ * minimal example serves on :8080 with a noauth endpoint, so no-auth and that URL are not
+ * defaults to fall back on but the actual settings.
+ *
+ * Present from the first run so developing against a local server needs no setup — and
+ * harmless with none running, since a connection is only dialled when it is used or probed.
+ */
+export function builtInLocalDev(): Connection {
+  return {
+    id: 'local-dev',
+    name: 'local dev',
+    kind: 'rest',
+    baseUrl: LOCAL_DEV_URL,
     authKind: 'none',
     remember: false,
     mock: { ...DEFAULT_MOCK },
@@ -118,13 +141,16 @@ function loadPersisted(): Persisted {
         kind: c.kind ?? 'rest',
         mock: c.mock ?? { ...DEFAULT_MOCK },
       }));
+      if (!connections.some((c) => c.id === 'local-dev')) connections.push(builtInLocalDev());
       return { connections, activeId: parsed.activeId ?? connections[0].id };
     }
   } catch {
     // A corrupt or unavailable store is not worth failing the app over.
   }
+  // Both built-ins, with the generator active: an explorer that opens against a server
+  // that may not be running would report a failure before the user asked for anything.
   const mock = builtInMock();
-  return { connections: [mock], activeId: mock.id };
+  return { connections: [mock, builtInLocalDev()], activeId: mock.id };
 }
 
 function persist(state: ConnectionsState): void {
