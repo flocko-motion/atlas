@@ -42,22 +42,54 @@ constraint the design has to satisfy and becomes a property it has.
 
 This is the substance of the change. The sentinel and the listing both follow from it.
 
-### The archive-wide read loses its sentinel because it no longer needs one
+### Every claim read is a scope followed by a claim
 
 ```
-GET /claims/{id}                 (was /$universe/claim/{id})
-GET /claims/{id}/content
+GET /branches/{branch}/claims/{id}
+GET /universe/claims/{id}                (was /$universe/claim/{id})
+GET /universe/claims/{id}/content
 ```
 
-`$universe` was doing one job in the path: distinguishing "a claim, anywhere in the
-archive" from "a claim in the branch called universe". Once branch reads live under
-`/branches/`, that ambiguity is gone and the distinction the sentinel encoded is carried
-by structure instead — a claim read **scoped by a branch** is under that branch; a claim
-read with **no branch** is archive-wide. Which is exactly what the privilege means:
-`core-access` calls it *"reading a graph by head id directly — bypassing the branch
-table"*. Bypassing the branch table now looks like bypassing `/branches`.
+`$universe` was doing one job in the path: telling "a claim, anywhere" apart from "a
+claim in the branch called universe". Once branch reads live under `/branches/`, that
+ambiguity is gone — so the sentinel could simply be dropped, leaving `GET /claims/{id}`
+to mean archive-wide by the *absence* of a branch.
 
-The grant is unchanged: `GET /claims/{id}` requires **R** on `$universe`.
+That was the first shape here and it is worse, for a reason that only shows up on the
+third scope. The access model reserves **three**: `$universe`, `$archive` and
+`$branches`, and RankeQL carries `BranchUniverse` and `BranchArchive` as distinct scopes
+— the Universe being everything the store holds, the archive being the closure of the
+current head. Spending the bare `/claims/{id}` on one of them leaves the other with
+nowhere to live, and an inference ("no scope means universe") that quietly becomes wrong
+the day a second scopeless meaning is wanted.
+
+Naming the scope keeps every read the same shape — `<scope>/claims/{id}` — and gives
+`$archive` a route it has never had. It also drops the `$` without dropping what the `$`
+was attached to: `universe` is a plain segment in a position where a scope is expected,
+so nothing needs to mark it as "not a branch".
+
+### The `$` names are documented, because a client already meets them
+
+The first instinct was to keep `$archive` and `$universe` out of the documentation
+entirely — plain routes, no mention of the reserved names. That hides nothing useful.
+An operator writes `R $universe` in a grant; a client puts `select.branch: "$archive"`
+in a RankeQL body. The names are already in the vocabulary, so omitting them from the
+route documentation only leaves `GET /archive/claims/{id}` looking arbitrarily related
+to the grant that gates it.
+
+So the contract says what each collection reads: `/archive/…` is the `$archive` scope,
+`/universe/…` is `$universe`. One concept across three surfaces — route, query language,
+access policy — instead of three that a reader has to notice correspond.
+
+What that must not become is a second path. Documenting the identity is explanation;
+offering `/branches/$archive/claims/{id}` as well would be two URLs for one resource.
+`{branch}` means an ordinary branch, so a reserved name there is a branch that does not
+exist, and not-found is the honest answer — consistent with the contract already making
+unknown and out-of-scope indistinguishable.
+
+The grants are unchanged: `/archive/…` needs **R** on `$archive`, `/universe/…` needs
+**R** on `$universe`. `matchBranch` already refuses to let an ordinary glob reach either
+— a `$`-prefixed target requires an exact grant, so `R *` confers neither.
 
 ### `$` was never a URL convention
 

@@ -30,10 +30,17 @@ and the root namespace comes back.
   name can shadow a fixed route once `{branch}` is a second segment rather than a first.
 - **Add `GET /branches`** — the branch table's branches, each by name and current head.
   It becomes the obvious member of the collection rather than a route needing a sentinel.
-- **Retire `$universe` from the path**: the archive-wide claim read becomes
-  `GET /claims/{id}` and `GET /claims/{id}/content`. The *absence* of a branch scope is
-  what makes the read archive-wide, so the URL's shape now carries the meaning a sentinel
-  used to. It still requires **R** on `$universe`.
+- **Give each of the three scopes its own collection**, so every claim read is
+  `<scope>/claims/{id}`: `/branches/{branch}/…`, `/archive/…`, `/universe/…`. That
+  retires `$` from the path while keeping the scope explicit, and it makes `$archive`
+  reachable, which no route offers today.
+- **Fix the scope core actually reads.** `execute.go:163` sends `$universe` to
+  `archive.GetClaim`, which is `GetFromClosure(…, BranchArchive, …)` — the archive-head
+  read, not the Universe read. The privileged route is therefore confined to the current
+  head's closure and cannot do the thing it exists for: reaching an archive from a
+  Universe and a head id alone. The unconfined call is `ranke.GetClaim(ctx, u, id)`.
+  Adding `/archive/…` makes the defect visible, since the two routes would otherwise
+  behave identically.
 - **Pluralise the collection member**: `claim/{id}` → `claims/{id}`, matching
   `/branches` and ordinary REST usage.
 - Keep `/system/…` for operational extensions. Its original justification — dodging
@@ -63,8 +70,9 @@ is the library's vocabulary. They leave only the URL path.
   new handler for the listing, building a `Request` with `Op: OpBranchList` and
   `Branch: core.Branches`.
 - **`frontend/`**: one call site — `core/data/source.ts:101` builds `/${branch}/head`.
-- **Not affected**: `internal/core/`. Every operation, its right and its payload already
-  exist; this change reaches them and renames nothing behind the port.
+- **`internal/core/`**: `scopedClaim` gains the `$archive` arm and has its `$universe`
+  arm corrected to the unconfined `ranke.GetClaim`. The listing, the branch arm and every
+  payload already exist.
 - **Not affected**: `core-access` and RankeQL. The grant targets and query scopes keep
   their `$` names; only the path stops echoing them.
 - **No migration.** The REST API is still in design; there is no released consumer to
