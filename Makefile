@@ -7,6 +7,17 @@
 
 OPENAPI   := openapi/openapi.yaml
 API_OUT   := openapi
+# openapi.yaml $refs rql.schema.json, which no generator resolves on its own, so
+# every one of them reads this bundle: the same document with the external schema
+# lifted into components/schemas.
+OPENAPI_GEN := openapi/openapi.gen.yaml
+
+# The node generators, pinned exactly. A floating `latest` or major range lets an
+# upstream release rewrite the artifacts, which trips check-generated for a reason
+# that is not ours. Bump deliberately, then regenerate.
+REDOCLY     := @redocly/cli@2.44.1
+SWAGGER_TS  := swagger-typescript-api@13.12.6
+WIDDERSHINS := widdershins@4.0.1
 RANKE_GO_MOD ?= github.com/flocko-motion/ranke-go
 RANKE_GO_VERSION ?= latest
 # ask = prompt before raising the go directive; keep = leave it; or a version.
@@ -20,7 +31,8 @@ PAPERS_DIR       := docs/papers
 PAPERS_SKIP      := scripts
 
 .PHONY: all help check-tools generate verify tidy build smoke test dev seed \
-        ranke-go-version upgrade release major minor patch breaking feature fix docs docs-clean
+        ranke-go-version upgrade release major minor patch breaking feature fix docs docs-clean \
+        pull-rql-schema check-rql-schema check-generated release-gate
 
 BIN := bin/ranke-db
 GEN := bin/generator
@@ -32,6 +44,27 @@ all: generate verify ## Default: regenerate from the spec, then build/vet/test
 help: ## Show this help
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) \
 		| awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}'
+
+# --- The RQL schema, pulled from ranke-graph -------------------------------
+
+# openapi.yaml $refs this file for the whole read language, so the query type is
+# ranke-graph's and this repo holds no second copy of it. Committed, which keeps
+# `make generate` offline and reproducible; run pull-rql-schema to take a newer
+# release and review the diff.
+RQL_SCHEMA     := $(API_OUT)/rql.schema.json
+RQL_SCHEMA_URL ?= $(RANKE_GRAPH_REPO)/releases/latest/download/rql.schema.json
+
+pull-rql-schema: ## Pull rql.schema.json from the latest ranke-graph release into openapi/
+	@command -v curl > /dev/null || { echo "curl not found"; exit 1; }
+	@command -v jq > /dev/null || { echo "jq not found"; exit 1; }
+	@echo ">> pull     → $(RQL_SCHEMA)  ($(RQL_SCHEMA_URL))"
+	@tmp=$$(mktemp); \
+	curl -fsSL "$(RQL_SCHEMA_URL)" -o "$$tmp" || { rm -f "$$tmp"; echo "download failed"; exit 1; }; \
+	jq -e 'has("$$defs") and (.["$$defs"] | has("Query"))' "$$tmp" > /dev/null \
+		|| { rm -f "$$tmp"; echo "downloaded file is not the RQL schema"; exit 1; }; \
+	mv "$$tmp" $(RQL_SCHEMA); \
+	chmod 644 $(RQL_SCHEMA)
+	@git diff --stat -- $(RQL_SCHEMA)
 
 # --- Code/doc generation from the OpenAPI spec -----------------------------
 
@@ -46,14 +79,16 @@ check-tools: ## Verify the generation toolchain is installed (reports all missin
 	echo "generation toolchain OK (go + node)"
 
 generate: check-tools ## Generate every artifact from the spec into openapi/ (Go server, TS client, HTML, Markdown) + docs/openapi/ symlinks
+	@echo ">> bundle   → $(OPENAPI_GEN)"
+	@npx --yes $(REDOCLY) bundle $(OPENAPI) -o $(OPENAPI_GEN) >/dev/null
 	@echo ">> gen-go   → $(API_OUT)/openapi.gen.go"
-	@go tool oapi-codegen -config $(API_OUT)/oapi-codegen.yaml $(OPENAPI)
+	@go tool oapi-codegen -config $(API_OUT)/oapi-codegen.yaml $(OPENAPI_GEN)
 	@echo ">> gen-ts   → $(API_OUT)/openapi.gen.ts"
-	@npx --yes swagger-typescript-api@13 generate -p $(OPENAPI) -o $(API_OUT) -n openapi.gen.ts >/dev/null
+	@npx --yes $(SWAGGER_TS) generate -p $(OPENAPI_GEN) -o $(API_OUT) -n openapi.gen.ts >/dev/null
 	@echo ">> gen-html → $(API_OUT)/openapi.html"
-	@npx --yes @redocly/cli@latest build-docs $(OPENAPI) -o $(API_OUT)/openapi.html >/dev/null
+	@npx --yes $(REDOCLY) build-docs $(OPENAPI_GEN) -o $(API_OUT)/openapi.html >/dev/null
 	@echo ">> gen-md   → $(API_OUT)/openapi.md"
-	@npx --yes widdershins@4 $(OPENAPI) -o $(API_OUT)/openapi.md --summary --code >/dev/null
+	@npx --yes $(WIDDERSHINS) $(OPENAPI_GEN) -o $(API_OUT)/openapi.md --summary --code >/dev/null
 	@echo ">> link     → docs/openapi/openapi.{html,md}"
 	@mkdir -p docs/openapi
 	@ln -sf ../../$(API_OUT)/openapi.html docs/openapi/openapi.html
@@ -152,7 +187,51 @@ ranke-go-version: ## Recommend a ranke-go bump if a newer release exists
 
 # --- Release / papers (unchanged) ------------------------------------------
 
-release: ## Release: clean → merge to default via PR → tag merged tip → push (bump: major|minor|patch, aliases breaking|feature|fix)
+# --- Release gate ----------------------------------------------------------
+#
+# The artifacts can lie in two silent ways: ranke-graph released a newer RQL
+# schema, or someone edited the spec and never regenerated. Either ships a
+# contract the code does not implement, so releasing checks both and refuses.
+
+check-rql-schema: ## Fail if the vendored RQL schema differs from the latest ranke-graph release
+	@command -v curl > /dev/null || { echo "curl not found"; exit 1; }
+	@echo ">> check    → $(RQL_SCHEMA) against the release"
+	@tmp=$$(mktemp); \
+	curl -fsSL "$(RQL_SCHEMA_URL)" -o "$$tmp" \
+		|| { rm -f "$$tmp"; echo "   cannot reach $(RQL_SCHEMA_URL)"; exit 1; }; \
+	if diff -q "$$tmp" $(RQL_SCHEMA) > /dev/null 2>&1; then \
+		rm -f "$$tmp"; echo "   matches the release"; \
+	else \
+		echo ""; diff -u $(RQL_SCHEMA) "$$tmp" | head -40; rm -f "$$tmp"; \
+		echo ""; \
+		echo "   ranke-graph has released a newer RQL schema — the source of truth moved."; \
+		echo "   Take it:  make pull-rql-schema && make generate"; \
+		exit 1; \
+	fi
+
+# Asks whether regenerating changes anything, rather than whether the tree matches
+# HEAD — so uncommitted work in hand is not mistaken for drift. `generate` is
+# byte-idempotent, so a changed hash means the artifacts were stale.
+GEN_ARTIFACTS := $(OPENAPI_GEN) $(API_OUT)/openapi.gen.go $(API_OUT)/openapi.gen.ts \
+                 $(API_OUT)/openapi.html $(API_OUT)/openapi.md
+
+check-generated: ## Fail if `make generate` would change anything (spec edited without regenerating)
+	@sums=$$(mktemp); \
+	md5sum $(GEN_ARTIFACTS) > "$$sums" 2>/dev/null || true; \
+	$(MAKE) --no-print-directory generate; \
+	if md5sum --status -c "$$sums" 2>/dev/null; then \
+		rm -f "$$sums"; echo ">> check    → generated artifacts are current"; \
+	else \
+		rm -f "$$sums"; echo ""; \
+		echo "   the artifacts were stale — the spec changed without a regenerate."; \
+		echo "   They are rebuilt now; review and commit:"; \
+		git status --short -- $(API_OUT) docs/openapi | sed 's/^/     /'; \
+		exit 1; \
+	fi
+
+release-gate: check-rql-schema check-generated ## Run the pre-release contract checks without releasing
+
+release: release-gate ## Release: clean → merge to default via PR → tag merged tip → push (bump: major|minor|patch, aliases breaking|feature|fix)
 	@./scripts/release.sh $(filter major minor patch breaking feature fix,$(MAKECMDGOALS))
 
 major minor patch breaking feature fix:

@@ -10,278 +10,20 @@
  * ---------------------------------------------------------------
  */
 
-/**
- * A RankeQL read (§RankeQL), evaluated in a fixed logical order: `select`
- * generates the result set, `where` filters it, `order` sorts it, `limit`
- * truncates it, and `output` shapes and encodes each surviving claim. An engine
- * may reorder or lower those steps as long as the delivered result set is
- * identical.
- */
+/** A read, evaluated in a fixed logical order: select generates the result set, where filters it, order sorts it, limit truncates it, output shapes and encodes each surviving claim (R-QEVAL). */
 export interface Query {
-  /**
-   * A generator in four orthogonal parts: `branch` is the **scope**, `head` the
-   * **closure** read, `claim` where the walk **starts**, and `path` the
-   * **traversal**. Scope and start are independent because a walk runs both ways:
-   * a `uses` step reaches the claims that *cite* the current one, which lie above
-   * it, so it is the closure — not the start — that decides a reverse step's
-   * answer.
-   */
+  /** A generator in four independent parts: branch is the scope, head the closure read, claim where the walk starts, path the traversal. Scope and start are independent because a walk runs both ways — a uses step reaches the claims that cite the current one, which lie above it, so the closure decides a reverse step's answer. */
   select: Select;
-  /**
-   * A boolean tree. Each node is exactly one of the `and`/`or`/`not` combinators
-   * over sub-trees, or a **leaf** naming a `field` and its `test`. Within a
-   * `where`, `or` is boolean; across generators it unions whole result sets. A leaf
-   * may name any field a claim carries, including the derived `height` (the level a
-   * claim sits at above its sources, compared numerically).
-   */
+  /** A boolean tree. Each node is exactly one of the and / or / not combinators over sub-trees, or a leaf naming a field and its test. Within a where, or is boolean; across generators it unions whole result sets. A leaf may name any field a claim carries, including the derived height (R-HEIGHT-FIELD). */
   where?: Where;
-  /**
-   * Shapes each result along orthogonal axes and fixes the per-claim
-   * serialization. `detail: claims` + `form: original` + `encoding: cbor`
-   * reproduces the canonical bytes a claim's id is computed over — the only
-   * combination directly verifiable against that id.
-   */
+  /** Shapes each result along orthogonal axes. detail: claims with form: original and encoding: cbor reproduces the canonical serialization S(v) a claim's id is computed over, and is the only output form directly verifiable against that id (R-QCANON). */
   output?: Output;
-  /**
-   * Sort keys in priority order; absent or empty leaves the natural
-   * `(created_at, id)` order.
-   */
-  order?: OrderKey[];
-  /** Bounds the read; each field's `0` means unbounded. */
+  /** Sort keys applied in priority order. Claims lacking a key's field sort last, and the archive's natural (created_at, id) order breaks any remaining ties, so the sort always resolves to a total order (R-QSORT). */
+  order?: Order;
+  /** Bounds the read. A read cut short by either bound is a complete answer to the query as bounded, not an error (R-QLIMIT). */
   limit?: Limit;
-  /**
-   * Where the query runs and how it reports on itself (paper 02 §Filtered Reads).
-   * Queries are declarative; the planner lowers each to the most capable engine the
-   * storage stack offers, so these controls affect execution and diagnostics only,
-   * never the result set.
-   */
+  /** Where the query runs and how it reports on itself. These controls reach execution and diagnostics, and never the result set. */
   execution?: Execution;
-}
-
-/**
- * A generator in four orthogonal parts: `branch` is the **scope**, `head` the
- * **closure** read, `claim` where the walk **starts**, and `path` the
- * **traversal**. Scope and start are independent because a walk runs both ways:
- * a `uses` step reaches the claims that *cite* the current one, which lie above
- * it, so it is the closure — not the start — that decides a reverse step's
- * answer.
- */
-export interface Select {
-  /**
-   * The mandatory scope: a branch name (confines the query to that branch),
-   * `$archive` (the whole Ranke-Archive), or `$universe` (no confinement —
-   * privileged). An empty value is not allowed.
-   */
-  branch: string;
-  /**
-   * The closure read: the query sees the closure of this claim and nothing
-   * else. **Required** under `$universe`, which confines nothing and so offers
-   * no head to fall back on; optional under every other scope, where the
-   * scope's own head serves. Given explicitly it must resolve to a claim
-   * within the scope's closure, so it narrows the read and can never widen it
-   * past the grant.
-   */
-  head?: string;
-  /**
-   * Where the walk starts, which must lie inside the closure; absent, the walk
-   * starts at the closure's head. It moves where reading begins, never what is
-   * visible.
-   */
-  claim?: string;
-  /**
-   * The traversal: steps applied in order. A step-less `path` returns the full
-   * outward closure of the start claim.
-   */
-  path?: PathStep[];
-}
-
-/**
- * One bounded walk: follow `edges` in direction `dir` for between `min` and `max`
- * hops, optionally constraining what it yields to `nodes` types. `edges` gates
- * every hop; `nodes` gates only the claims the step yields, never those it passes
- * through. Each step starts from the **set** of endpoints the previous step
- * produced — a frontier pipeline — and the no-repeat rule applies within a step
- * and resets at each step boundary.
- */
-export interface PathStep {
-  /** Edge-class globs over `class/sub`; a leading `-` on an entry excludes that class. */
-  edges?: string[];
-  /**
-   * provenance (outgoing, toward references — the default), uses (incoming,
-   * the claims that cite this one), or connections (either).
-   */
-  dir?: "provenance" | "uses" | "connections";
-  /**
-   * Fewest hops; absent means 1, so a step moves at least one hop. `0` also
-   * yields the step's own starting set, carrying the frontier through
-   * alongside what lies beyond it.
-   * @min 0
-   */
-  min?: number;
-  /**
-   * Most hops; `0` means unbounded for this step (a step of at most zero hops
-   * would move nothing). A `min` above a bounded `max` is rejected.
-   * @min 0
-   */
-  max?: number;
-  /** Node-class globs the step may yield; a leading `-` excludes a class. */
-  nodes?: string[];
-}
-
-/**
- * A boolean tree. Each node is exactly one of the `and`/`or`/`not` combinators
- * over sub-trees, or a **leaf** naming a `field` and its `test`. Within a
- * `where`, `or` is boolean; across generators it unions whole result sets. A leaf
- * may name any field a claim carries, including the derived `height` (the level a
- * claim sits at above its sources, compared numerically).
- */
-export type Where =
-  | {
-      and: Where[];
-    }
-  | {
-      or: Where[];
-    }
-  | {
-      /**
-       * A boolean tree. Each node is exactly one of the `and`/`or`/`not` combinators
-       * over sub-trees, or a **leaf** naming a `field` and its `test`. Within a
-       * `where`, `or` is boolean; across generators it unions whole result sets. A leaf
-       * may name any field a claim carries, including the derived `height` (the level a
-       * claim sits at above its sources, compared numerically).
-       */
-      not: Where;
-    }
-  | {
-      /** The field tested — any field a claim carries, or the derived `height`. */
-      field: string;
-      /**
-       * A test on one field. Exactly one operator is expected. `in` takes a set;
-       * `glob` a shell-style wildcard; the rest a scalar.
-       */
-      test: Comparison;
-    };
-
-/**
- * A test on one field. Exactly one operator is expected. `in` takes a set;
- * `glob` a shell-style wildcard; the rest a scalar.
- */
-export interface Comparison {
-  eq?: any;
-  ne?: any;
-  lt?: any;
-  le?: any;
-  gt?: any;
-  ge?: any;
-  in?: any[];
-  glob?: string;
-}
-
-/**
- * Shapes each result along orthogonal axes and fixes the per-claim
- * serialization. `detail: claims` + `form: original` + `encoding: cbor`
- * reproduces the canonical bytes a claim's id is computed over — the only
- * combination directly verifiable against that id.
- */
-export interface Output {
-  /**
-   * single (each item is one reached endpoint — the default) or path (each item
-   * is the route to it, start-first).
-   */
-  shape?: "single" | "path";
-  /**
-   * How each element is carried: id (identities only), graph (nodes joined by
-   * the edges between them), or claims (each node with **all** its outgoing
-   * edges — the default, and richer than graph).
-   */
-  detail?: "id" | "graph" | "claims";
-  /**
-   * Which field values each claim carries: original (as written — a
-   * diff-overlaid claim's delta, and the id-defining form) or materialized
-   * (with any `contribution/diff` chain resolved). A property of the values,
-   * so orthogonal to `detail` and `encoding`.
-   */
-  form?: "original" | "materialized";
-  /**
-   * Inline content per claim. Absent, no content is inlined and a claim carries
-   * only its `content_hash`.
-   */
-  content?: OutputContent;
-  /**
-   * How each claim is serialised — json (text; content base64-encoded) or cbor
-   * (binary). The same information either way, and orthogonal to the other
-   * output fields; the response media type frames the sequence to match
-   * (`application/json-seq` / `application/cbor-seq`).
-   */
-  encoding?: "json" | "cbor";
-}
-
-/**
- * Inline content per claim. Absent, no content is inlined and a claim carries
- * only its `content_hash`.
- */
-export interface OutputContent {
-  /**
-   * Cap in bytes on the content inlined per claim.
-   * @min 0
-   */
-  max: number;
-  /**
-   * What happens to content past the cap: cutoff (truncate), omit (drop it),
-   * or reference (a `content_hash` stub in its place — the bytes are then
-   * fetched from the claim's content route).
-   */
-  overflow?: "cutoff" | "omit" | "reference";
-}
-
-/**
- * Where the query runs and how it reports on itself (paper 02 §Filtered Reads).
- * Queries are declarative; the planner lowers each to the most capable engine the
- * storage stack offers, so these controls affect execution and diagnostics only,
- * never the result set.
- */
-export interface Execution {
-  /**
-   * Pin execution to a named storage layer — any layer the stack composes —
-   * instead of letting the planner choose which layer answers. The engine then
-   * follows from that layer's capability (its native walk, or a Cypher/GQL
-   * engine if it has one).
-   */
-  layer?: string;
-  /**
-   * Execution-report verbosity: info (high-level stages), debug (routing and
-   * lowering), or trace (per-claim detail). Absent, no report is produced; set,
-   * the sequence's **final item** is a QueryReport.
-   */
-  report?: "info" | "debug" | "trace";
-}
-
-/**
- * One sort key. Keys apply in priority order, claims lacking a key's field sort
- * last, and the natural `(created_at, id)` order breaks any remaining ties — so
- * the sort always resolves to a total order and paging stays stable.
- */
-export interface OrderKey {
-  /** The field sorted on — any field a claim carries, or the derived `height`. */
-  field: string;
-  /** How the values compare; absent = lexical. */
-  compare?: "numeric" | "lexical";
-  /** Sort direction; absent = asc. */
-  dir?: "asc" | "desc";
-}
-
-/** Bounds the read; each field's `0` means unbounded. */
-export interface Limit {
-  /**
-   * Maximum number of claims returned; `0` = unbounded.
-   * @min 0
-   */
-  results?: number;
-  /**
-   * Execution budget as a duration (e.g. `"5s"`); the query is cancelled when
-   * exceeded. Absent or `"0"` = no budget.
-   */
-  time?: string;
 }
 
 /**
@@ -509,6 +251,169 @@ export interface Error {
   code: string;
   /** Human-readable message. Carries no subject id, even on 403. */
   error: string;
+}
+
+/**
+ * A claim id: id(v) = Sign(H(S(v))) for a node, id(e) = H(S(e)) for an edge, carried as multibase base32 of the self-describing payload. The pattern fixes the multibase framing; whether the payload's multihash or multikey framing parses is the implementation's check.
+ * @minLength 2
+ * @pattern ^b[a-z2-7]+$
+ */
+export type Id = string;
+
+/**
+ * A glob over class/sub, e.g. derivation/* or entity/person. A leading - excludes the type it names (R-QHOPS).
+ * @minLength 1
+ */
+export type TypeGlob = string;
+
+/** One bounded walk: follow the typed edges in direction dir and yield every claim reached at between min and max hops from the starting set, optionally constrained to nodes types. edges gates every hop; nodes gates the claims a step yields, never those it passes through. A min above a bounded max is refused by the implementation — a JSON Schema cannot compare two sibling values (R-QHOPS). */
+export interface PathStep {
+  /** Edge types every hop must match. */
+  edges?: TypeGlob[];
+  /** provenance follows references outward, uses runs to the claims that cite this one, connections either way. Absent, provenance. */
+  dir?: "provenance" | "uses" | "connections";
+  /**
+   * Fewest hops. Absent, 1 — a step moves at least one hop. 0 also yields the starting set, carrying the frontier through alongside what lies beyond it.
+   * @min 0
+   */
+  min?: number;
+  /**
+   * Most hops. 0, or absent, leaves the step unbounded: a step of at most zero hops would move nothing, so that reading has no use.
+   * @min 0
+   */
+  max?: number;
+  /** Node types the step may yield. */
+  nodes?: TypeGlob[];
+}
+
+/** A generator in four independent parts: branch is the scope, head the closure read, claim where the walk starts, path the traversal. Scope and start are independent because a walk runs both ways — a uses step reaches the claims that cite the current one, which lie above it, so the closure decides a reverse step's answer. */
+export type Select = {
+  /**
+   * The mandatory scope, and every scope names a graph: a branch name confines to that branch, $archive to the whole Ranke-Archive, $universe applies no confinement and is privileged. An empty value is refused (R-QSCOPE).
+   * @minLength 1
+   */
+  branch: string;
+  /** The closure read: the query sees closure(head) and nothing outside it. Required under $universe, which confines nothing and so offers no head to fall back on; optional elsewhere, where the scope's own head serves. Given explicitly under a branch or $archive it must resolve to a claim within that scope's closure, so it narrows a query and can never widen it past the grant (R-QHEAD). */
+  head?: Id;
+  /** Anchors the walk at one claim, which must lie inside the closure. Absent, the path is unanchored and matches wherever it fits in the closure. The anchor moves where reading begins, never what is visible (R-QANCHOR). */
+  claim?: Id;
+  /** The traversal, as a frontier pipeline: each step is an independent bounded walk starting from the set of endpoints the previous step produced, and the no-repeat rule applies within a step and resets at each boundary (R-QFRONTIER). Absent, the generator returns the full outward closure of the frontier. */
+  path?: PathStep[];
+};
+
+/** A boolean tree. Each node is exactly one of the and / or / not combinators over sub-trees, or a leaf naming a field and its test. Within a where, or is boolean; across generators it unions whole result sets. A leaf may name any field a claim carries, including the derived height (R-HEIGHT-FIELD). */
+export type Where =
+  | {
+      /** @minItems 1 */
+      and: Where[];
+    }
+  | {
+      /** @minItems 1 */
+      or: Where[];
+    }
+  | {
+      /** A boolean tree. Each node is exactly one of the and / or / not combinators over sub-trees, or a leaf naming a field and its test. Within a where, or is boolean; across generators it unions whole result sets. A leaf may name any field a claim carries, including the derived height (R-HEIGHT-FIELD). */
+      not: Where;
+    }
+  | {
+      /**
+       * The field tested — any field a claim carries, or the derived height.
+       * @minLength 1
+       */
+      field: string;
+      /** One operator applied to one field. eq, ne, lt, le, gt and ge take a value, in a set, glob a shell-style wildcard. Exactly one is present. */
+      test: Comparison;
+    };
+
+/** A value a comparison tests against. How two values compare is the engine's, so the shape is unconstrained here. */
+export type Value = any;
+
+/** One operator applied to one field. eq, ne, lt, le, gt and ge take a value, in a set, glob a shell-style wildcard. Exactly one is present. */
+export interface Comparison {
+  /** A value a comparison tests against. How two values compare is the engine's, so the shape is unconstrained here. */
+  eq?: Value;
+  /** A value a comparison tests against. How two values compare is the engine's, so the shape is unconstrained here. */
+  ne?: Value;
+  /** A value a comparison tests against. How two values compare is the engine's, so the shape is unconstrained here. */
+  lt?: Value;
+  /** A value a comparison tests against. How two values compare is the engine's, so the shape is unconstrained here. */
+  le?: Value;
+  /** A value a comparison tests against. How two values compare is the engine's, so the shape is unconstrained here. */
+  gt?: Value;
+  /** A value a comparison tests against. How two values compare is the engine's, so the shape is unconstrained here. */
+  ge?: Value;
+  /** Set membership. */
+  in?: Value[];
+  /** Shell-style wildcard. */
+  glob?: string;
+}
+
+/** Inline content per claim. Absent, no content is inlined and a claim carries only its content_hash (R-QOUTPUT). */
+export interface OutputContent {
+  /**
+   * Cap in bytes on the content inlined per claim.
+   * @min 0
+   */
+  max: number;
+  /** What becomes of content past the cap: cutoff truncates, omit drops it, reference leaves a content_hash stub in its place. */
+  overflow: "cutoff" | "omit" | "reference";
+}
+
+/** Shapes each result along orthogonal axes. detail: claims with form: original and encoding: cbor reproduces the canonical serialization S(v) a claim's id is computed over, and is the only output form directly verifiable against that id (R-QCANON). */
+export interface Output {
+  /** single yields the reached endpoints, one element each; path yields routes, each running outward from the frontier claim its walk began at (R-QOUTPUT). */
+  shape?: "single" | "path";
+  /** How much each element carries: id (the id, or the ids along a path), graph (nodes joined by the edges between them), or claims (the full claim for each node — the node with all its outgoing edges, so richer than graph) (R-QOUTPUT). */
+  detail?: "id" | "graph" | "claims";
+  /** Which field values a claim carries: original as written, a diff-overlaid claim's delta; materialized with any contribution/diff chain resolved over the predecessor it references, recursively to a base claim. A property of the values, hence orthogonal to detail and encoding (R-QOUTPUT). */
+  form?: "original" | "materialized";
+  /** Inline content per claim. Absent, no content is inlined and a claim carries only its content_hash (R-QOUTPUT). */
+  content?: OutputContent;
+  /** json is text with content base64-encoded, cbor is binary; the same information either way (R-QOUTPUT). */
+  encoding?: "json" | "cbor";
+}
+
+export interface OrderKey {
+  /**
+   * The field sorted on — any field a claim carries, or the derived height.
+   * @minLength 1
+   */
+  field: string;
+  /** How the values compare (R-QSORT). */
+  compare?: "numeric" | "lexical";
+  /** Sort direction (R-QSORT). */
+  dir?: "asc" | "desc";
+}
+
+/** Sort keys applied in priority order. Claims lacking a key's field sort last, and the archive's natural (created_at, id) order breaks any remaining ties, so the sort always resolves to a total order (R-QSORT). */
+export type Order = OrderKey[];
+
+/**
+ * A duration as a decimal sequence with unit suffixes — ns, us, ms, s, m, h — e.g. 5s or 1m30s. The bare 0 means unbounded.
+ * @pattern ^(0|([0-9]+(\.[0-9]+)?(ns|us|ms|s|m|h))+)$
+ */
+export type Duration = string;
+
+/** Bounds the read. A read cut short by either bound is a complete answer to the query as bounded, not an error (R-QLIMIT). */
+export interface Limit {
+  /**
+   * Caps the claim count; 0 is unbounded.
+   * @min 0
+   */
+  results?: number;
+  /** The execution budget; 0 is unbounded. */
+  time?: Duration;
+}
+
+/** Where the query runs and how it reports on itself. These controls reach execution and diagnostics, and never the result set. */
+export interface Execution {
+  /**
+   * Pins the query to one named storage or execution layer; absent, the backend chooses by capability.
+   * @minLength 1
+   */
+  layer?: string;
+  /** Report verbosity: info gives high-level stages, debug routing and lowering, trace per-claim detail. Set, and only then, the stream carries one final report record after the last element, typed distinctly from result claims (R-QREPORT). */
+  report?: "info" | "debug" | "trace";
 }
 
 export type QueryParamsType = Record<string | number, any>;

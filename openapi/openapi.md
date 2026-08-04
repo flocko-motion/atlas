@@ -181,7 +181,7 @@ is the privileged unconfined read and requires `select.head`.
 ```json
 {
   "select": {
-    "branch": "string",
+    "branch": "$universe",
     "head": "string",
     "claim": "string",
     "path": [
@@ -1336,7 +1336,7 @@ None, jwt, apikey, macaroon
 ```json
 {
   "select": {
-    "branch": "string",
+    "branch": "$universe",
     "head": "string",
     "claim": "string",
     "path": [
@@ -1389,387 +1389,18 @@ None, jwt, apikey, macaroon
 
 ```
 
-A RankeQL read (§RankeQL), evaluated in a fixed logical order: `select`
-generates the result set, `where` filters it, `order` sorts it, `limit`
-truncates it, and `output` shapes and encodes each surviving claim. An engine
-may reorder or lower those steps as long as the delivered result set is
-identical.
+A read, evaluated in a fixed logical order: select generates the result set, where filters it, order sorts it, limit truncates it, output shapes and encodes each surviving claim (R-QEVAL).
 
 ### Properties
 
 |Name|Type|Required|Restrictions|Description|
 |---|---|---|---|---|
-|select|[Select](#schemaselect)|true|none|A generator in four orthogonal parts: `branch` is the **scope**, `head` the<br>**closure** read, `claim` where the walk **starts**, and `path` the<br>**traversal**. Scope and start are independent because a walk runs both ways:<br>a `uses` step reaches the claims that *cite* the current one, which lie above<br>it, so it is the closure — not the start — that decides a reverse step's<br>answer.|
-|where|[Where](#schemawhere)|false|none|A boolean tree. Each node is exactly one of the `and`/`or`/`not` combinators<br>over sub-trees, or a **leaf** naming a `field` and its `test`. Within a<br>`where`, `or` is boolean; across generators it unions whole result sets. A leaf<br>may name any field a claim carries, including the derived `height` (the level a<br>claim sits at above its sources, compared numerically).|
-|output|[Output](#schemaoutput)|false|none|Shapes each result along orthogonal axes and fixes the per-claim<br>serialization. `detail: claims` + `form: original` + `encoding: cbor`<br>reproduces the canonical bytes a claim's id is computed over — the only<br>combination directly verifiable against that id.|
-|order|[[OrderKey](#schemaorderkey)]|false|none|Sort keys in priority order; absent or empty leaves the natural<br>`(created_at, id)` order.|
-|limit|[Limit](#schemalimit)|false|none|Bounds the read; each field's `0` means unbounded.|
-|execution|[Execution](#schemaexecution)|false|none|Where the query runs and how it reports on itself (paper 02 §Filtered Reads).<br>Queries are declarative; the planner lowers each to the most capable engine the<br>storage stack offers, so these controls affect execution and diagnostics only,<br>never the result set.|
-
-<h2 id="tocS_Select">Select</h2>
-<!-- backwards compatibility -->
-<a id="schemaselect"></a>
-<a id="schema_Select"></a>
-<a id="tocSselect"></a>
-<a id="tocsselect"></a>
-
-```json
-{
-  "branch": "string",
-  "head": "string",
-  "claim": "string",
-  "path": [
-    {
-      "edges": [
-        "string"
-      ],
-      "dir": "provenance",
-      "min": 0,
-      "max": 0,
-      "nodes": [
-        "string"
-      ]
-    }
-  ]
-}
-
-```
-
-A generator in four orthogonal parts: `branch` is the **scope**, `head` the
-**closure** read, `claim` where the walk **starts**, and `path` the
-**traversal**. Scope and start are independent because a walk runs both ways:
-a `uses` step reaches the claims that *cite* the current one, which lie above
-it, so it is the closure — not the start — that decides a reverse step's
-answer.
-
-### Properties
-
-|Name|Type|Required|Restrictions|Description|
-|---|---|---|---|---|
-|branch|string|true|none|The mandatory scope: a branch name (confines the query to that branch),<br>`$archive` (the whole Ranke-Archive), or `$universe` (no confinement —<br>privileged). An empty value is not allowed.|
-|head|string|false|none|The closure read: the query sees the closure of this claim and nothing<br>else. **Required** under `$universe`, which confines nothing and so offers<br>no head to fall back on; optional under every other scope, where the<br>scope's own head serves. Given explicitly it must resolve to a claim<br>within the scope's closure, so it narrows the read and can never widen it<br>past the grant.|
-|claim|string|false|none|Where the walk starts, which must lie inside the closure; absent, the walk<br>starts at the closure's head. It moves where reading begins, never what is<br>visible.|
-|path|[[PathStep](#schemapathstep)]|false|none|The traversal: steps applied in order. A step-less `path` returns the full<br>outward closure of the start claim.|
-
-<h2 id="tocS_PathStep">PathStep</h2>
-<!-- backwards compatibility -->
-<a id="schemapathstep"></a>
-<a id="schema_PathStep"></a>
-<a id="tocSpathstep"></a>
-<a id="tocspathstep"></a>
-
-```json
-{
-  "edges": [
-    "string"
-  ],
-  "dir": "provenance",
-  "min": 0,
-  "max": 0,
-  "nodes": [
-    "string"
-  ]
-}
-
-```
-
-One bounded walk: follow `edges` in direction `dir` for between `min` and `max`
-hops, optionally constraining what it yields to `nodes` types. `edges` gates
-every hop; `nodes` gates only the claims the step yields, never those it passes
-through. Each step starts from the **set** of endpoints the previous step
-produced — a frontier pipeline — and the no-repeat rule applies within a step
-and resets at each step boundary.
-
-### Properties
-
-|Name|Type|Required|Restrictions|Description|
-|---|---|---|---|---|
-|edges|[string]|false|none|Edge-class globs over `class/sub`; a leading `-` on an entry excludes that class.|
-|dir|string|false|none|provenance (outgoing, toward references — the default), uses (incoming,<br>the claims that cite this one), or connections (either).|
-|min|integer|false|none|Fewest hops; absent means 1, so a step moves at least one hop. `0` also<br>yields the step's own starting set, carrying the frontier through<br>alongside what lies beyond it.|
-|max|integer|false|none|Most hops; `0` means unbounded for this step (a step of at most zero hops<br>would move nothing). A `min` above a bounded `max` is rejected.|
-|nodes|[string]|false|none|Node-class globs the step may yield; a leading `-` excludes a class.|
-
-#### Enumerated Values
-
-|Property|Value|
-|---|---|
-|dir|provenance|
-|dir|uses|
-|dir|connections|
-
-<h2 id="tocS_Where">Where</h2>
-<!-- backwards compatibility -->
-<a id="schemawhere"></a>
-<a id="schema_Where"></a>
-<a id="tocSwhere"></a>
-<a id="tocswhere"></a>
-
-```json
-{
-  "and": [
-    {
-      "and": []
-    }
-  ]
-}
-
-```
-
-A boolean tree. Each node is exactly one of the `and`/`or`/`not` combinators
-over sub-trees, or a **leaf** naming a `field` and its `test`. Within a
-`where`, `or` is boolean; across generators it unions whole result sets. A leaf
-may name any field a claim carries, including the derived `height` (the level a
-claim sits at above its sources, compared numerically).
-
-### Properties
-
-oneOf
-
-|Name|Type|Required|Restrictions|Description|
-|---|---|---|---|---|
-|*anonymous*|object|false|none|none|
-|» and|[[Where](#schemawhere)]|true|none|[A boolean tree. Each node is exactly one of the `and`/`or`/`not` combinators<br>over sub-trees, or a **leaf** naming a `field` and its `test`. Within a<br>`where`, `or` is boolean; across generators it unions whole result sets. A leaf<br>may name any field a claim carries, including the derived `height` (the level a<br>claim sits at above its sources, compared numerically).<br>]|
-
-xor
-
-|Name|Type|Required|Restrictions|Description|
-|---|---|---|---|---|
-|*anonymous*|object|false|none|none|
-|» or|[[Where](#schemawhere)]|true|none|[A boolean tree. Each node is exactly one of the `and`/`or`/`not` combinators<br>over sub-trees, or a **leaf** naming a `field` and its `test`. Within a<br>`where`, `or` is boolean; across generators it unions whole result sets. A leaf<br>may name any field a claim carries, including the derived `height` (the level a<br>claim sits at above its sources, compared numerically).<br>]|
-
-xor
-
-|Name|Type|Required|Restrictions|Description|
-|---|---|---|---|---|
-|*anonymous*|object|false|none|none|
-|» not|[Where](#schemawhere)|true|none|A boolean tree. Each node is exactly one of the `and`/`or`/`not` combinators<br>over sub-trees, or a **leaf** naming a `field` and its `test`. Within a<br>`where`, `or` is boolean; across generators it unions whole result sets. A leaf<br>may name any field a claim carries, including the derived `height` (the level a<br>claim sits at above its sources, compared numerically).|
-
-xor
-
-|Name|Type|Required|Restrictions|Description|
-|---|---|---|---|---|
-|*anonymous*|object|false|none|A leaf: one field, one comparison (e.g. {"field": "type", "test": {"glob": "source/*"}}).|
-|» field|string|true|none|The field tested — any field a claim carries, or the derived `height`.|
-|» test|[Comparison](#schemacomparison)|true|none|A test on one field. Exactly one operator is expected. `in` takes a set;<br>`glob` a shell-style wildcard; the rest a scalar.|
-
-<h2 id="tocS_Comparison">Comparison</h2>
-<!-- backwards compatibility -->
-<a id="schemacomparison"></a>
-<a id="schema_Comparison"></a>
-<a id="tocScomparison"></a>
-<a id="tocscomparison"></a>
-
-```json
-{
-  "eq": null,
-  "ne": null,
-  "lt": null,
-  "le": null,
-  "gt": null,
-  "ge": null,
-  "in": [
-    null
-  ],
-  "glob": "string"
-}
-
-```
-
-A test on one field. Exactly one operator is expected. `in` takes a set;
-`glob` a shell-style wildcard; the rest a scalar.
-
-### Properties
-
-|Name|Type|Required|Restrictions|Description|
-|---|---|---|---|---|
-|eq|any|false|none|none|
-|ne|any|false|none|none|
-|lt|any|false|none|none|
-|le|any|false|none|none|
-|gt|any|false|none|none|
-|ge|any|false|none|none|
-|in|[any]|false|none|none|
-|glob|string|false|none|none|
-
-<h2 id="tocS_Output">Output</h2>
-<!-- backwards compatibility -->
-<a id="schemaoutput"></a>
-<a id="schema_Output"></a>
-<a id="tocSoutput"></a>
-<a id="tocsoutput"></a>
-
-```json
-{
-  "shape": "single",
-  "detail": "id",
-  "form": "original",
-  "content": {
-    "max": 0,
-    "overflow": "cutoff"
-  },
-  "encoding": "json"
-}
-
-```
-
-Shapes each result along orthogonal axes and fixes the per-claim
-serialization. `detail: claims` + `form: original` + `encoding: cbor`
-reproduces the canonical bytes a claim's id is computed over — the only
-combination directly verifiable against that id.
-
-### Properties
-
-|Name|Type|Required|Restrictions|Description|
-|---|---|---|---|---|
-|shape|string|false|none|single (each item is one reached endpoint — the default) or path (each item<br>is the route to it, start-first).|
-|detail|string|false|none|How each element is carried: id (identities only), graph (nodes joined by<br>the edges between them), or claims (each node with **all** its outgoing<br>edges — the default, and richer than graph).|
-|form|string|false|none|Which field values each claim carries: original (as written — a<br>diff-overlaid claim's delta, and the id-defining form) or materialized<br>(with any `contribution/diff` chain resolved). A property of the values,<br>so orthogonal to `detail` and `encoding`.|
-|content|[OutputContent](#schemaoutputcontent)|false|none|Inline content per claim. Absent, no content is inlined and a claim carries<br>only its `content_hash`.|
-|encoding|string|false|none|How each claim is serialised — json (text; content base64-encoded) or cbor<br>(binary). The same information either way, and orthogonal to the other<br>output fields; the response media type frames the sequence to match<br>(`application/json-seq` / `application/cbor-seq`).|
-
-#### Enumerated Values
-
-|Property|Value|
-|---|---|
-|shape|single|
-|shape|path|
-|detail|id|
-|detail|graph|
-|detail|claims|
-|form|original|
-|form|materialized|
-|encoding|json|
-|encoding|cbor|
-
-<h2 id="tocS_OutputContent">OutputContent</h2>
-<!-- backwards compatibility -->
-<a id="schemaoutputcontent"></a>
-<a id="schema_OutputContent"></a>
-<a id="tocSoutputcontent"></a>
-<a id="tocsoutputcontent"></a>
-
-```json
-{
-  "max": 0,
-  "overflow": "cutoff"
-}
-
-```
-
-Inline content per claim. Absent, no content is inlined and a claim carries
-only its `content_hash`.
-
-### Properties
-
-|Name|Type|Required|Restrictions|Description|
-|---|---|---|---|---|
-|max|integer|true|none|Cap in bytes on the content inlined per claim.|
-|overflow|string|false|none|What happens to content past the cap: cutoff (truncate), omit (drop it),<br>or reference (a `content_hash` stub in its place — the bytes are then<br>fetched from the claim's content route).|
-
-#### Enumerated Values
-
-|Property|Value|
-|---|---|
-|overflow|cutoff|
-|overflow|omit|
-|overflow|reference|
-
-<h2 id="tocS_Execution">Execution</h2>
-<!-- backwards compatibility -->
-<a id="schemaexecution"></a>
-<a id="schema_Execution"></a>
-<a id="tocSexecution"></a>
-<a id="tocsexecution"></a>
-
-```json
-{
-  "layer": "string",
-  "report": "info"
-}
-
-```
-
-Where the query runs and how it reports on itself (paper 02 §Filtered Reads).
-Queries are declarative; the planner lowers each to the most capable engine the
-storage stack offers, so these controls affect execution and diagnostics only,
-never the result set.
-
-### Properties
-
-|Name|Type|Required|Restrictions|Description|
-|---|---|---|---|---|
-|layer|string|false|none|Pin execution to a named storage layer — any layer the stack composes —<br>instead of letting the planner choose which layer answers. The engine then<br>follows from that layer's capability (its native walk, or a Cypher/GQL<br>engine if it has one).|
-|report|string|false|none|Execution-report verbosity: info (high-level stages), debug (routing and<br>lowering), or trace (per-claim detail). Absent, no report is produced; set,<br>the sequence's **final item** is a QueryReport.|
-
-#### Enumerated Values
-
-|Property|Value|
-|---|---|
-|report|info|
-|report|debug|
-|report|trace|
-
-<h2 id="tocS_OrderKey">OrderKey</h2>
-<!-- backwards compatibility -->
-<a id="schemaorderkey"></a>
-<a id="schema_OrderKey"></a>
-<a id="tocSorderkey"></a>
-<a id="tocsorderkey"></a>
-
-```json
-{
-  "field": "string",
-  "compare": "numeric",
-  "dir": "asc"
-}
-
-```
-
-One sort key. Keys apply in priority order, claims lacking a key's field sort
-last, and the natural `(created_at, id)` order breaks any remaining ties — so
-the sort always resolves to a total order and paging stays stable.
-
-### Properties
-
-|Name|Type|Required|Restrictions|Description|
-|---|---|---|---|---|
-|field|string|true|none|The field sorted on — any field a claim carries, or the derived `height`.|
-|compare|string|false|none|How the values compare; absent = lexical.|
-|dir|string|false|none|Sort direction; absent = asc.|
-
-#### Enumerated Values
-
-|Property|Value|
-|---|---|
-|compare|numeric|
-|compare|lexical|
-|dir|asc|
-|dir|desc|
-
-<h2 id="tocS_Limit">Limit</h2>
-<!-- backwards compatibility -->
-<a id="schemalimit"></a>
-<a id="schema_Limit"></a>
-<a id="tocSlimit"></a>
-<a id="tocslimit"></a>
-
-```json
-{
-  "results": 0,
-  "time": "string"
-}
-
-```
-
-Bounds the read; each field's `0` means unbounded.
-
-### Properties
-
-|Name|Type|Required|Restrictions|Description|
-|---|---|---|---|---|
-|results|integer|false|none|Maximum number of claims returned; `0` = unbounded.|
-|time|string|false|none|Execution budget as a duration (e.g. `"5s"`); the query is cancelled when<br>exceeded. Absent or `"0"` = no budget.|
+|select|[Select](#schemaselect)|true|none|A generator in four independent parts: branch is the scope, head the closure read, claim where the walk starts, path the traversal. Scope and start are independent because a walk runs both ways — a uses step reaches the claims that cite the current one, which lie above it, so the closure decides a reverse step's answer.|
+|where|[Where](#schemawhere)|false|none|A boolean tree. Each node is exactly one of the and / or / not combinators over sub-trees, or a leaf naming a field and its test. Within a where, or is boolean; across generators it unions whole result sets. A leaf may name any field a claim carries, including the derived height (R-HEIGHT-FIELD).|
+|output|[Output](#schemaoutput)|false|none|Shapes each result along orthogonal axes. detail: claims with form: original and encoding: cbor reproduces the canonical serialization S(v) a claim's id is computed over, and is the only output form directly verifiable against that id (R-QCANON).|
+|order|[Order](#schemaorder)|false|none|Sort keys applied in priority order. Claims lacking a key's field sort last, and the archive's natural (created_at, id) order breaks any remaining ties, so the sort always resolves to a total order (R-QSORT).|
+|limit|[Limit](#schemalimit)|false|none|Bounds the read. A read cut short by either bound is a complete answer to the query as bounded, not an error (R-QLIMIT).|
+|execution|[Execution](#schemaexecution)|false|none|Where the query runs and how it reports on itself. These controls reach execution and diagnostics, and never the result set.|
 
 <h2 id="tocS_QueryReport">QueryReport</h2>
 <!-- backwards compatibility -->
@@ -2270,4 +1901,438 @@ A point-in-time record of a verification run; embeds the config that produced it
 |---|---|---|---|---|
 |code|string|true|none|Machine-readable failure category, stable across releases — one of<br>unauthenticated, forbidden, not_found, conflict, busy, invalid,<br>unimplemented, internal. Clients branch on this, not on the message.|
 |error|string|true|none|Human-readable message. Carries no subject id, even on 403.|
+
+<h2 id="tocS_Id">Id</h2>
+<!-- backwards compatibility -->
+<a id="schemaid"></a>
+<a id="schema_Id"></a>
+<a id="tocSid"></a>
+<a id="tocsid"></a>
+
+```json
+"string"
+
+```
+
+A claim id: id(v) = Sign(H(S(v))) for a node, id(e) = H(S(e)) for an edge, carried as multibase base32 of the self-describing payload. The pattern fixes the multibase framing; whether the payload's multihash or multikey framing parses is the implementation's check.
+
+### Properties
+
+|Name|Type|Required|Restrictions|Description|
+|---|---|---|---|---|
+|*anonymous*|string|false|none|A claim id: id(v) = Sign(H(S(v))) for a node, id(e) = H(S(e)) for an edge, carried as multibase base32 of the self-describing payload. The pattern fixes the multibase framing; whether the payload's multihash or multikey framing parses is the implementation's check.|
+
+<h2 id="tocS_TypeGlob">TypeGlob</h2>
+<!-- backwards compatibility -->
+<a id="schematypeglob"></a>
+<a id="schema_TypeGlob"></a>
+<a id="tocStypeglob"></a>
+<a id="tocstypeglob"></a>
+
+```json
+"string"
+
+```
+
+A glob over class/sub, e.g. derivation/* or entity/person. A leading - excludes the type it names (R-QHOPS).
+
+### Properties
+
+|Name|Type|Required|Restrictions|Description|
+|---|---|---|---|---|
+|*anonymous*|string|false|none|A glob over class/sub, e.g. derivation/* or entity/person. A leading - excludes the type it names (R-QHOPS).|
+
+<h2 id="tocS_PathStep">PathStep</h2>
+<!-- backwards compatibility -->
+<a id="schemapathstep"></a>
+<a id="schema_PathStep"></a>
+<a id="tocSpathstep"></a>
+<a id="tocspathstep"></a>
+
+```json
+{
+  "edges": [
+    "string"
+  ],
+  "dir": "provenance",
+  "min": 0,
+  "max": 0,
+  "nodes": [
+    "string"
+  ]
+}
+
+```
+
+One bounded walk: follow the typed edges in direction dir and yield every claim reached at between min and max hops from the starting set, optionally constrained to nodes types. edges gates every hop; nodes gates the claims a step yields, never those it passes through. A min above a bounded max is refused by the implementation — a JSON Schema cannot compare two sibling values (R-QHOPS).
+
+### Properties
+
+|Name|Type|Required|Restrictions|Description|
+|---|---|---|---|---|
+|edges|[[TypeGlob](#schematypeglob)]|false|none|Edge types every hop must match.|
+|dir|string|false|none|provenance follows references outward, uses runs to the claims that cite this one, connections either way. Absent, provenance.|
+|min|integer|false|none|Fewest hops. Absent, 1 — a step moves at least one hop. 0 also yields the starting set, carrying the frontier through alongside what lies beyond it.|
+|max|integer|false|none|Most hops. 0, or absent, leaves the step unbounded: a step of at most zero hops would move nothing, so that reading has no use.|
+|nodes|[[TypeGlob](#schematypeglob)]|false|none|Node types the step may yield.|
+
+#### Enumerated Values
+
+|Property|Value|
+|---|---|
+|dir|provenance|
+|dir|uses|
+|dir|connections|
+
+<h2 id="tocS_Select">Select</h2>
+<!-- backwards compatibility -->
+<a id="schemaselect"></a>
+<a id="schema_Select"></a>
+<a id="tocSselect"></a>
+<a id="tocsselect"></a>
+
+```json
+{
+  "branch": "$universe",
+  "head": "string",
+  "claim": "string",
+  "path": [
+    {
+      "edges": [
+        "string"
+      ],
+      "dir": "provenance",
+      "min": 0,
+      "max": 0,
+      "nodes": [
+        "string"
+      ]
+    }
+  ]
+}
+
+```
+
+A generator in four independent parts: branch is the scope, head the closure read, claim where the walk starts, path the traversal. Scope and start are independent because a walk runs both ways — a uses step reaches the claims that cite the current one, which lie above it, so the closure decides a reverse step's answer.
+
+### Properties
+
+|Name|Type|Required|Restrictions|Description|
+|---|---|---|---|---|
+|branch|string|true|none|The mandatory scope, and every scope names a graph: a branch name confines to that branch, $archive to the whole Ranke-Archive, $universe applies no confinement and is privileged. An empty value is refused (R-QSCOPE).|
+|head|[Id](#schemaid)|false|none|The closure read: the query sees closure(head) and nothing outside it. Required under $universe, which confines nothing and so offers no head to fall back on; optional elsewhere, where the scope's own head serves. Given explicitly under a branch or $archive it must resolve to a claim within that scope's closure, so it narrows a query and can never widen it past the grant (R-QHEAD).|
+|claim|[Id](#schemaid)|false|none|Anchors the walk at one claim, which must lie inside the closure. Absent, the path is unanchored and matches wherever it fits in the closure. The anchor moves where reading begins, never what is visible (R-QANCHOR).|
+|path|[[PathStep](#schemapathstep)]|false|none|The traversal, as a frontier pipeline: each step is an independent bounded walk starting from the set of endpoints the previous step produced, and the no-repeat rule applies within a step and resets at each boundary (R-QFRONTIER). Absent, the generator returns the full outward closure of the frontier.|
+
+<h2 id="tocS_Where">Where</h2>
+<!-- backwards compatibility -->
+<a id="schemawhere"></a>
+<a id="schema_Where"></a>
+<a id="tocSwhere"></a>
+<a id="tocswhere"></a>
+
+```json
+{
+  "and": [
+    {
+      "and": []
+    }
+  ]
+}
+
+```
+
+A boolean tree. Each node is exactly one of the and / or / not combinators over sub-trees, or a leaf naming a field and its test. Within a where, or is boolean; across generators it unions whole result sets. A leaf may name any field a claim carries, including the derived height (R-HEIGHT-FIELD).
+
+### Properties
+
+oneOf
+
+|Name|Type|Required|Restrictions|Description|
+|---|---|---|---|---|
+|*anonymous*|object|false|none|none|
+|» and|[[Where](#schemawhere)]|true|none|[A boolean tree. Each node is exactly one of the and / or / not combinators over sub-trees, or a leaf naming a field and its test. Within a where, or is boolean; across generators it unions whole result sets. A leaf may name any field a claim carries, including the derived height (R-HEIGHT-FIELD).]|
+
+xor
+
+|Name|Type|Required|Restrictions|Description|
+|---|---|---|---|---|
+|*anonymous*|object|false|none|none|
+|» or|[[Where](#schemawhere)]|true|none|[A boolean tree. Each node is exactly one of the and / or / not combinators over sub-trees, or a leaf naming a field and its test. Within a where, or is boolean; across generators it unions whole result sets. A leaf may name any field a claim carries, including the derived height (R-HEIGHT-FIELD).]|
+
+xor
+
+|Name|Type|Required|Restrictions|Description|
+|---|---|---|---|---|
+|*anonymous*|object|false|none|none|
+|» not|[Where](#schemawhere)|true|none|A boolean tree. Each node is exactly one of the and / or / not combinators over sub-trees, or a leaf naming a field and its test. Within a where, or is boolean; across generators it unions whole result sets. A leaf may name any field a claim carries, including the derived height (R-HEIGHT-FIELD).|
+
+xor
+
+|Name|Type|Required|Restrictions|Description|
+|---|---|---|---|---|
+|*anonymous*|object|false|none|A leaf: one field, one comparison.|
+|» field|string|true|none|The field tested — any field a claim carries, or the derived height.|
+|» test|[Comparison](#schemacomparison)|true|none|One operator applied to one field. eq, ne, lt, le, gt and ge take a value, in a set, glob a shell-style wildcard. Exactly one is present.|
+
+<h2 id="tocS_Value">Value</h2>
+<!-- backwards compatibility -->
+<a id="schemavalue"></a>
+<a id="schema_Value"></a>
+<a id="tocSvalue"></a>
+<a id="tocsvalue"></a>
+
+```json
+null
+
+```
+
+A value a comparison tests against. How two values compare is the engine's, so the shape is unconstrained here.
+
+### Properties
+
+*None*
+
+<h2 id="tocS_Comparison">Comparison</h2>
+<!-- backwards compatibility -->
+<a id="schemacomparison"></a>
+<a id="schema_Comparison"></a>
+<a id="tocScomparison"></a>
+<a id="tocscomparison"></a>
+
+```json
+{
+  "eq": null
+}
+
+```
+
+One operator applied to one field. eq, ne, lt, le, gt and ge take a value, in a set, glob a shell-style wildcard. Exactly one is present.
+
+### Properties
+
+|Name|Type|Required|Restrictions|Description|
+|---|---|---|---|---|
+|eq|[Value](#schemavalue)|false|none|A value a comparison tests against. How two values compare is the engine's, so the shape is unconstrained here.|
+|ne|[Value](#schemavalue)|false|none|A value a comparison tests against. How two values compare is the engine's, so the shape is unconstrained here.|
+|lt|[Value](#schemavalue)|false|none|A value a comparison tests against. How two values compare is the engine's, so the shape is unconstrained here.|
+|le|[Value](#schemavalue)|false|none|A value a comparison tests against. How two values compare is the engine's, so the shape is unconstrained here.|
+|gt|[Value](#schemavalue)|false|none|A value a comparison tests against. How two values compare is the engine's, so the shape is unconstrained here.|
+|ge|[Value](#schemavalue)|false|none|A value a comparison tests against. How two values compare is the engine's, so the shape is unconstrained here.|
+|in|[[Value](#schemavalue)]|false|none|Set membership.|
+|glob|string|false|none|Shell-style wildcard.|
+
+<h2 id="tocS_OutputContent">OutputContent</h2>
+<!-- backwards compatibility -->
+<a id="schemaoutputcontent"></a>
+<a id="schema_OutputContent"></a>
+<a id="tocSoutputcontent"></a>
+<a id="tocsoutputcontent"></a>
+
+```json
+{
+  "max": 0,
+  "overflow": "cutoff"
+}
+
+```
+
+Inline content per claim. Absent, no content is inlined and a claim carries only its content_hash (R-QOUTPUT).
+
+### Properties
+
+|Name|Type|Required|Restrictions|Description|
+|---|---|---|---|---|
+|max|integer|true|none|Cap in bytes on the content inlined per claim.|
+|overflow|string|true|none|What becomes of content past the cap: cutoff truncates, omit drops it, reference leaves a content_hash stub in its place.|
+
+#### Enumerated Values
+
+|Property|Value|
+|---|---|
+|overflow|cutoff|
+|overflow|omit|
+|overflow|reference|
+
+<h2 id="tocS_Output">Output</h2>
+<!-- backwards compatibility -->
+<a id="schemaoutput"></a>
+<a id="schema_Output"></a>
+<a id="tocSoutput"></a>
+<a id="tocsoutput"></a>
+
+```json
+{
+  "shape": "single",
+  "detail": "id",
+  "form": "original",
+  "content": {
+    "max": 0,
+    "overflow": "cutoff"
+  },
+  "encoding": "json"
+}
+
+```
+
+Shapes each result along orthogonal axes. detail: claims with form: original and encoding: cbor reproduces the canonical serialization S(v) a claim's id is computed over, and is the only output form directly verifiable against that id (R-QCANON).
+
+### Properties
+
+|Name|Type|Required|Restrictions|Description|
+|---|---|---|---|---|
+|shape|string|false|none|single yields the reached endpoints, one element each; path yields routes, each running outward from the frontier claim its walk began at (R-QOUTPUT).|
+|detail|string|false|none|How much each element carries: id (the id, or the ids along a path), graph (nodes joined by the edges between them), or claims (the full claim for each node — the node with all its outgoing edges, so richer than graph) (R-QOUTPUT).|
+|form|string|false|none|Which field values a claim carries: original as written, a diff-overlaid claim's delta; materialized with any contribution/diff chain resolved over the predecessor it references, recursively to a base claim. A property of the values, hence orthogonal to detail and encoding (R-QOUTPUT).|
+|content|[OutputContent](#schemaoutputcontent)|false|none|Inline content per claim. Absent, no content is inlined and a claim carries only its content_hash (R-QOUTPUT).|
+|encoding|string|false|none|json is text with content base64-encoded, cbor is binary; the same information either way (R-QOUTPUT).|
+
+#### Enumerated Values
+
+|Property|Value|
+|---|---|
+|shape|single|
+|shape|path|
+|detail|id|
+|detail|graph|
+|detail|claims|
+|form|original|
+|form|materialized|
+|encoding|json|
+|encoding|cbor|
+
+<h2 id="tocS_OrderKey">OrderKey</h2>
+<!-- backwards compatibility -->
+<a id="schemaorderkey"></a>
+<a id="schema_OrderKey"></a>
+<a id="tocSorderkey"></a>
+<a id="tocsorderkey"></a>
+
+```json
+{
+  "field": "string",
+  "compare": "numeric",
+  "dir": "asc"
+}
+
+```
+
+### Properties
+
+|Name|Type|Required|Restrictions|Description|
+|---|---|---|---|---|
+|field|string|true|none|The field sorted on — any field a claim carries, or the derived height.|
+|compare|string|false|none|How the values compare (R-QSORT).|
+|dir|string|false|none|Sort direction (R-QSORT).|
+
+#### Enumerated Values
+
+|Property|Value|
+|---|---|
+|compare|numeric|
+|compare|lexical|
+|dir|asc|
+|dir|desc|
+
+<h2 id="tocS_Order">Order</h2>
+<!-- backwards compatibility -->
+<a id="schemaorder"></a>
+<a id="schema_Order"></a>
+<a id="tocSorder"></a>
+<a id="tocsorder"></a>
+
+```json
+[
+  {
+    "field": "string",
+    "compare": "numeric",
+    "dir": "asc"
+  }
+]
+
+```
+
+Sort keys applied in priority order. Claims lacking a key's field sort last, and the archive's natural (created_at, id) order breaks any remaining ties, so the sort always resolves to a total order (R-QSORT).
+
+### Properties
+
+|Name|Type|Required|Restrictions|Description|
+|---|---|---|---|---|
+|*anonymous*|[[OrderKey](#schemaorderkey)]|false|none|Sort keys applied in priority order. Claims lacking a key's field sort last, and the archive's natural (created_at, id) order breaks any remaining ties, so the sort always resolves to a total order (R-QSORT).|
+
+<h2 id="tocS_Duration">Duration</h2>
+<!-- backwards compatibility -->
+<a id="schemaduration"></a>
+<a id="schema_Duration"></a>
+<a id="tocSduration"></a>
+<a id="tocsduration"></a>
+
+```json
+"string"
+
+```
+
+A duration as a decimal sequence with unit suffixes — ns, us, ms, s, m, h — e.g. 5s or 1m30s. The bare 0 means unbounded.
+
+### Properties
+
+|Name|Type|Required|Restrictions|Description|
+|---|---|---|---|---|
+|*anonymous*|string|false|none|A duration as a decimal sequence with unit suffixes — ns, us, ms, s, m, h — e.g. 5s or 1m30s. The bare 0 means unbounded.|
+
+<h2 id="tocS_Limit">Limit</h2>
+<!-- backwards compatibility -->
+<a id="schemalimit"></a>
+<a id="schema_Limit"></a>
+<a id="tocSlimit"></a>
+<a id="tocslimit"></a>
+
+```json
+{
+  "results": 0,
+  "time": "string"
+}
+
+```
+
+Bounds the read. A read cut short by either bound is a complete answer to the query as bounded, not an error (R-QLIMIT).
+
+### Properties
+
+|Name|Type|Required|Restrictions|Description|
+|---|---|---|---|---|
+|results|integer|false|none|Caps the claim count; 0 is unbounded.|
+|time|[Duration](#schemaduration)|false|none|The execution budget; 0 is unbounded.|
+
+<h2 id="tocS_Execution">Execution</h2>
+<!-- backwards compatibility -->
+<a id="schemaexecution"></a>
+<a id="schema_Execution"></a>
+<a id="tocSexecution"></a>
+<a id="tocsexecution"></a>
+
+```json
+{
+  "layer": "string",
+  "report": "info"
+}
+
+```
+
+Where the query runs and how it reports on itself. These controls reach execution and diagnostics, and never the result set.
+
+### Properties
+
+|Name|Type|Required|Restrictions|Description|
+|---|---|---|---|---|
+|layer|string|false|none|Pins the query to one named storage or execution layer; absent, the backend chooses by capability.|
+|report|string|false|none|Report verbosity: info gives high-level stages, debug routing and lowering, trace per-claim detail. Set, and only then, the stream carries one final report record after the last element, typed distinctly from result claims (R-QREPORT).|
+
+#### Enumerated Values
+
+|Property|Value|
+|---|---|
+|report|info|
+|report|debug|
+|report|trace|
 

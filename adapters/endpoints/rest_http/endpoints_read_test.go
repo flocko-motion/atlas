@@ -1,22 +1,15 @@
 package rest_http
 
 import (
-	"encoding/json"
 	"reflect"
 	"testing"
 	"time"
 
 	ranke "github.com/flocko-motion/ranke-go"
-
-	"github.com/flocko-motion/rankedb/openapi"
 )
 
-// TestRankeQuery drives the wire→RQL mapping from actual request JSON, since that
-// is the only thing a client sends. The wire binds ranke-go's RQL field-for-field,
-// so what each case pins is that the binding is *faithful*: every axis of the
-// language reaches the library intact, with none folded away or unreachable, and
-// the two rules the JSON schema cannot state (a scope is mandatory, $universe needs
-// a head) enforced at the boundary.
+// The codec is ranke-go's, so these cases pin the version bound here: every axis of
+// the read language reaches the library intact from the JSON a client actually sends.
 func TestRankeQuery(t *testing.T) {
 	for _, tc := range []struct {
 		name string
@@ -181,21 +174,16 @@ func TestRankeQuery(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			var wire openapi.Query
-			if err := json.Unmarshal([]byte(tc.body), &wire); err != nil {
-				t.Fatalf("decode wire body: %v", err)
-			}
-			q, err := rankeQuery(wire)
+			q, err := ranke.DecodeQuery([]byte(tc.body))
 			if err != nil {
-				t.Fatalf("rankeQuery: %v", err)
+				t.Fatalf("DecodeQuery: %v", err)
 			}
 			tc.want(t, q)
 		})
 	}
 }
 
-// TestRankeQueryRejects covers the wire values that cannot be honoured. They are
-// rejected at the boundary so the engine never sees a half-understood query.
+// Refused before the engine sees them, so it never runs a half-understood query.
 func TestRankeQueryRejects(t *testing.T) {
 	for _, tc := range []struct{ name, body string }{
 		{"no scope", `{"select": {}}`},
@@ -206,12 +194,8 @@ func TestRankeQueryRejects(t *testing.T) {
 		{"where neither tree nor leaf", `{"select": {"branch": "foo"}, "where": {"and": []}}`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			var wire openapi.Query
-			if err := json.Unmarshal([]byte(tc.body), &wire); err != nil {
-				t.Fatalf("decode wire body: %v", err)
-			}
-			if q, err := rankeQuery(wire); err == nil {
-				t.Fatalf("rankeQuery accepted %s → %+v, want a refusal", tc.body, q)
+			if q, err := ranke.DecodeQuery([]byte(tc.body)); err == nil {
+				t.Fatalf("DecodeQuery accepted %s → %+v, want a refusal", tc.body, q)
 			}
 		})
 	}
