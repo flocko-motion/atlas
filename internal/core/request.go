@@ -21,9 +21,12 @@ import (
 )
 
 // The reserved pseudo-branches, re-exported from access so a request targets them
-// through core alone: Universe is the privileged by-id read, Branches the branch table.
+// through core alone. They are the scopes a read names: Universe the privileged read
+// under no closure, Archive the closure of the whole archive across every branch, and
+// Branches the branch table itself.
 const (
 	Universe = access.Universe
+	Archive  = access.Archive
 	Branches = access.Branches
 )
 

@@ -63,7 +63,7 @@ func (c *client) contribute(ctx context.Context, body []byte) (openapi.Contribut
 
 // head reads a branch's current head claim id.
 func (c *client) head(ctx context.Context, branch string) (string, error) {
-	out, err := c.do(ctx, http.MethodGet, "/"+url.PathEscape(branch)+"/head", "", nil)
+	out, err := c.do(ctx, http.MethodGet, "/branches/"+url.PathEscape(branch)+"/head", "", nil)
 	if err != nil {
 		return "", err
 	}

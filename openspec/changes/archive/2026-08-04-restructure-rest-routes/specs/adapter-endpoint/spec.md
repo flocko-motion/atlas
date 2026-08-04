@@ -3,9 +3,10 @@
 ### Requirement: REST/HTTP carries the full surface plus cacheable GET routes
 The system SHALL expose over REST/HTTP the full surface as `POST /query` and
 `POST /contribute`, and SHALL pin a subset of the query language as GET routes —
-`GET /branches`, `GET /branches/{branch}/head`, `GET /branches/{branch}/claims/{id}`, and
-`GET /claims/{id}` — reachable without JSON and HTTP-cacheable: the by-id form immutably,
-the branch listing and branch head with revalidation.
+`GET /branches`, `GET /branches/{branch}/head`, `GET /branches/{branch}/claims/{id}`,
+`GET /archive/claims/{id}` and `GET /universe/claims/{id}` — reachable without JSON and
+HTTP-cacheable: the by-id forms immutably, the branch listing and branch head with
+revalidation.
 
 Those routes SHALL be typable as they stand, needing no quoting or escaping, since being
 reachable from a browser or `curl` without a JSON body is what they are pinned for.

@@ -98,9 +98,10 @@ export class RestSource implements DataSource {
 
   /** headOf reads a branch head — the one moving target in an archive. */
   async headOf(branch: string): Promise<string> {
-    const response = await fetch(endpoint(this.connection, `/${branch}/head`), {
-      headers: authHeaders(this.connection, this.secret),
-    });
+    const response = await fetch(
+      endpoint(this.connection, `/branches/${encodeURIComponent(branch)}/head`),
+      { headers: authHeaders(this.connection, this.secret) },
+    );
     if (!response.ok) throw new Error(`HTTP ${response.status} reading ${branch} head`);
     return (await response.text()).trim();
   }

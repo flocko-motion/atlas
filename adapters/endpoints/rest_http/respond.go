@@ -5,16 +5,19 @@
 package rest_http
 
 import (
+	"bytes"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
+	"strings"
 
 	"github.com/flocko-motion/rankedb/internal/core"
 	"github.com/flocko-motion/rankedb/openapi"
 )
 
-// respond writes a successful response: the stream's content-type, the route's
-// status, then the body — framing and rendering happen inside the stream's WriteTo,
-// so this stays wire-oblivious. It always closes the stream.
+// respond writes the stream's content-type, the route's status, then the body. Framing
+// happens inside WriteTo, so this stays wire-oblivious. Always closes the stream.
 func (s *Server) respond(w http.ResponseWriter, stream core.Stream, status int) {
 	defer stream.Close()
 	w.Header().Set("Content-Type", stream.ContentType())
@@ -22,15 +25,13 @@ func (s *Server) respond(w http.ResponseWriter, stream core.Stream, status int) 
 	_, _ = stream.WriteTo(w) // status already sent; a mid-stream error can only be logged
 }
 
-// fail maps a core (or auth) error to its response via the transport-neutral
-// category — the category fixes the HTTP status and ships as the machine-readable
-// code, the error's text as the human message.
+// fail answers an error through its transport-neutral category, which fixes the status
+// and ships as the machine-readable code.
 func (s *Server) fail(w http.ResponseWriter, err error) {
 	writeError(w, core.Categorize(err), err.Error())
 }
 
-// httpStatus maps a core.Category to its HTTP status — the one place status
-// numbers live.
+// httpStatus is the one place HTTP status numbers live.
 func httpStatus(cat core.Category) int {
 	switch cat {
 	case core.CatUnauthenticated:
@@ -58,10 +59,8 @@ func writeJSON(w http.ResponseWriter, code int, v any) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 
-// writeError writes an error body at the category's HTTP status, carrying the
-// category as the stable machine-readable code and msg as the human message. Every
-// error path — transport-level (a malformed body) and core (via fail) — goes
-// through a category, so status and code always agree.
+// writeError writes an error body at its category's status, the category doubling as the
+// stable code. Every error path goes through one, so status and code always agree.
 func writeError(w http.ResponseWriter, cat core.Category, msg string) {
 	if cat == core.CatBusy {
 		// A refusal for want of a free slot is worth retrying, so say when.
@@ -73,8 +72,62 @@ func writeError(w http.ResponseWriter, cat core.Category, msg string) {
 // mediaJSON is the content type a JSON response carries.
 const mediaJSON = "application/json"
 
-// respondBytes writes a body this package already holds, for the routes that must read it
-// to derive a header before sending it.
+// The cache posture the contract declares: a by-id read is immutable, its id
+// content-addressing the bytes; a head or listing moves.
+const (
+	cacheImmutable  = "public, max-age=31536000, immutable"
+	cacheRevalidate = "no-cache"
+)
+
+// respondImmutable answers a by-id read: the id is a strong validator, being the hash of
+// what comes back. The 304 comes after the read, so caching changes no answer.
+func (s *Server) respondImmutable(w http.ResponseWriter, r *http.Request, stream core.Stream, id string) {
+	etag := `"` + id + `"`
+	w.Header().Set("ETag", etag)
+	w.Header().Set("Cache-Control", cacheImmutable)
+	if matches(r.Header.Get("If-None-Match"), etag) {
+		_ = stream.Close()
+		w.WriteHeader(http.StatusNotModified)
+		return
+	}
+	s.respond(w, stream, http.StatusOK)
+}
+
+// respondRevalidated answers a read whose value moves. The body is read here to derive a
+// weak validator, which is what makes the promised conditional request cheap.
+func (s *Server) respondRevalidated(w http.ResponseWriter, r *http.Request, stream core.Stream) {
+	defer stream.Close()
+	var body bytes.Buffer
+	if _, err := stream.WriteTo(&body); err != nil {
+		s.fail(w, err)
+		return
+	}
+	sum := sha256.Sum256(body.Bytes())
+	etag := `W/"` + base64.RawURLEncoding.EncodeToString(sum[:16]) + `"`
+	w.Header().Set("ETag", etag)
+	w.Header().Set("Cache-Control", cacheRevalidate)
+	if matches(r.Header.Get("If-None-Match"), etag) {
+		w.WriteHeader(http.StatusNotModified)
+		return
+	}
+	s.respondBytes(w, stream.ContentType(), http.StatusOK, body.Bytes())
+}
+
+// matches reads an If-None-Match list, where `*` matches anything held (RFC 9110).
+func matches(header, etag string) bool {
+	if header == "" {
+		return false
+	}
+	for _, candidate := range strings.Split(header, ",") {
+		candidate = strings.TrimSpace(candidate)
+		if candidate == "*" || candidate == etag {
+			return true
+		}
+	}
+	return false
+}
+
+// respondBytes writes a body already in hand, for a route that read it to derive a header.
 func (s *Server) respondBytes(w http.ResponseWriter, contentType string, status int, body []byte) {
 	w.Header().Set("Content-Type", contentType)
 	w.WriteHeader(status)

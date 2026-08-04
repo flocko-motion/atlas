@@ -22,7 +22,9 @@
       "grants": [
         "CR *",
         "C $branches",
-        "R $archive"
+        "R $branches",
+        "R $archive",
+        "R $universe"
       ]
     }
   },

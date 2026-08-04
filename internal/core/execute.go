@@ -115,9 +115,16 @@ func (c *Core) claimContent(ctx context.Context, req *Request, archive ranke.Arc
 		content io.Reader
 		err     error
 	)
-	if req.Branch == Universe {
+	switch req.Branch {
+	case Universe:
+		// No closure to check, so the bytes come off the claim the Universe holds.
+		var claim ranke.Claim
+		if claim, err = ranke.GetClaim(ctx, c.store, req.ClaimID); err == nil {
+			content, err = claim.GetContent(ctx, c.store)
+		}
+	case Archive:
 		content, err = archive.GetClaimContent(ctx, req.ClaimID)
-	} else {
+	default:
 		var branch ranke.Branch
 		if branch, err = c.branch(ctx, req, archive); err == nil {
 			content, err = branch.GetClaimContent(ctx, req.ClaimID)
@@ -154,13 +161,20 @@ func (c *Core) branchList(ctx context.Context, req *Request, archive ranke.Archi
 	return &jsonStream{value: branchList{Branches: named}}, nil
 }
 
-// scopedClaim reads the request's claim within its scope: a branch confines the read to
-// that branch's closure, $universe reaches any claim the Universe holds.
+// scopedClaim reads the request's claim within the scope the request names. The three
+// differ in what they reach: a branch is confined to that branch's closure, $archive to
+// the closure of the current head across every branch, and $universe to anything the
+// Universe holds — which is the privileged read, the one that can reach an archive from
+// a Universe and a head id alone, so it must not go through a closure at all.
 func (c *Core) scopedClaim(ctx context.Context, req *Request, archive ranke.Archive) (ranke.Claim, error) {
 	if req.ClaimID == nil {
 		return nil, fmt.Errorf("%w: no claim id", ErrNotFound)
 	}
-	if req.Branch == Universe {
+	switch req.Branch {
+	case Universe:
+		claim, err := ranke.GetClaim(ctx, c.store, req.ClaimID)
+		return claim, mapLibError(err)
+	case Archive:
 		claim, err := archive.GetClaim(ctx, req.ClaimID)
 		return claim, mapLibError(err)
 	}
