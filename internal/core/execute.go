@@ -239,6 +239,12 @@ func mapLibError(err error) error {
 		return fmt.Errorf("%w: %v", ErrNotFound, err)
 	case errors.Is(err, ranke.ErrUnsupported):
 		return fmt.Errorf("%w: %v", ErrNotImplemented, err)
+	case errors.Is(err, ranke.ErrBranchNotCreatable),
+		errors.Is(err, ranke.ErrUnreadableReference),
+		errors.Is(err, ranke.ErrReservedType):
+		// A constraint refusal: the contribution asked for more than its grants gave, so
+		// this is the caller's answer to receive, not an internal fault.
+		return fmt.Errorf("%w: %v", ErrForbidden, err)
 	default:
 		return err
 	}
@@ -255,31 +261,49 @@ func readCloser(r io.Reader) io.ReadCloser {
 
 // --- the contribute arm ---------------------------------------------------
 
-// contribute merges a contribution body: authorize what it declares, fill, verify,
-// persist, merge — every step the library's, in order.
-//
-// The stream declares its branches in its first record, so the C right is settled before
-// any of the body is read, and the rest then streams through the library's own drain.
+// contribute narrows what a body asked for to what its grants allow, then opens under that
+// and merges. A declaration only ever restricts, so the overlap is what the Sequencer
+// enforces — a client cannot widen its reach, and the Sequencer never learns whose it is.
 func (c *Core) contribute(ctx context.Context, req *Request) (Stream, error) {
 	if req.Body == nil {
 		return nil, fmt.Errorf("%w: no contribution body", ErrInvalidRequest)
 	}
 
 	wire := ranke.NewWireReader(req.Body)
-	branches, err := wire.Branches()
+	asked, err := wire.Constraints()
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrInvalidRequest, err)
 	}
-	if len(branches) == 0 {
+	if len(asked.Branches) == 0 {
 		return nil, fmt.Errorf("%w: the contribution declares no branches", ErrInvalidRequest)
 	}
-	for _, branch := range branches {
+	archive, err := c.archive(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, branch := range asked.Branches {
 		if err := c.allow(req, access.Contribute, branch); err != nil {
 			return nil, err
 		}
 	}
+	granted, err := c.readableScopes(ctx, req, archive)
+	if err != nil {
+		return nil, err
+	}
+	creatable, err := c.creatableBranches(ctx, req, archive, asked.Branches)
+	if err != nil {
+		return nil, err
+	}
+	// Branches pass through, each having just been checked for C.
+	effective := asked.Narrow(ranke.WireConstraints{
+		Branches:     asked.Branches,
+		Referencable: granted,
+		Lifted:       c.liftedTypes(req),
+		Creatable:    creatable,
+	})
+	req.Report.step("may reference %v, may create %v", effective.Referencable, effective.Creatable)
 
-	contribution, err := c.seq.NewContribution(ctx)
+	contribution, err := c.seq.NewContribution(ctx, effective.Options()...)
 	if err != nil {
 		return nil, mapLibError(err)
 	}
@@ -303,6 +327,51 @@ func (c *Core) contribute(ctx context.Context, req *Request) (Stream, error) {
 	for _, id := range verified.Ids() {
 		ids = append(ids, id.String())
 	}
-	req.Report.step("merged %d claim(s) onto %v at head %s", len(ids), branches, receipt.Head())
+	req.Report.step("merged %d claim(s) onto %v at head %s", len(ids), asked.Branches, receipt.Head())
 	return &jsonStream{value: Contribution{Head: receipt.Head().String(), Ids: ids}}, nil
+}
+
+// readableScopes are the scopes this principal may reference claims from, named as the library
+// names them — which is what turns a grant over globs into a set the Sequencer can enforce.
+func (c *Core) readableScopes(ctx context.Context, req *Request, archive ranke.Archive) ([]string, error) {
+	if c.access.Allow(req.Principal, access.Read, Universe) {
+		return []string{ranke.BranchUniverse}, nil
+	}
+	branches, err := archive.GetBranches(ctx)
+	if err != nil {
+		return nil, mapLibError(err)
+	}
+	scopes := make([]string, 0, len(branches))
+	for _, b := range branches {
+		if c.access.Allow(req.Principal, access.Read, b.Name()) {
+			scopes = append(scopes, b.Name())
+		}
+	}
+	return scopes, nil
+}
+
+// liftedTypes are the reserved node types this principal may carry. C on $branches — what an
+// A for admin once named — lifts the branch-table type; the limiting claims stay reserved.
+func (c *Core) liftedTypes(req *Request) []string {
+	if c.access.Allow(req.Principal, access.Contribute, Branches) {
+		return []string{ranke.NodeBranches}
+	}
+	return nil
+}
+
+// creatableBranches are the declared branches the base lacks, which this contribution would
+// bring into being. Creating one is its own right, C over the branch table.
+func (c *Core) creatableBranches(ctx context.Context, req *Request, archive ranke.Archive, declared []string) ([]string, error) {
+	missing, err := archive.MissingBranches(ctx, declared)
+	if err != nil {
+		return nil, mapLibError(err)
+	}
+	if len(missing) == 0 {
+		return nil, nil
+	}
+	if !c.access.Allow(req.Principal, access.Contribute, Branches) {
+		return nil, nil
+	}
+	req.Report.step("%d branch(es) would be created: %v", len(missing), missing)
+	return missing, nil
 }

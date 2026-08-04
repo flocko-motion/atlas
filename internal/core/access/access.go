@@ -7,9 +7,11 @@
 // declared in config, never in the graph. The checker answers one (principal, right,
 // branch) question, and verifiability never consults it at all.
 //
-// The paper's fifth right, A, is not separate: the branch table is a claim, so creating
-// or hiding a branch is a C aimed at it. A caveat is a grant of opposite polarity, and
-// the effective permission is their intersection.
+// The rights are CRUD. What was once a fifth, A for admin, is C on $branches: the branch
+// table is itself a claim, so creating a branch contributes to it. $branches carries no
+// glob, being one server-wide surface, and writing claims into a branch is the separate C on
+// that branch. A caveat is a grant of opposite polarity, and the effective permission is
+// their intersection.
 package access
 
 import (

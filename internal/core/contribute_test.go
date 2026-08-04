@@ -128,9 +128,17 @@ func TestContributeSpansSeveralBranches(t *testing.T) {
 	self, priv, selfClaim := newContributor(t, c.store)
 
 	var body bytes.Buffer
-	w := ranke.NewWireWriter(&body, "main", "notes")
-	if err := w.WriteClaim("main", selfClaim); err != nil {
-		t.Fatalf("WriteClaim: %v", err)
+	w := ranke.NewWireWriter(&body, ranke.WireConstraints{
+		Branches:     []string{"main", "notes"},
+		Referencable: []string{"main", "notes"},
+		Creatable:    []string{"main", "notes"},
+	})
+	// The contributor claim goes to both: each branch is verified as its own graph, so a
+	// branch whose claims cite it must hold it, or that closure is incomplete.
+	for _, branch := range []string{"main", "notes"} {
+		if err := w.WriteClaim(branch, selfClaim); err != nil {
+			t.Fatalf("WriteClaim: %v", err)
+		}
 	}
 	for _, branch := range []string{"main", "notes"} {
 		claim, err := ranke.NewClaim("source/letter", self).
@@ -167,7 +175,11 @@ func TestContributeSpansSeveralBranches(t *testing.T) {
 func writeContribution(t *testing.T, branch string, claims ...ranke.Claim) []byte {
 	t.Helper()
 	var body bytes.Buffer
-	w := ranke.NewWireWriter(&body, branch)
+	w := ranke.NewWireWriter(&body, ranke.WireConstraints{
+		Branches:     []string{branch},
+		Referencable: []string{branch},
+		Creatable:    []string{branch},
+	})
 	for _, claim := range claims {
 		if err := w.WriteClaim(branch, claim); err != nil {
 			t.Fatalf("WriteClaim: %v", err)
@@ -188,7 +200,12 @@ func TestContributeAuthorizesTheDeclarationBeforeReading(t *testing.T) {
 	c.access = chk
 
 	var header bytes.Buffer
-	if err := ranke.NewWireWriter(&header, "secret").WriteContent(ranke.ContentBlob{
+	declared := ranke.WireConstraints{
+		Branches:     []string{"secret"},
+		Referencable: []string{"secret"},
+		Creatable:    []string{"secret"},
+	}
+	if err := ranke.NewWireWriter(&header, declared).WriteContent(ranke.ContentBlob{
 		Hash: mustHash(t, []byte("x")), Content: []byte("x"),
 	}); err != nil {
 		t.Fatalf("WriteContent: %v", err)
@@ -229,4 +246,194 @@ func mustHash(t *testing.T, b []byte) ranke.Id {
 		t.Fatalf("HashContent: %v", err)
 	}
 	return h
+}
+
+// TestContributeRefusesReservedTypes pins that a client cannot mint what the Sequencer
+// reserves. The account here holds CRUD on ordinary branches and on $branches, so the
+// branch table is lifted for it and refused for the two limiting claims — which is the
+// grant translating into a capability, and only that grant.
+func TestContributeRefusesReservedTypes(t *testing.T) {
+	for _, nodeType := range []string{ranke.NodeDelete, ranke.NodeExpiry} {
+		t.Run(nodeType, func(t *testing.T) {
+			c := newStack(t)
+			self, priv, selfClaim := newContributor(t, c.store)
+
+			reserved, err := ranke.NewClaim(nodeType, self).
+				WithInlineContent([]byte("a claim only the Sequencer may mint")).
+				WithEncoding(ranke.EncodingOctetStream).
+				WithHeight(contributorHeight + 1).
+				Sign(priv)
+			if err != nil {
+				t.Fatalf("sign claim: %v", err)
+			}
+
+			body := writeContribution(t, "main", selfClaim, reserved)
+			_, err = c.Handle(context.Background(), &Request{
+				Op: OpClaimContribute, Body: bytes.NewReader(body),
+			})
+			if err == nil {
+				t.Fatalf("a %s claim was accepted from a client", nodeType)
+			}
+		})
+	}
+}
+
+// TestContributeBoundsWhatItMayReference pins step 3 at the seam v0.11.0 opened: a
+// contribution may reference only claims its grants reach. The account here writes to
+// "open" but reads nothing else, so citing a claim that lives on another branch is refused
+// — the Sequencer enforcing a scope the server composed, without knowing an account exists.
+func TestContributeBoundsWhatItMayReference(t *testing.T) {
+	c := newStack(t)
+	self, priv, selfClaim := newContributor(t, c.store)
+
+	// First, land a claim on "private" as an account that may write there.
+	seed, err := ranke.NewClaim("source/letter", self).
+		WithInlineContent([]byte("a claim on a branch the next account cannot read")).
+		WithEncoding(ranke.EncodingOctetStream).
+		WithHeight(contributorHeight + 1).
+		Sign(priv)
+	if err != nil {
+		t.Fatalf("sign seed: %v", err)
+	}
+	if _, err := c.Handle(context.Background(), &Request{
+		Op:   OpClaimContribute,
+		Body: bytes.NewReader(writeContribution(t, "private", selfClaim, seed)),
+	}); err != nil {
+		t.Fatalf("seeding contribution: %v", err)
+	}
+
+	// Now an account that may write and read "open" and nothing else, so the only thing
+	// standing between it and the merge is what it may reference.
+	chk, err := access.New(map[string][]string{"ops": {"CR open"}})
+	if err != nil {
+		t.Fatalf("access.New: %v", err)
+	}
+	c.access = chk
+
+	citing, err := ranke.NewClaim("derivation/summary", self).
+		WithInlineContent([]byte("cites a claim it may not read")).
+		WithEncoding(ranke.EncodingOctetStream).
+		WithEdges(mustEdge(t, "derivation/source", seed.ID())).
+		WithHeight(contributorHeight + 2).
+		Sign(priv)
+	if err != nil {
+		t.Fatalf("sign citing claim: %v", err)
+	}
+
+	_, err = c.Handle(context.Background(), &Request{
+		Op:   OpClaimContribute,
+		Body: bytes.NewReader(writeContribution(t, "open", selfClaim, citing)),
+	})
+	if err == nil {
+		t.Fatal("a contribution referenced a claim outside every branch its grants reach")
+	}
+}
+
+// mustEdge builds one typed reference.
+func mustEdge(t *testing.T, edgeType string, ref ranke.Id) ranke.Edge {
+	t.Helper()
+	e, err := ranke.NewEdge(ranke.EdgeConfig{Type: edgeType, Reference: ref})
+	if err != nil {
+		t.Fatalf("NewEdge: %v", err)
+	}
+	return e
+}
+
+// TestBranchTableGrantLiftsItsType pins the one translation between the two vocabularies:
+// C on $branches is the DB's name for administering the branch table, and the library's
+// name for the same capability is a lifted contribution/branches type. Without the grant
+// the type is refused; with it the claim is admitted, so the grant is exercisable.
+func TestBranchTableGrantLiftsItsType(t *testing.T) {
+	refusedWithout, admittedWith := false, false
+
+	for _, tc := range []struct {
+		name   string
+		grants []string
+		lifted bool
+	}{
+		{"without the grant", []string{"CRUD *"}, false},
+		{"with the grant", []string{"CRUD *", "C $branches"}, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c := newStack(t)
+			chk, err := access.New(map[string][]string{"ops": tc.grants})
+			if err != nil {
+				t.Fatalf("access.New: %v", err)
+			}
+			c.access = chk
+
+			got := c.liftedTypes(&Request{Principal: access.Principal{Account: "ops"}})
+			has := len(got) == 1 && got[0] == ranke.NodeBranches
+			if has != tc.lifted {
+				t.Fatalf("lifted = %v, want the branch-table type present = %v", got, tc.lifted)
+			}
+			if tc.lifted {
+				admittedWith = true
+			} else {
+				refusedWithout = true
+			}
+		})
+	}
+
+	if !refusedWithout || !admittedWith {
+		t.Fatal("both directions must be exercised for the translation to mean anything")
+	}
+}
+
+// TestContributeGatesBranchCreation pins that bringing a branch into being is its own
+// right: the server matches the declared branches against the base, and only an account
+// holding C over the branch table may create the ones missing. Writing to a branch that
+// already exists needs nothing extra.
+func TestContributeGatesBranchCreation(t *testing.T) {
+	c := newStack(t)
+	self, priv, selfClaim := newContributor(t, c.store)
+
+	claim, err := ranke.NewClaim("source/letter", self).
+		WithInlineContent([]byte("the first claim on a branch")).
+		WithEncoding(ranke.EncodingOctetStream).
+		WithHeight(contributorHeight + 1).
+		Sign(priv)
+	if err != nil {
+		t.Fatalf("sign claim: %v", err)
+	}
+	body := func() *bytes.Reader {
+		return bytes.NewReader(writeContribution(t, "fresh", selfClaim, claim))
+	}
+
+	// May write the branch, may not add it to the table.
+	withoutTable, err := access.New(map[string][]string{"ops": {"CR fresh"}})
+	if err != nil {
+		t.Fatalf("access.New: %v", err)
+	}
+	c.access = withoutTable
+	if _, err := c.Handle(context.Background(), &Request{Op: OpClaimContribute, Body: body()}); err == nil {
+		t.Fatal("a branch was created without the right to create one")
+	}
+
+	// With it, the same contribution lands.
+	withTable, err := access.New(map[string][]string{"ops": {"CR fresh", "C $branches"}})
+	if err != nil {
+		t.Fatalf("access.New: %v", err)
+	}
+	c.access = withTable
+	if _, err := c.Handle(context.Background(), &Request{Op: OpClaimContribute, Body: body()}); err != nil {
+		t.Fatalf("contribution refused with the branch-table right: %v", err)
+	}
+
+	// And a second contribution to the now-existing branch needs no such right.
+	next, err := ranke.NewClaim("source/letter", self).
+		WithInlineContent([]byte("a second claim, the branch now existing")).
+		WithEncoding(ranke.EncodingOctetStream).
+		WithHeight(contributorHeight + 1).
+		Sign(priv)
+	if err != nil {
+		t.Fatalf("sign second claim: %v", err)
+	}
+	c.access = withoutTable
+	if _, err := c.Handle(context.Background(), &Request{
+		Op:   OpClaimContribute,
+		Body: bytes.NewReader(writeContribution(t, "fresh", selfClaim, next)),
+	}); err != nil {
+		t.Fatalf("writing an existing branch needed the creation right: %v", err)
+	}
 }
