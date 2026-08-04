@@ -62,6 +62,10 @@ An earlier attempt walked the closure here instead, which is a second query engi
 layer least able to optimise one. It also cost **398 ms at 100k claims and 1.7 s at 300k**
 for the widest scope. Both are reasons; the boundary is the better one.
 
+The archive scope needs the branch-table head, which `GET /archive/info` reports — the only
+route that does. Against an instance too old to answer it, or a subject without `R $archive`,
+the picker offers the branches alone rather than a scope with no head.
+
 A scope's answer can name claims this session never read — the archive advanced, or the
 load was capped — so the count is reported next to the picker rather than the overlap being
 drawn silently.

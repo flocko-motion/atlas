@@ -170,23 +170,39 @@ export class RestSource implements DataSource {
 
   /**
    * branches reads `GET /branches`, the route that exists so a client need not be told a
-   * branch name out of band.
+   * branch name out of band, and `GET /archive/info` for the branch-table head — the only
+   * route that reports it, and so the only way the archive becomes a nameable scope.
    *
-   * The archive scope is absent: no route reports the branch-table head, so its closure
-   * has no root to test against and it is not offered rather than offered broken. A route
-   * exposing that head is what this would need.
+   * The archive is dropped rather than guessed if that read fails: a scope with no head
+   * cannot be a scope, and the branches are still worth returning.
    */
   async branches(): Promise<Scope[]> {
-    const response = await fetch(endpoint(this.connection, '/branches'), {
+    const listed = await this.getJSON<{ branches?: { name?: string; head?: string }[] }>(
+      '/branches',
+      'listing branches',
+    );
+    const branches = (listed.branches ?? [])
+      .filter((b): b is { name: string; head: string } => Boolean(b.name && b.head))
+      .map(({ name, head }) => ({ name, head }));
+
+    try {
+      const archive = await this.getJSON<{ head?: string }>('/archive/info', 'reading the archive');
+      if (archive.head) return [{ name: ARCHIVE_SCOPE, head: archive.head }, ...branches];
+    } catch {
+      // Not grantable to this subject, or an older instance: the branches still stand.
+    }
+    return branches;
+  }
+
+  /** getJSON reads one JSON route, naming what was being read when it fails. */
+  private async getJSON<T>(path: string, what: string): Promise<T> {
+    const response = await fetch(endpoint(this.connection, path), {
       headers: authHeaders(this.connection, this.secret),
     });
     if (!response.ok) {
-      throw new Error(`HTTP ${response.status} listing branches`);
+      throw new Error(`HTTP ${response.status} ${what}`);
     }
-    const body = (await response.json()) as { branches?: { name?: string; head?: string }[] };
-    return (body.branches ?? [])
-      .filter((b): b is { name: string; head: string } => Boolean(b.name && b.head))
-      .map(({ name, head }) => ({ name, head }));
+    return (await response.json()) as T;
   }
 
   /**

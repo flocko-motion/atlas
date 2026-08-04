@@ -361,6 +361,113 @@ To perform this operation, you must be authenticated by means of one of the foll
 None, jwt, apikey, macaroon
 </aside>
 
+## What is known about a branch
+
+<a id="opIdgetBranchInfo"></a>
+
+`GET /branches/{branch}/info`
+
+Reports a branch beyond its head id: the head's **height** — the generation number
+of the branch's newest claim, so the depth of what it points at — and **when it last
+moved**, which is the head claim's `created_at`.
+
+Everything here comes from the head claim, so it costs one claim read. A claim count
+is deliberately absent: counting a branch's claims is a walk of its closure, which is
+a query (`POST /query`) and not a field.
+
+Requires the **R** right on the branch. Cacheable **with revalidation** — every
+field moves when the branch does.
+
+<h3 id="what-is-known-about-a-branch-parameters">Parameters</h3>
+
+|Name|In|Type|Required|Description|
+|---|---|---|---|---|
+|branch|path|string|true|The branch name (`$` is reserved and illegal in ordinary names).|
+
+> Example responses
+
+> 200 Response
+
+```json
+{
+  "name": "string",
+  "head": "string",
+  "height": 0,
+  "updatedAt": "2019-08-24T14:15:22Z"
+}
+```
+
+<h3 id="what-is-known-about-a-branch-responses">Responses</h3>
+
+|Status|Meaning|Description|Schema|
+|---|---|---|---|
+|200|[OK](https://tools.ietf.org/html/rfc7231#section-6.3.1)|What is known about the branch.|[BranchInfo](#schemabranchinfo)|
+|401|[Unauthorized](https://tools.ietf.org/html/rfc7235#section-3.1)|Authentication is required or failed.|[Error](#schemaerror)|
+|403|[Forbidden](https://tools.ietf.org/html/rfc7231#section-6.5.3)|Access was denied by core-access. The body carries no subject id or
+onboarding hint.|[Error](#schemaerror)|
+|404|[Not Found](https://tools.ietf.org/html/rfc7231#section-6.5.4)|The branch, claim, or content is unknown — or lies outside the named
+branch's closure. The two are indistinguishable.|[Error](#schemaerror)|
+
+### Response Headers
+
+|Status|Header|Type|Format|Description|
+|---|---|---|---|---|
+|200|ETag|string||Weak validator for the branch's current state.|
+
+<aside class="warning">
+To perform this operation, you must be authenticated by means of one of the following methods:
+None, jwt, apikey, macaroon
+</aside>
+
+## What is known about the archive
+
+<a id="opIdgetArchiveInfo"></a>
+
+`GET /archive/info`
+
+Reports the Ranke-Archive as a whole: the **branch-table head** — the id every
+archive-scoped read is rooted at — with its height and when it last moved, and how
+many branches the table holds.
+
+This is the only route that reports the branch-table head, which is what a client
+needs to name the `$archive` scope in a query or a grant.
+
+Reads the `$archive` scope and requires the **R** right on `$archive`. Cacheable
+**with revalidation**: the head advances on every contribution.
+
+> Example responses
+
+> 200 Response
+
+```json
+{
+  "head": "string",
+  "height": 0,
+  "updatedAt": "2019-08-24T14:15:22Z",
+  "branches": 0
+}
+```
+
+<h3 id="what-is-known-about-the-archive-responses">Responses</h3>
+
+|Status|Meaning|Description|Schema|
+|---|---|---|---|
+|200|[OK](https://tools.ietf.org/html/rfc7231#section-6.3.1)|What is known about the archive.|[ArchiveInfo](#schemaarchiveinfo)|
+|401|[Unauthorized](https://tools.ietf.org/html/rfc7235#section-3.1)|Authentication is required or failed.|[Error](#schemaerror)|
+|403|[Forbidden](https://tools.ietf.org/html/rfc7231#section-6.5.3)|Access was denied by core-access. The body carries no subject id or
+onboarding hint.|[Error](#schemaerror)|
+
+### Response Headers
+
+|Status|Header|Type|Format|Description|
+|---|---|---|---|---|
+|200|ETag|string||Weak validator for the archive's current state.|
+
+<aside class="warning">
+To perform this operation, you must be authenticated by means of one of the following methods:
+None, jwt, apikey, macaroon
+</aside>
+
 ## Fetch a claim within a branch's closure
 
 <a id="opIdgetBranchClaim"></a>
@@ -1783,6 +1890,58 @@ The outcome of a contribution — the new branch-table head and the appended cla
 |Name|Type|Required|Restrictions|Description|
 |---|---|---|---|---|
 |head|string|true|none|The content-addressed head claim id.|
+
+<h2 id="tocS_BranchInfo">BranchInfo</h2>
+<!-- backwards compatibility -->
+<a id="schemabranchinfo"></a>
+<a id="schema_BranchInfo"></a>
+<a id="tocSbranchinfo"></a>
+<a id="tocsbranchinfo"></a>
+
+```json
+{
+  "name": "string",
+  "head": "string",
+  "height": 0,
+  "updatedAt": "2019-08-24T14:15:22Z"
+}
+
+```
+
+### Properties
+
+|Name|Type|Required|Restrictions|Description|
+|---|---|---|---|---|
+|name|string|true|none|The branch name, as the branch table holds it.|
+|head|string|true|none|The content-addressed head claim id.|
+|height|integer(int64)|true|none|The head claim's generation number (§4.1) — 0 on an initial node, else<br>1 + max over what it references. The depth of what the branch points at.|
+|updatedAt|string(date-time)|true|none|The head claim's `created_at` — when the branch last moved. Soft: a<br>contributor writes it, so it is not the witnessed merge time.|
+
+<h2 id="tocS_ArchiveInfo">ArchiveInfo</h2>
+<!-- backwards compatibility -->
+<a id="schemaarchiveinfo"></a>
+<a id="schema_ArchiveInfo"></a>
+<a id="tocSarchiveinfo"></a>
+<a id="tocsarchiveinfo"></a>
+
+```json
+{
+  "head": "string",
+  "height": 0,
+  "updatedAt": "2019-08-24T14:15:22Z",
+  "branches": 0
+}
+
+```
+
+### Properties
+
+|Name|Type|Required|Restrictions|Description|
+|---|---|---|---|---|
+|head|string|true|none|The branch-table head id — the root of every `$archive`-scoped read, and the<br>only place this contract reports it.|
+|height|integer(int64)|true|none|The branch-table head claim's generation number.|
+|updatedAt|string(date-time)|true|none|The branch-table head's `created_at` — when the archive last moved.|
+|branches|integer|true|none|How many branches the table holds.|
 
 <h2 id="tocS_BranchEntry">BranchEntry</h2>
 <!-- backwards compatibility -->
