@@ -1,0 +1,243 @@
+package config
+
+import (
+	"context"
+	"crypto/ed25519"
+	"crypto/rand"
+	"crypto/sha256"
+	"crypto/x509"
+	"encoding/hex"
+	"encoding/pem"
+	"errors"
+	"strings"
+	"testing"
+
+	"github.com/flocko-motion/rankedb/adapters/auth"
+	"github.com/flocko-motion/rankedb/internal/core"
+)
+
+// testKeyPEM generates a throwaway Ed25519 private key as PKCS#8 PEM. Tests
+// legitimately fabricate a key to exercise loading; production keys are always
+// provided by config, never generated.
+func testKeyPEM(t *testing.T) string {
+	t.Helper()
+	_, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("generate key: %v", err)
+	}
+	der, err := x509.MarshalPKCS8PrivateKey(priv)
+	if err != nil {
+		t.Fatalf("marshal key: %v", err)
+	}
+	return string(pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der}))
+}
+
+// TestBuildResolvesAndWires loads a config whose signer key is delegated to an env
+// var and asserts Run resolves it into a working shared signer. With no endpoints,
+// the stack carries just the shared driven ports.
+func TestBuildResolvesAndWires(t *testing.T) {
+	t.Setenv("RANKE_TEST_SIGNER_KEY", testKeyPEM(t))
+
+	const cfgJSON = `{
+		"signer": {"type": "inmemory", "key": "env(RANKE_TEST_SIGNER_KEY)"}
+	}`
+
+	app, err := Run(context.Background(), strings.NewReader(cfgJSON), nil)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if app.Signer == nil {
+		t.Fatal("nil signer")
+	}
+	pub, err := app.Signer.Public(context.Background())
+	if err != nil {
+		t.Fatalf("Public: %v", err)
+	}
+	if _, ok := pub.(ed25519.PublicKey); !ok {
+		t.Fatalf("signer public key = %T, want ed25519.PublicKey", pub)
+	}
+	digest := make([]byte, 32)
+	if _, err := app.Signer.Sign(context.Background(), digest); err != nil {
+		t.Fatalf("Sign: %v", err)
+	}
+	if len(app.Endpoints) != 0 {
+		t.Fatalf("endpoints = %d, want 0", len(app.Endpoints))
+	}
+}
+
+// TestBuildEndpointAdmits proves the per-endpoint pipeline: an admitted account is
+// authenticated by the endpoint's NoAuth backend, authorized by its grants, and
+// reaches the (stubbed) execute stage.
+func TestBuildEndpointAdmits(t *testing.T) {
+	const cfgJSON = `{
+		"accounts": {
+			"webapp": {"grants": ["R proj-*"]},
+			"admin":  {"grants": ["C mgmt-*"]}
+		},
+		"endpoints": [{
+			"transport": {"type": "rest"},
+			"auth":      [{"type": "noauth", "subject": "webapp"}],
+			"admit":     ["webapp"]
+		}]
+	}`
+	c, err := load(strings.NewReader(cfgJSON))
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	cr, err := c.buildEndpoint(context.Background(), c.Endpoints[0], &App{})
+	if err != nil {
+		t.Fatalf("buildEndpoint: %v", err)
+	}
+
+	req := &core.Request{Op: core.OpClaimQuery, Branch: "proj-x"}
+	if _, err := cr.Handle(context.Background(), req); !errors.Is(err, core.ErrNotImplemented) {
+		t.Fatalf("Handle = %v, want ErrNotImplemented (authorized, reached execute)", err)
+	}
+	if req.Principal.Account != "webapp" {
+		t.Fatalf("account = %q, want webapp", req.Principal.Account)
+	}
+}
+
+// TestBuildEndpointRejectsUnadmitted proves the admission boundary: an account
+// that exists globally but is not admitted here is denied, because this endpoint's
+// checker was built from the admitted subset only.
+func TestBuildEndpointRejectsUnadmitted(t *testing.T) {
+	const cfgJSON = `{
+		"accounts": {
+			"webapp": {"grants": ["R proj-*"]},
+			"admin":  {"grants": ["C mgmt-*"]}
+		},
+		"endpoints": [{
+			"transport": {"type": "rest"},
+			"auth":      [{"type": "noauth", "subject": "admin"}],
+			"admit":     ["webapp"]
+		}]
+	}`
+	c, err := load(strings.NewReader(cfgJSON))
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	cr, err := c.buildEndpoint(context.Background(), c.Endpoints[0], &App{})
+	if err != nil {
+		t.Fatalf("buildEndpoint: %v", err)
+	}
+
+	req := &core.Request{Op: core.OpClaimQuery, Branch: "proj-x"}
+	if _, err := cr.Handle(context.Background(), req); !errors.Is(err, core.ErrForbidden) {
+		t.Fatalf("Handle = %v, want ErrForbidden (admin authenticates but is not admitted here)", err)
+	}
+}
+
+// TestBuildEndpointAPIKey drives the full per-endpoint path with a real credential
+// scheme: an apikey backend, admitted account, and a key routed by scheme through
+// core.Handle — authenticated, authorized, reaching the execute stub. A wrong key
+// is rejected before authorization.
+func TestBuildEndpointAPIKey(t *testing.T) {
+	const key = "webapp-key-0123456789"
+	sum := sha256.Sum256([]byte(key))
+	cfgJSON := `{
+		"accounts": {"webapp": {"grants": ["R proj-*"]}},
+		"endpoints": [{
+			"transport": {"type": "rest"},
+			"auth":      [{"type": "apikey", "keys": [{"account": "webapp", "sha256": "` + hex.EncodeToString(sum[:]) + `"}]}],
+			"admit":     ["webapp"]
+		}]
+	}`
+	c, err := load(strings.NewReader(cfgJSON))
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	cr, err := c.buildEndpoint(context.Background(), c.Endpoints[0], &App{})
+	if err != nil {
+		t.Fatalf("buildEndpoint: %v", err)
+	}
+
+	ok := &core.Request{Op: core.OpClaimQuery, Branch: "proj-x", Credential: auth.Credential{Scheme: "apikey", Token: key}}
+	if _, err := cr.Handle(context.Background(), ok); !errors.Is(err, core.ErrNotImplemented) {
+		t.Fatalf("valid key: Handle = %v, want ErrNotImplemented (authenticated + authorized)", err)
+	}
+	if ok.Principal.Account != "webapp" {
+		t.Fatalf("account = %q, want webapp", ok.Principal.Account)
+	}
+
+	bad := &core.Request{Op: core.OpClaimQuery, Branch: "proj-x", Credential: auth.Credential{Scheme: "apikey", Token: "wrong-key-0123456789"}}
+	if _, err := cr.Handle(context.Background(), bad); err == nil || errors.Is(err, core.ErrNotImplemented) {
+		t.Fatalf("wrong key: Handle = %v, want an auth error before authorization", err)
+	}
+}
+
+// TestBuildEndpointAPIKeyRejectsBadDigest asserts apikey.New's validation surfaces
+// through assembly: a malformed sha256 fails the endpoint build.
+func TestBuildEndpointAPIKeyRejectsBadDigest(t *testing.T) {
+	const cfgJSON = `{
+		"accounts": {"webapp": {"grants": ["R proj-*"]}},
+		"endpoints": [{
+			"transport": {"type": "rest"},
+			"auth":      [{"type": "apikey", "keys": [{"account": "webapp", "sha256": "not-hex"}]}],
+			"admit":     ["webapp"]
+		}]
+	}`
+	c, err := load(strings.NewReader(cfgJSON))
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if _, err := c.buildEndpoint(context.Background(), c.Endpoints[0], &App{}); err == nil {
+		t.Fatal("malformed sha256: want buildEndpoint error")
+	}
+}
+
+// TestBuildMissingEnvFails asserts an unset env() delegation fails Run loud rather
+// than yielding an empty key.
+func TestBuildMissingEnvFails(t *testing.T) {
+	const cfgJSON = `{"signer": {"type": "inmemory", "key": "env(RANKE_TEST_ABSENT)"}}`
+	if _, err := Run(context.Background(), strings.NewReader(cfgJSON), nil); err == nil {
+		t.Fatal("Run succeeded with an unset env delegation; want error")
+	}
+}
+
+// TestVerify exercises offline syntax checks: shape, malformed grants, and dangling
+// admit references all fail without touching env; resolve additionally requires
+// every reference to resolve.
+func TestVerify(t *testing.T) {
+	const good = `{"signer": {"type": "inmemory", "key": "env(RANKE_TEST_VERIFY_KEY)"}}`
+
+	if err := Verify(context.Background(), strings.NewReader(good), nil, LevelSyntax); err != nil {
+		t.Fatalf("Verify syntax: %v", err)
+	}
+	if err := Verify(context.Background(), strings.NewReader(`{"nope": {}}`), nil, LevelSyntax); err == nil {
+		t.Fatal("Verify syntax accepted an unknown section")
+	}
+	if err := Verify(context.Background(), strings.NewReader(`{"accounts": {"a": {"grants": ["CX foo-*"]}}}`), nil, LevelSyntax); err == nil {
+		t.Fatal("Verify syntax accepted a malformed grant")
+	}
+	const danglingAdmit = `{"accounts": {"webapp": {"grants": ["R proj-*"]}}, "endpoints": [{"transport": {"type": "rest"}, "auth": [], "admit": ["ghost"]}]}`
+	if err := Verify(context.Background(), strings.NewReader(danglingAdmit), nil, LevelSyntax); err == nil {
+		t.Fatal("Verify syntax accepted an admit naming an undefined account")
+	}
+	if err := Verify(context.Background(), strings.NewReader(good), nil, LevelResolve); err == nil {
+		t.Fatal("Verify resolve accepted an unset env reference")
+	}
+	t.Setenv("RANKE_TEST_VERIFY_KEY", "x")
+	if err := Verify(context.Background(), strings.NewReader(good), nil, LevelResolve); err != nil {
+		t.Fatalf("Verify resolve: %v", err)
+	}
+}
+
+// TestVerifyConnect exercises the connect depth: a shape-valid config with an
+// unknown backend passes syntax but fails connect, while a valid mem+signer config
+// (no endpoints) assembles cleanly.
+func TestVerifyConnect(t *testing.T) {
+	t.Setenv("RANKE_TEST_CONNECT_KEY", testKeyPEM(t))
+	const good = `{"signer": {"type": "inmemory", "key": "env(RANKE_TEST_CONNECT_KEY)"}, "storage": {"type": "mem"}}`
+	if err := Verify(context.Background(), strings.NewReader(good), nil, LevelConnect); err != nil {
+		t.Fatalf("Verify connect: %v", err)
+	}
+
+	const badBackend = `{"storage": {"type": "bogus"}}`
+	if err := Verify(context.Background(), strings.NewReader(badBackend), nil, LevelSyntax); err != nil {
+		t.Fatalf("Verify syntax rejected a shape-valid config: %v", err)
+	}
+	if err := Verify(context.Background(), strings.NewReader(badBackend), nil, LevelConnect); err == nil {
+		t.Fatal("Verify connect accepted an unknown storage backend")
+	}
+}

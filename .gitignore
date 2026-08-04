@@ -1,5 +1,7 @@
 .todos/
 .sindri/
+.claude/
+.worktrees/
 .sidecar/
 .sidecar-agent
 .sidecar-task
@@ -7,6 +9,5 @@
 .sidecar-start.sh
 .sidecar-base
 .td-root
-papers/bin/
-ranke-cli/bin/
+bin/
 docs/papers/

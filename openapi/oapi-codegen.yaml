@@ -1,0 +1,10 @@
+# Code generation config for the Go server side of the API.
+# The OpenAPI spec (./openapi.yaml) is the single source of truth; this produces
+# the typed models + a strict std-net/http server interface, alongside the spec.
+package: openapi
+output: openapi/openapi.gen.go
+generate:
+  models: true
+  strict-server: true
+  std-http-server: true
+  embedded-spec: true
