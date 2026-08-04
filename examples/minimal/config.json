@@ -22,7 +22,9 @@
       "grants": [
         "CR *",
         "C $branches",
-        "R $archive"
+        "R $branches",
+        "R $archive",
+        "R $universe"
       ]
     }
   },
@@ -30,7 +32,8 @@
     {
       "transport": {
         "type": "rest",
-        "addr": ":8080"
+        "addr": ":8080",
+        "allowedOrigins": "http://localhost:5173, http://127.0.0.1:5173, http://localhost:4173"
       },
       "auth": [
         {

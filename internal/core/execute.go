@@ -14,6 +14,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"time"
 
 	ranke "github.com/flocko-motion/ranke-go"
 
@@ -49,6 +50,10 @@ func (c *Core) execute(ctx context.Context, req *Request) (Stream, error) {
 		return c.claimContent(ctx, req, archive)
 	case OpBranchHead:
 		return c.branchHead(ctx, req, archive)
+	case OpBranchInfo:
+		return c.branchInfo(ctx, req, archive)
+	case OpArchiveInfo:
+		return c.archiveInfo(ctx, req, archive)
 	case OpBranchList:
 		return c.branchList(ctx, req, archive)
 	case OpVerificationStart, OpVerificationList, OpVerificationGet,
@@ -115,9 +120,16 @@ func (c *Core) claimContent(ctx context.Context, req *Request, archive ranke.Arc
 		content io.Reader
 		err     error
 	)
-	if req.Branch == Universe {
+	switch req.Branch {
+	case Universe:
+		// No closure to check, so the bytes come off the claim the Universe holds.
+		var claim ranke.Claim
+		if claim, err = ranke.GetClaim(ctx, c.store, req.ClaimID); err == nil {
+			content, err = claim.GetContent(ctx, c.store)
+		}
+	case Archive:
 		content, err = archive.GetClaimContent(ctx, req.ClaimID)
-	} else {
+	default:
 		var branch ranke.Branch
 		if branch, err = c.branch(ctx, req, archive); err == nil {
 			content, err = branch.GetClaimContent(ctx, req.ClaimID)
@@ -140,6 +152,47 @@ func (c *Core) branchHead(ctx context.Context, req *Request, archive ranke.Archi
 	return &jsonStream{value: branchHead{Head: branch.Head().String()}}, nil
 }
 
+// branchInfo serves what is known about one branch: its head, and the head claim's height
+// and created_at. Those two are typed fields of the claim the branch points at, read
+// through the library's accessors — the branch itself carries neither.
+func (c *Core) branchInfo(ctx context.Context, req *Request, archive ranke.Archive) (Stream, error) {
+	branch, err := c.branch(ctx, req, archive)
+	if err != nil {
+		return nil, err
+	}
+	head, err := archive.GetClaim(ctx, branch.Head())
+	if err != nil {
+		return nil, mapLibError(err)
+	}
+	req.Report.step("branch %q described", req.Branch)
+	return &jsonStream{value: branchInfo{
+		Name:      branch.Name(),
+		Head:      branch.Head().String(),
+		Height:    head.Node().Height(),
+		UpdatedAt: head.Node().CreatedAt().UTC(),
+	}}, nil
+}
+
+// archiveInfo serves the branch-table head and its shape. This is the only place the
+// archive head is reported, and it is what a client needs to name the $archive scope.
+func (c *Core) archiveInfo(ctx context.Context, req *Request, archive ranke.Archive) (Stream, error) {
+	head, err := archive.GetClaim(ctx, archive.Head())
+	if err != nil {
+		return nil, mapLibError(err)
+	}
+	branches, err := archive.GetBranches(ctx)
+	if err != nil {
+		return nil, mapLibError(err)
+	}
+	req.Report.step("archive described at head %s", archive.Head())
+	return &jsonStream{value: archiveInfo{
+		Head:      archive.Head().String(),
+		Height:    head.Node().Height(),
+		UpdatedAt: head.Node().CreatedAt().UTC(),
+		Branches:  len(branches),
+	}}, nil
+}
+
 // branchList serves the branch table's branches by name and head.
 func (c *Core) branchList(ctx context.Context, req *Request, archive ranke.Archive) (Stream, error) {
 	branches, err := archive.GetBranches(ctx)
@@ -154,13 +207,20 @@ func (c *Core) branchList(ctx context.Context, req *Request, archive ranke.Archi
 	return &jsonStream{value: branchList{Branches: named}}, nil
 }
 
-// scopedClaim reads the request's claim within its scope: a branch confines the read to
-// that branch's closure, $universe reaches any claim the Universe holds.
+// scopedClaim reads the request's claim within the scope the request names. The three
+// differ in what they reach: a branch is confined to that branch's closure, $archive to
+// the closure of the current head across every branch, and $universe to anything the
+// Universe holds — which is the privileged read, the one that can reach an archive from
+// a Universe and a head id alone, so it must not go through a closure at all.
 func (c *Core) scopedClaim(ctx context.Context, req *Request, archive ranke.Archive) (ranke.Claim, error) {
 	if req.ClaimID == nil {
 		return nil, fmt.Errorf("%w: no claim id", ErrNotFound)
 	}
-	if req.Branch == Universe {
+	switch req.Branch {
+	case Universe:
+		claim, err := ranke.GetClaim(ctx, c.store, req.ClaimID)
+		return claim, mapLibError(err)
+	case Archive:
 		claim, err := archive.GetClaim(ctx, req.ClaimID)
 		return claim, mapLibError(err)
 	}
@@ -209,6 +269,22 @@ func (c *Core) layers(req *Request) (Stream, error) {
 // branchHead is one branch's current head.
 type branchHead struct {
 	Head string `json:"head"`
+}
+
+// branchInfo is what is known about one branch.
+type branchInfo struct {
+	Name      string    `json:"name"`
+	Head      string    `json:"head"`
+	Height    uint64    `json:"height"`
+	UpdatedAt time.Time `json:"updatedAt"`
+}
+
+// archiveInfo is what is known about the archive as a whole.
+type archiveInfo struct {
+	Head      string    `json:"head"`
+	Height    uint64    `json:"height"`
+	UpdatedAt time.Time `json:"updatedAt"`
+	Branches  int       `json:"branches"`
 }
 
 // branchEntry names one branch and the head it points at.

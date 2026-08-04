@@ -65,10 +65,21 @@ The stack assembles fully — storage, sequencer, signer, and one REST endpoint 
 | Route | Answers |
 |---|---|
 | `GET /health` | the server's signing identity |
-| `GET /{branch}/head`, `GET /{branch}/claim/{id}` | the branch head, a claim |
+| `GET /branches` | every branch by name and head — start here, no branch name needed |
+| `GET /branches/{branch}/head`, `…/claims/{id}` | the branch head, a claim in its closure |
+| `GET /archive/claims/{id}`, `GET /universe/claims/{id}` | a claim by the scope it is read in |
 | `POST /contribute` | merges a contribution, returns the new head and the ids |
 | `POST /query` | the branch's closure, as `native`, `json` or `cbor` |
-| `GET /system/layers`, `POST /system/verification` | storage introspection, verification |
+| `GET /system/layers`, `POST /system/verifications` | storage introspection, verification |
+
+### Reaching it from a browser
+
+`allowedOrigins` on the transport admits the explorer's dev origins — vite's `5173` and its
+preview `4173` — so `make dev` here and `make -C frontend run` there work together with no
+proxy. It is a comma-separated list and `*` admits any; omitting it leaves the instance
+unreachable from any page but its own origin, which is the right default for a server nobody
+browses. Admitting an origin grants it nothing: every request still authenticates and is
+authorized as before.
 
 ### The sequencer section
 

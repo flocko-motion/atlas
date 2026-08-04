@@ -40,9 +40,99 @@ Configured in the client, several at a time, switchable — the auth kinds mirro
 server's adapters and `openapi.yaml`'s security schemes: no-auth, `X-API-Key`,
 `Authorization: Bearer` (JWT), and `Authorization: Macaroon`. Secrets stay in memory
 for the session unless you tick *remember*, which writes them to `localStorage` where
-any script on the page can read them. Reading claims from a connection is not wired
-yet: the REST query contract has merged (`rest-api`), but nothing here imports a
+any script on the page can read them. Reading claim *bodies* from a connection is not
+wired yet: the REST query contract has merged (`rest-api`), but nothing here imports a
 generated client from it so far.
+
+## Branches, and where a query is answered
+
+The header's picker lists what the archive holds — the whole archive and each named
+branch, each with the head its closure is rooted at — read through the data-source port,
+so it works against a server (`GET /branches`) and against mock data alike. `$universe`
+is absent: a browsable scope needs a head, and it has none, which is also why RankeQL
+refuses to read there without an explicit one. No branch name is built in; `main` is a
+fact about someone else's archive, so every name comes from the listing.
+
+**The engine answers what a branch contains, not this client.** Selecting a scope runs a
+query for identities only — `select.branch` names the scope, `output.detail: id` asks for
+the ids — and the view then draws the intersection with what is cached. Switching scopes
+therefore costs a query for ids and a `Set.has` per claim, never a re-read of a claim body.
+
+An earlier attempt walked the closure here instead, which is a second query engine in the
+layer least able to optimise one. It also cost **398 ms at 100k claims and 1.7 s at 300k**
+for the widest scope. Both are reasons; the boundary is the better one.
+
+The archive scope needs the branch-table head, which `GET /archive/info` reports — the only
+route that does. Against an instance too old to answer it, or a subject without `R $archive`,
+the picker offers the branches alone rather than a scope with no head.
+
+A scope's answer can name claims this session never read — the archive advanced, or the
+load was capped — so the count is reported next to the picker rather than the overlap being
+drawn silently.
+
+## Open: stretching x without stretching y
+
+The timeline already spreads the visible strata across the whole height, so a uniform zoom
+wastes half of what it does — stretching y achieves nothing and only shrinks the bands when
+zooming out. What is wanted is x alone.
+
+Sigma has one uniform `ratio` and no per-axis zoom, so this means rewriting x and leaving y
+where it is. Two properties decide the design:
+
+- **The switch point is fixed for a given archive and viewport.** The most x is ever
+  compressed is the ratio at which the whole axis fits the width; below that, further
+  zooming out has to become the classic uniform zoom, because there is nothing left to
+  compress. That maximum is computed once at startup and again on resize — not per frame.
+- **The cost is in the nodes loaded, not the nodes visible.** A stretch step rewrites x for
+  every node and then pays an O(N) Sigma refresh, whether ten are on screen or ten thousand.
+  So the gate is the loaded count. Measured refresh cost: **733 ms at 50k**, against a layout
+  pass of 17 ms at 2k and ~100 ms at 100k — the refresh dominates by an order of magnitude.
+
+### The lens, which makes the cost go away
+
+Rather than gating the stretch by a threshold, change the size of the problem: while zoomed
+in, draw only the claims in the window. Two modes for two uses — seeing the whole archive, or
+navigating it with a lens.
+
+Sigma is handed a small graph in lens mode, so every stretch step is O(window) rather than
+O(union), and rewriting x per zoom step becomes affordable.
+
+Nothing is rebuilt on the way back: the union lives at module scope and the lens only reads
+it. What a naive switch would cost is Sigma's own work — uploading N nodes into its buffers
+and re-indexing them — which is avoidable by giving each graph its own Sigma instance and
+switching which canvas is shown. The union's buffers stay valid while lensing, so neither
+direction pays an upload. The price is two WebGL contexts, the union's GPU memory resident
+throughout (as it already was), and camera state kept in step so the switch does not jump.
+
+The bar is frictionless, and two things are what meet it: the lens is built and uploaded
+*before* the canvases swap, so no frame is ever shown empty; and both instances are handed
+the same camera state at the moment of the swap, so the picture does not move. Neither is
+expensive — the lens is small — but getting the order wrong is what a reader would see.
+
+Two things to settle first:
+
+- **It bends the one-graph invariant, honestly.** The union stays authoritative; the lens is a
+  derived, disposable copy for rendering, discarded on exit. Ids are content addresses, so
+  selection and hover survive the switch without mapping.
+- **Edges leaving the window are counted, not followed.** Bringing the far end along as a
+  stub was the first design, and measuring settled it: provenance reaches back arbitrarily far
+  in time, so a 4% window of 100k claims pulled in **8,333 stubs against 3,994 real claims**.
+  A lens two-thirds composed of placeholders is not a lens. Instead each claim carries how many
+  of its references leave the view, so the signal sits on the claim that has them.
+
+Measured, with a viewport showing 4% of the axis:
+
+| union | lens | cut once | stretch step: lens | stretch step: union |
+|---|---|---|---|---|
+| 20,000 claims | 801 (4.0%) | 54 ms | **2.8 ms** | 91 ms |
+| 100,000 claims | 3,994 (4.0%) | 351 ms | **16.9 ms** | 591 ms |
+
+So a stretch step costs about a thirtieth of what it would over the union, which is what makes
+x-only zooming affordable at all. The cut is paid once per window rather than per step, and
+only when a pan leaves the margin the window was widened by.
+
+A measured node-count threshold with uniform zoom above it remains the fallback if the lens
+proves more than is wanted.
 
 # Performance
 

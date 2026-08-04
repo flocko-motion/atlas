@@ -36,7 +36,7 @@ func (s *Server) StartVerification(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if id != "" {
-		w.Header().Set("Location", "/system/verification/"+id)
+		w.Header().Set("Location", "/system/verifications/"+id)
 	}
 	w.Header().Set("Retry-After", retryAfterSeconds)
 	s.respondBytes(w, mediaJSON, http.StatusAccepted, body)
@@ -53,7 +53,7 @@ func (s *Server) ListVerifications(w http.ResponseWriter, r *http.Request) {
 	s.respond(w, stream, http.StatusOK)
 }
 
-// GetVerification serves GET /system/verification/{id}.
+// GetVerification serves GET /system/verifications/{id}.
 func (s *Server) GetVerification(w http.ResponseWriter, r *http.Request, reportId string) {
 	req := &core.Request{Credential: credentialOf(r.Context()), Op: core.OpVerificationGet, VerID: reportId}
 	stream, err := s.core.Handle(r.Context(), req)
@@ -73,7 +73,7 @@ func (s *Server) GetVerification(w http.ResponseWriter, r *http.Request, reportI
 	s.respondBytes(w, mediaJSON, http.StatusOK, body)
 }
 
-// CancelVerification serves POST /system/verification/{id}/cancel.
+// CancelVerification serves POST /system/verifications/{id}/cancel.
 func (s *Server) CancelVerification(w http.ResponseWriter, r *http.Request, reportId string) {
 	req := &core.Request{Credential: credentialOf(r.Context()), Op: core.OpVerificationCancel, VerID: reportId}
 	stream, err := s.core.Handle(r.Context(), req)
@@ -84,7 +84,7 @@ func (s *Server) CancelVerification(w http.ResponseWriter, r *http.Request, repo
 	s.respond(w, stream, http.StatusOK)
 }
 
-// DeleteVerification serves DELETE /system/verification/{id}.
+// DeleteVerification serves DELETE /system/verifications/{id}.
 func (s *Server) DeleteVerification(w http.ResponseWriter, r *http.Request, reportId string) {
 	req := &core.Request{Credential: credentialOf(r.Context()), Op: core.OpVerificationDelete, VerID: reportId}
 	stream, err := s.core.Handle(r.Context(), req)

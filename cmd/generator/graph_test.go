@@ -33,20 +33,23 @@ func TestIdentityIsReproducible(t *testing.T) {
 	}
 }
 
-// TestExampleGraphHasRealProvenance checks the shape rather than the bytes: one
-// contribution, four claims, and heights that follow from what each cites — 1 for the
-// sources, 2 for the derivation, 3 for the entity.
+// TestExampleGraphHasRealProvenance checks the shape rather than the bytes: one contribution
+// per branch, and in the first the four claims whose heights follow from what each cites — 1
+// for the sources, 2 for the derivation, 3 for the entity.
 func TestExampleGraphHasRealProvenance(t *testing.T) {
 	g := newTestGrower(t)
-	bs, err := g.example()
+	bs, err := g.example(branchesFor("main", 2))
 	if err != nil {
 		t.Fatalf("example: %v", err)
 	}
-	if len(bs) != 1 {
-		t.Fatalf("batches = %d, want 1", len(bs))
+	if len(bs) != 2 {
+		t.Fatalf("batches = %d, want one per branch", len(bs))
+	}
+	if bs[0].branch == bs[1].branch {
+		t.Fatalf("both contributions name %q — a fixture with one branch tests no branches", bs[0].branch)
 	}
 
-	claims := bs[0]
+	claims := bs[0].claims
 	want := []struct {
 		typ    string
 		height uint64
@@ -85,7 +88,7 @@ func TestExampleGraphHasRealProvenance(t *testing.T) {
 // batches, and heights that climb past the flat 1 a graph of roots would have.
 func TestChainGrowsDepth(t *testing.T) {
 	g := newTestGrower(t)
-	bs, err := g.chain(10, 6)
+	bs, err := g.chain(10, 6, branchesFor("main", 3))
 	if err != nil {
 		t.Fatalf("chain: %v", err)
 	}
@@ -94,11 +97,13 @@ func TestChainGrowsDepth(t *testing.T) {
 	}
 
 	var deepest uint64
-	for i, batch := range bs {
-		if len(batch) != 6 {
-			t.Fatalf("batch %d holds %d claims, want 6", i, len(batch))
+	branches := map[string]int{}
+	for i, b := range bs {
+		branches[b.branch]++
+		if len(b.claims) != 6 {
+			t.Fatalf("batch %d holds %d claims, want 6", i, len(b.claims))
 		}
-		for _, claim := range batch {
+		for _, claim := range b.claims {
 			deepest = max(deepest, claim.Node().Height())
 			// A source is what enters the archive, so it cites nothing but its contributor.
 			if isSource(claim.Node().Type()) && len(inputs(claim)) != 0 {
@@ -109,24 +114,30 @@ func TestChainGrowsDepth(t *testing.T) {
 	if deepest < 3 {
 		t.Fatalf("deepest height = %d, want a graph with real depth", deepest)
 	}
+	if len(branches) < 2 {
+		t.Fatalf("contributions landed on %d branch(es), want several", len(branches))
+	}
 }
 
 // TestChainIsDeterministic pins reproducibility across the whole shape, not just the
 // identity: two runs of the same command produce the same ids in the same order.
 func TestChainIsDeterministic(t *testing.T) {
-	first, err := newTestGrower(t).chain(4, 5)
+	first, err := newTestGrower(t).chain(4, 5, branchesFor("main", 3))
 	if err != nil {
 		t.Fatalf("chain: %v", err)
 	}
-	again, err := newTestGrower(t).chain(4, 5)
+	again, err := newTestGrower(t).chain(4, 5, branchesFor("main", 3))
 	if err != nil {
 		t.Fatalf("chain: %v", err)
 	}
 	for i := range first {
-		for j := range first[i] {
-			if !first[i][j].ID().Equal(again[i][j].ID()) {
+		if first[i].branch != again[i].branch {
+			t.Fatalf("contribution %d landed on %q then %q", i, first[i].branch, again[i].branch)
+		}
+		for j := range first[i].claims {
+			if !first[i].claims[j].ID().Equal(again[i].claims[j].ID()) {
 				t.Fatalf("claim %d.%d differs between runs: %s vs %s",
-					i, j, first[i][j].ID(), again[i][j].ID())
+					i, j, first[i].claims[j].ID(), again[i].claims[j].ID())
 			}
 		}
 	}
@@ -136,11 +147,11 @@ func TestChainIsDeterministic(t *testing.T) {
 // so the wire contract this client writes is pinned to the one the server reads.
 func TestEncodeContributionRoundTrips(t *testing.T) {
 	g := newTestGrower(t)
-	bs, err := g.example()
+	bs, err := g.example(branchesFor("main", 2))
 	if err != nil {
 		t.Fatalf("example: %v", err)
 	}
-	claims := append([]ranke.Claim{g.selfClaim}, bs[0]...)
+	claims := append([]ranke.Claim{g.selfClaim}, bs[0].claims...)
 
 	body, err := encodeContribution("main", claims)
 	if err != nil {
