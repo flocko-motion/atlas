@@ -831,13 +831,16 @@ components:
         when `execution.report` names a verbosity. Typed distinctly from result items,
         so a reader never mistakes it for data, and always last.
       properties:
-        startedAt:
+        started_at:
           type: string
           format: date-time
           description: Wall clock at query start.
-        elapsedMs:
+        elapsed_ns:
           type: integer
-          description: Total execution time in milliseconds.
+          description: |
+            Total execution time in nanoseconds. The unit is in the name because the
+            value is a bare integer, and it is nanoseconds because a `trace` report
+            exists to show steps a millisecond would round away.
         results:
           type: integer
           description: Number of result items emitted before this report.
@@ -853,29 +856,29 @@ components:
       type: object
       description: |
         One entry in a query's execution log — a stage, a routing decision, or a
-        lowering.
+        translation.
       properties:
-        atMs:
+        at_ns:
           type: integer
-          description: Offset from `startedAt` in milliseconds.
+          description: Offset from `started_at` in nanoseconds.
         engine:
           type: string
           description: Who emitted it (e.g. native, cypher, stack, partition).
         op:
           type: string
-          description: What it did (e.g. load-root, step, filter, sort, route, lower-cypher).
+          description: What it did (e.g. load-root, step, filter, sort, route, translate-cypher).
         level:
           type: string
           enum: [error, warn, info, debug, trace]
           description: |
             The entry's own level; a report carries everything at or above the
             verbosity `execution.report` asked for.
-        durationMs:
+        duration_ns:
           type: integer
-          description: Elapsed time for a timed step; 0 for a point event.
+          description: Elapsed time for a timed step, in nanoseconds; 0 for a point event.
         detail:
           type: string
-          description: Human-readable message, or the lowered query text (e.g. the Cypher).
+          description: Human-readable message, or the translated query text (e.g. the Cypher).
         attrs:
           type: object
           additionalProperties: true
