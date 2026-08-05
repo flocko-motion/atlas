@@ -65,14 +65,6 @@ export interface DataSource {
   content(scope: Scope | null, id: ClaimId): Promise<Uint8Array>;
 }
 
-/** NotWiredError marks a capability the explorer has not bound to the contract yet. */
-export class NotWiredError extends Error {
-  constructor(what: string) {
-    super(`${what} read it from a connection to a real instance instead.`);
-    this.name = 'NotWiredError';
-  }
-}
-
 /** MockSource generates an archive locally. Its parameters are its server details. */
 export class MockSource implements DataSource {
   readonly kind = 'mock' as const;
@@ -132,10 +124,14 @@ export class MockSource implements DataSource {
 
   /**
    * content has none to give: the generator produces sizes and encodings but never bytes,
-   * since what it exists to exercise is topology and paint.
+   * since what it exists to exercise is topology and paint. A property of a generated
+   * archive, not a capability still to be wired — a connection answers this.
    */
   async content(): Promise<Uint8Array> {
-    throw new NotWiredError('a generated archive holds no content bytes, only their sizes —');
+    throw new Error(
+      'a generated archive holds no content bytes, only their sizes — read content from a ' +
+        'connection to a real instance instead.',
+    );
   }
 
   /** wholeArchive is this source's full archive, whatever a read of it is capped at. */

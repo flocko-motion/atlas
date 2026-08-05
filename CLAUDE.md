@@ -159,5 +159,6 @@ Classical single-module Go repo at the repo root (module `github.com/flocko-moti
 Status: mid-refactor on `refactor/hexagonal` — the pre-hexagonal server (tenants,
 multi-stack, and the schemaf-era explorer) is purged; the spec + `make generate`/`verify`
 pipeline is in place; `core`/adapters/`cmd` are being built. The explorer is rebuilt from
-scratch under `frontend/` (epic `td-976f37`) and carries no API wiring yet, though the REST
-contract it will bind to has merged (`rest-api`, from `add-rest-api`).
+scratch under `frontend/` (epic `td-976f37`) and reads a live instance through the client
+generated from the merged REST contract (`rest-api`, from `add-rest-api`) — a committed copy
+of `openapi.gen.ts` under `frontend/src/core/data/`, so `frontend/` stays buildable on its own.

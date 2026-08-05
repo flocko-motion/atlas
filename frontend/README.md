@@ -40,9 +40,13 @@ Configured in the client, several at a time, switchable — the auth kinds mirro
 server's adapters and `openapi.yaml`'s security schemes: no-auth, `X-API-Key`,
 `Authorization: Bearer` (JWT), and `Authorization: Macaroon`. Secrets stay in memory
 for the session unless you tick *remember*, which writes them to `localStorage` where
-any script on the page can read them. Reading claim *bodies* from a connection is not
-wired yet: the REST query contract has merged (`rest-api`), but nothing here imports a
-generated client from it so far.
+any script on the page can read them.
+
+A connection is read through the client generated from `openapi.yaml`
+(`src/core/data/openapi.gen.ts`), so every route, path and response type a read uses is
+the contract's and this repo hand-writes none of them. Auth stays the client's: which
+kinds an instance accepts follows from how it was configured, so the generated client is
+handed the headers the kind calls for rather than asked to negotiate one.
 
 ## Branches, and where a query is answered
 
@@ -416,12 +420,20 @@ The whole stack — graphology, Sigma, the layouts, the generator — bundles to
 
 | Path | What |
 |---|---|
-| `Makefile` | The entry point — `run`, `build`, `single`, `bench`, `check` |
+| `Makefile` | The entry point — `run`, `build`, `single`, `bench`, `test`, `check` |
 | `explorer.html` | Generated, committed: open it with no npm and no server |
-| `src/mock/model.ts` | The ADT vocabulary the mock data follows |
-| `src/mock/generate.ts` | Contribution-by-contribution archive generator |
-| `src/mock/graph.ts` | Claims → graphology; depth, history and degree statistics |
+| `src/main.tsx` | Mounts React, which renders the shell |
+| `src/core/connections.ts` | The instances this client can talk to, and their credentials |
+| `src/core/data/source.ts` | The data-source port and its two backends: a connection, and the generator |
+| `src/core/data/openapi.gen.ts` | Generated, committed: the REST client, from the root `openapi.yaml` |
+| `src/core/mock/model.ts` | The ADT vocabulary the mock data follows |
+| `src/core/mock/generate.ts` | Contribution-by-contribution archive generator |
+| `src/core/graph/` | Claims → graphology: the union, the lens, scope membership, depth and degree statistics |
+| `src/core/layout/` | The layouts, and the timescale the history layout stretches |
+| `src/core/store.ts`, `session.ts` | View state, and the actions a read or a scope change runs |
+| `src/render/renderer.ts` | The one Sigma instance and the reducers a view is expressed through |
+| `src/ui/` | The shell, its panes, and the header |
 | `src/bench/graph-bench.ts` | The headless bench (every number above) |
 | `src/bench/browser-bench.ts` | Playwright driver for frame timings; skips cleanly |
-| `src/explorer/main.ts` | The explorer and its in-page scripted measurement |
+| `src/**/*.test.ts` | The headless core tests — `make test` |
 | `results/*.json` | Measured output, committed on purpose |
