@@ -12,8 +12,10 @@ import { generate } from '../mock/generate.ts';
 import type { ClaimId, MockArchive, MockClaim } from '../mock/model.ts';
 import { ARCHIVE_SCOPE } from '../scope.ts';
 import type { Scope } from '../scope.ts';
-import { authHeaders, endpoint, probe } from '../connections.ts';
+import { apiBase, authHeaders, probe } from '../connections.ts';
 import type { Connection, MockParams, ProbeResult } from '../connections.ts';
+import { Api } from './openapi.gen.ts';
+import type { Error as ApiError, HttpResponse, Query as ApiQuery } from './openapi.gen.ts';
 
 /** What a read returns: claims, and what the source can say about them. */
 export interface ClaimPage {
@@ -66,10 +68,7 @@ export interface DataSource {
 /** NotWiredError marks a capability the explorer has not bound to the contract yet. */
 export class NotWiredError extends Error {
   constructor(what: string) {
-    super(
-      `${what} is not wired yet: the REST query contract has merged, but the explorer ` +
-        'imports no generated client from it so far. Use a mock source for now.',
-    );
+    super(`${what} read it from a connection to a real instance instead.`);
     this.name = 'NotWiredError';
   }
 }
@@ -136,7 +135,7 @@ export class MockSource implements DataSource {
    * since what it exists to exercise is topology and paint.
    */
   async content(): Promise<Uint8Array> {
-    throw new NotWiredError('a generated archive holds no content bytes, only their sizes;');
+    throw new NotWiredError('a generated archive holds no content bytes, only their sizes —');
   }
 
   /** wholeArchive is this source's full archive, whatever a read of it is capped at. */
@@ -175,16 +174,28 @@ function memoised(params: MockParams, claims: number): MockArchive {
   return lastArchive;
 }
 
-/** RestSource talks to a real instance. Health only, for now. */
+/**
+ * RestSource talks to a real instance through the client generated from `openapi.yaml`, so
+ * every route, path and response type it uses is the contract's rather than this file's.
+ */
 export class RestSource implements DataSource {
   readonly kind = 'rest' as const;
 
   private connection: Connection;
   private secret: string;
+  private api: Api<unknown>;
 
   constructor(connection: Connection, secret: string) {
     this.connection = connection;
     this.secret = secret;
+    // One client per connection: a connection *is* a base URL and a credential, and the
+    // credential rides in a header on every route, which is what baseApiParams carries.
+    // Auth stays the explorer's — which kinds an instance accepts follows from how it was
+    // configured, so the client is handed headers rather than asked to negotiate.
+    this.api = new Api<unknown>({
+      baseUrl: apiBase(connection),
+      baseApiParams: { headers: authHeaders(connection, secret) },
+    });
   }
 
   describe(): string {
@@ -196,37 +207,26 @@ export class RestSource implements DataSource {
   }
 
   /**
-   * branches reads `GET /branches`, plus `GET /archive/info` for the branch-table head — the
-   * only route reporting it, and so the only way the archive becomes a nameable scope. If
-   * that read fails the archive is dropped rather than guessed.
+   * branches reads the branch listing, plus the archive report for the branch-table head —
+   * the only route reporting it, and so the only way the archive becomes a nameable scope.
+   * If that read fails the archive is dropped rather than guessed.
    */
   async branches(): Promise<Scope[]> {
-    const listed = await this.getJSON<{ branches?: { name?: string; head?: string }[] }>(
-      '/branches',
-      'listing branches',
-    );
-    const branches = (listed.branches ?? [])
-      .filter((b): b is { name: string; head: string } => Boolean(b.name && b.head))
+    const listed = await this.answer(() => this.api.branches.listBranches(), 'listing branches');
+    const branches = (listed.data.branches ?? [])
+      .filter((b) => Boolean(b.name && b.head))
       .map(({ name, head }) => ({ name, head }));
 
     try {
-      const archive = await this.getJSON<{ head?: string }>('/archive/info', 'reading the archive');
-      if (archive.head) return [{ name: ARCHIVE_SCOPE, head: archive.head }, ...branches];
+      const archive = await this.answer(
+        () => this.api.archive.getArchiveInfo(),
+        'reading the archive',
+      );
+      if (archive.data.head) return [{ name: ARCHIVE_SCOPE, head: archive.data.head }, ...branches];
     } catch {
       // Not grantable to this subject, or an older instance: the branches still stand.
     }
     return branches;
-  }
-
-  /** getJSON reads one JSON route, naming what was being read when it fails. */
-  private async getJSON<T>(path: string, what: string): Promise<T> {
-    const response = await fetch(endpoint(this.connection, path), {
-      headers: authHeaders(this.connection, this.secret),
-    });
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status} ${what}`);
-    }
-    return (await response.json()) as T;
   }
 
   /**
@@ -234,51 +234,48 @@ export class RestSource implements DataSource {
    * for identities. The answer is a JSON sequence, read line by line.
    */
   async scopeIds(scope: Scope): Promise<ClaimId[]> {
-    const response = await fetch(endpoint(this.connection, '/query'), {
-      method: 'POST',
-      headers: { ...authHeaders(this.connection, this.secret), 'Content-Type': 'application/json' },
-      body: JSON.stringify({
+    const response = await this.query(
+      {
         select: { branch: scope.name, head: scope.head },
         output: { detail: 'id', encoding: 'json' },
-      }),
-    });
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status} reading the ids in ${scope.name}`);
-    }
+      },
+      `reading the ids in ${scope.name}`,
+    );
     return idsFromSequence(await response.text());
   }
 
-  /** content reads the claim's bytes from the route that serves them for its scope. */
+  /**
+   * content reads the claim's bytes from the route that serves them for its scope: this picks
+   * which scope's route answers, and the client builds the path.
+   */
   async content(scope: Scope | null, id: ClaimId): Promise<Uint8Array> {
-    const where = scope === null || scope.name === ARCHIVE_SCOPE
-      ? '/archive'
-      : `/branches/${encodeURIComponent(scope.name)}`;
-    const response = await fetch(
-      endpoint(this.connection, `${where}/claims/${encodeURIComponent(id)}/content`),
-      { headers: authHeaders(this.connection, this.secret) },
+    const branch = scope === null || scope.name === ARCHIVE_SCOPE ? null : scope.name;
+    const response = await this.answer(
+      () =>
+        branch === null
+          ? this.api.archive.getArchiveClaimContent(id)
+          : this.api.branches.getBranchClaimContent(segment(branch), id),
+      `reading the content of ${id.slice(0, 12)}…`,
     );
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status} reading the content of ${id.slice(0, 12)}…`);
-    }
     return new Uint8Array(await response.arrayBuffer());
   }
 
   /** headOf reads a branch head — the one moving target in an archive. */
   async headOf(branch: string): Promise<string> {
-    const response = await fetch(
-      endpoint(this.connection, `/branches/${encodeURIComponent(branch)}/head`),
-      { headers: authHeaders(this.connection, this.secret) },
+    const reported = await this.answer(
+      () => this.api.branches.getBranchHead(segment(branch)),
+      `reading ${branch} head`,
     );
-    if (!response.ok) throw new Error(`HTTP ${response.status} reading ${branch} head`);
     // The route answers `{"head": "<id>"}`, so the id has to be read out of it — reading the
     // body as text returned the envelope.
-    const body = (await response.json()) as { head?: string };
-    if (typeof body.head !== 'string') throw new Error(`no head in the answer for ${branch}`);
-    return body.head;
+    if (typeof reported.data.head !== 'string') {
+      throw new Error(`no head in the answer for ${branch}`);
+    }
+    return reported.data.head;
   }
 
   /**
-   * fetch reads claims through `POST /query`: `detail: claims` carries each with its edges,
+   * fetch reads claims through the query route: `detail: claims` carries each with its edges,
    * `limit.results` caps it, and `form: original` is the id-defining form — what arrives is
    * what the id was computed over.
    */
@@ -290,18 +287,14 @@ export class RestSource implements DataSource {
       );
     }
     const t0 = performance.now();
-    const response = await fetch(endpoint(this.connection, '/query'), {
-      method: 'POST',
-      headers: { ...authHeaders(this.connection, this.secret), 'Content-Type': 'application/json' },
-      body: JSON.stringify({
+    const response = await this.query(
+      {
         select: { branch: request.scope.name, head: request.scope.head },
         output: { detail: 'claims', form: 'original', encoding: 'json' },
         limit: { results: request.limit },
-      }),
-    });
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status} reading ${request.scope.name}: ${await response.text()}`);
-    }
+      },
+      `reading ${request.scope.name}`,
+    );
     // Read as it arrives rather than in one piece: 24,000 claims take long enough that a
     // reader deserves to watch the count climb, and the records are line-delimited, so the
     // parse is incremental anyway.
@@ -314,6 +307,90 @@ export class RestSource implements DataSource {
       origin: `${request.scope.name} · POST /query`,
     };
   }
+
+  /**
+   * query posts a RankeQL query with the response format unset, which the route otherwise
+   * declares as `json`: a result set is a JSON *sequence*, so parsing it as one document
+   * would both fail and defeat the streaming. Unset, the client answers with the response
+   * itself, whose body the readers below take apart record by record as it arrives.
+   */
+  private query(query: ApiQuery, what: string): Promise<Response> {
+    return this.answer(() => this.api.query.query(query, { format: undefined }), what);
+  }
+
+  /**
+   * answer runs one generated call, naming the read in whatever goes wrong. The client throws
+   * the response rather than returning it, so a failure is only a status until it is told what
+   * was being read.
+   */
+  private async answer<T>(
+    call: () => Promise<HttpResponse<T, ApiError>>,
+    what: string,
+  ): Promise<HttpResponse<T, ApiError>> {
+    try {
+      return await call();
+    } catch (thrown) {
+      throw await failedRead(thrown, what);
+    }
+  }
+}
+
+/**
+ * segment escapes a value the client interpolates into a route path. A claim id is base32 by
+ * the contract's pattern and needs none; a branch name is an unconstrained string, so a `/`
+ * or a space in one would otherwise change which route is called.
+ */
+function segment(value: string): string {
+  return encodeURIComponent(value);
+}
+
+/**
+ * failedRead turns what a generated call threw into the error a reader sees. A route that asked
+ * for a parsed body carries the contract's `Error` in `error`; one left unparsed still has its
+ * body to read; and a request that never reached the server throws an `Error` whose message is
+ * all there is to report.
+ */
+async function failedRead(thrown: unknown, what: string): Promise<Error> {
+  if (thrown instanceof Error) return new Error(`${what} failed: ${thrown.message}`);
+  if (typeof thrown !== 'object' || thrown === null) {
+    return new Error(`${what} failed: ${String(thrown)}`);
+  }
+  const answer = thrown as HttpResponse<unknown, ApiError>;
+  if (typeof answer.status !== 'number') return new Error(`${what} failed: ${String(thrown)}`);
+  const detail = statedError(answer.error) || (await failureBody(answer));
+  return new Error(`HTTP ${answer.status} ${what}${detail ? `: ${detail}` : ''}`);
+}
+
+/**
+ * statedError reads the message out of the contract's error body: parsed, where the route asked
+ * the client to parse one, or still text, where it did not.
+ */
+function statedError(body: unknown): string {
+  if (typeof body === 'string') {
+    try {
+      return statedError(JSON.parse(body));
+    } catch {
+      return ''; // not the contract's shape, so the body itself is the best there is
+    }
+  }
+  if (!body || typeof body !== 'object') return '';
+  const { code, error } = body as Partial<ApiError>;
+  return typeof error === 'string' ? error : typeof code === 'string' ? code : '';
+}
+
+/**
+ * failureBody reads a failure body the client left unparsed, capped — it lands in a log line,
+ * not a document.
+ */
+async function failureBody(response: Response): Promise<string> {
+  let text = '';
+  try {
+    text = (await response.text()).trim();
+  } catch {
+    // A body already read, or none at all: the status still says what happened.
+    return '';
+  }
+  return statedError(text) || text.slice(0, 400);
 }
 
 /**

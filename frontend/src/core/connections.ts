@@ -237,10 +237,17 @@ export function authHeaders(connection: Connection, secret: string): Record<stri
   }
 }
 
+/**
+ * apiBase is a connection's base URL as a client joins route paths onto it: no trailing
+ * slash, since every route in the contract begins with one.
+ */
+export function apiBase(connection: Connection): string {
+  return connection.baseUrl.replace(/\/+$/, '');
+}
+
 /** endpoint joins a connection's base URL with a path, tolerating trailing slashes. */
 export function endpoint(connection: Connection, path: string): string {
-  const base = connection.baseUrl.replace(/\/+$/, '');
-  return `${base}${path.startsWith('/') ? path : `/${path}`}`;
+  return `${apiBase(connection)}${path.startsWith('/') ? path : `/${path}`}`;
 }
 
 /**

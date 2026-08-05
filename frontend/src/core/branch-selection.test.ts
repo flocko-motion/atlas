@@ -44,18 +44,23 @@ function viewWith(scope: Scope | null): ViewState {
 
 /**
  * stubFetch answers one URL with one body, so the REST backend is driven over the wire
- * shape it actually parses rather than through a hand-made double of itself.
+ * shape it actually parses rather than through a hand-made double of itself. The generated
+ * client clones a response before parsing it, so the stub answers `clone` as well — the
+ * request reaching `fetch` at all is what makes this a wire test.
  */
-function stubFetch(handler: (url: string) => { status?: number; body: unknown }) {
+function stubFetch(handler: (url: string, init?: RequestInit) => { status?: number; body: unknown }) {
   const original = globalThis.fetch;
-  globalThis.fetch = (async (input: string | URL | Request) => {
-    const { status = 200, body } = handler(String(input));
-    return {
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    const { status = 200, body } = handler(String(input), init);
+    const response: Partial<Response> = {
       ok: status >= 200 && status < 300,
       status,
+      headers: new Headers(),
       json: async () => body,
       text: async () => JSON.stringify(body),
-    } as Response;
+    };
+    response.clone = () => response as Response;
+    return response as Response;
   }) as typeof globalThis.fetch;
   return () => {
     globalThis.fetch = original;
@@ -89,6 +94,48 @@ test('branches list identically through the port from mock and REST', async () =
     assert.deepEqual(fromRest, named, 'the two backends disagree on the same branch table');
   } finally {
     restore();
+  }
+});
+
+// 2.2 — the routes are the generated client's, so a read is pinned to the contract's paths
+// rather than to a string in this repo. The archive head is what makes the archive a scope,
+// and it comes from the one route that reports it.
+test('the branch reads go out on the contract routes, archive head included', async () => {
+  const asked: string[] = [];
+  const restore = stubFetch((url) => {
+    asked.push(new URL(url).pathname);
+    return url.endsWith('/archive/info')
+      ? { body: { head: 'archive-head', height: 2, updatedAt: '2024-01-01T00:00:00Z', branches: 1 } }
+      : { body: { branches: [{ name: 'main', head: 'main-head' }] } };
+  });
+  try {
+    const scopes = await new RestSource(restConnection, '').branches();
+    assert.deepEqual(scopes, [
+      { name: ARCHIVE_SCOPE, head: 'archive-head' },
+      { name: 'main', head: 'main-head' },
+    ]);
+  } finally {
+    restore();
+  }
+  assert.deepEqual(asked, ['/branches', '/archive/info']);
+});
+
+// 2.1 — auth stays the explorer's: the client is handed the headers the connection's kind
+// calls for, and carries them on every route it builds.
+test('a connection’s credential rides on a generated read', async () => {
+  const sent: (HeadersInit | undefined)[] = [];
+  const restore = stubFetch((_url, init) => {
+    sent.push(init?.headers);
+    return { body: { branches: [] } };
+  });
+  try {
+    await new RestSource({ ...restConnection, authKind: 'apikey' }, 'the-key').branches();
+  } finally {
+    restore();
+  }
+  assert.ok(sent.length > 0, 'no request was made');
+  for (const headers of sent) {
+    assert.equal((headers as Record<string, string> | undefined)?.['X-API-Key'], 'the-key');
   }
 });
 

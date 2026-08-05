@@ -44,8 +44,12 @@ check: node_modules ## Type-check without emitting
 
 # Node's own runner, which strips the types — the same way the benches run. Core is
 # headless, so its behaviour is testable without a DOM or a browser.
+#
+# Types are transformed rather than only stripped: the generated client declares an enum,
+# which strip-only mode refuses outright, and core/data reaches the contract through it. The
+# flag is experimental and warns on every run — the choice is deliberate, so the warning goes.
 test: node_modules ## Run the headless core tests
-	@node --test 'src/**/*.test.ts'
+	@node --experimental-transform-types --disable-warning=ExperimentalWarning --test 'src/**/*.test.ts'
 
 clean: ## Remove build output (explorer.html is committed, so it stays)
 	@rm -rf dist
