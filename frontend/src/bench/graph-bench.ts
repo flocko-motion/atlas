@@ -36,7 +36,13 @@ const OUT = args.get('out') ?? new URL('../../results/graph-bench.json', import.
  * Real usage is unknowable, so it is swept at one scale rather than assumed.
  */
 const GRANULARITIES = (args.get('granularities') ?? '3,10,30,100,1000').split(',').map(Number);
-const GRANULARITY_SCALE = Number(args.get('granularity-scale') ?? 100000);
+/**
+ * The sweep runs below the largest scale on purpose. Claims are built by the ADT library, so
+ * 100k of them are ~770 MiB of objects, and five archives that size in one process crosses the
+ * 2 GiB the bench container is capped at — the third granularity was OOM-killed. 30k keeps the
+ * curve and fits; pass `--granularity-scale=100000` where there is memory for it.
+ */
+const GRANULARITY_SCALE = Number(args.get('granularity-scale') ?? 30000);
 /** Granularity used for the per-scale tables; an assumption, flagged as one. */
 const DEFAULT_GRANULARITY = Number(args.get('per-contribution') ?? 10);
 
@@ -114,7 +120,11 @@ interface ScaleResult {
   generateMs: number;
   /** Heap held by the claim objects — what a read has to buffer. */
   heapClaimsMB: number;
-  /** JSON wire size of those claims, as a query response would carry them. */
+  /**
+   * JSON size of the decoded claims. An upper bound on the wire rather than the wire itself:
+   * a decoded claim carries what the projection implies but does not send — the split type,
+   * the epoch milliseconds, a content declaration — so a response is smaller than this.
+   */
   payloadMB: number;
   /** Cost of turning that payload back into objects — a client-side cost. */
   payloadParseMs: number;
@@ -166,8 +176,9 @@ for (const requested of SCALES) {
       `(~${DEFAULT_GRANULARITY} claims each)\n`,
   );
 
-  // Both directions: the server pays stringify, the client pays parse, and the
-  // client's cost is the one that sits in front of the first frame.
+  // Both directions: the server pays stringify, the client pays parse, and the client's cost
+  // is the one that sits in front of the first frame. What is measured is the decoded claims
+  // rendered as JSON, which bounds the wire rather than being it — see payloadMB.
   const [payload, stringifyMs] = ms(() => JSON.stringify(archive.claims));
   const payloadMB = payload.length / 1048576;
   const [, parseMs] = ms(() => (JSON.parse(payload) as unknown[]).length);

@@ -8,18 +8,22 @@
  * act: one data path, not a real and a test one.
  */
 
+import { EncodeQuery, newSeqReader } from '@flocko-motion/ranke';
+import type { Query as RankeQuery } from '@flocko-motion/ranke';
+import { contributionUnknown, drawn } from '../claims.ts';
+import type { DrawnClaim } from '../claims.ts';
 import { generate } from '../mock/generate.ts';
-import type { ClaimId, MockArchive, MockClaim } from '../mock/model.ts';
+import type { MockArchive } from '../mock/model.ts';
 import { ARCHIVE_SCOPE } from '../scope.ts';
 import type { Scope } from '../scope.ts';
-import { apiBase, authHeaders, probe } from '../connections.ts';
+import { apiFor, probe } from '../connections.ts';
 import type { Connection, MockParams, ProbeResult } from '../connections.ts';
 import { Api } from './openapi.gen.ts';
 import type { Error as ApiError, HttpResponse, Query as ApiQuery } from './openapi.gen.ts';
 
 /** What a read returns: claims, and what the source can say about them. */
 export interface ClaimPage {
-  claims: MockClaim[];
+  claims: DrawnClaim[];
   contributions: number;
   /** Time the source spent producing the page. */
   elapsedMs: number;
@@ -36,11 +40,11 @@ export interface FetchRequest {
    */
   scope?: Scope | null;
   /**
-   * Called as claims arrive: how many so far, and how far through the body, where the response
-   * declared its length. A count of claims yet to come would cost a second closure walk, but
-   * the bytes are free — the server already said how many there are.
+   * Called as claims arrive: how many are decoded so far, and how many bytes the reader has
+   * taken. The count of claims yet to come would cost a second closure walk; the bytes are
+   * the reader's own tally, so they cost nothing and move even between two whole records.
    */
-  onProgress?: (read: number, through: number | null) => void;
+  onProgress?: (read: number, bytesRead: number) => void;
 }
 
 export interface DataSource {
@@ -55,14 +59,14 @@ export interface DataSource {
    * The engine answers it — a branch's membership is its closure — and the client intersects
    * the id set with its cache.
    */
-  scopeIds(scope: Scope): Promise<ClaimId[]>;
+  scopeIds(scope: Scope): Promise<string[]>;
   fetch(request: FetchRequest): Promise<ClaimPage>;
   /**
    * content reads one claim's bytes. Content is addressed by the claim that holds it, so the
    * scope the claim was read in is the scope its content is read in — and nothing about
    * whether the bytes sit inline or in a blob reaches the caller.
    */
-  content(scope: Scope | null, id: ClaimId): Promise<Uint8Array>;
+  content(scope: Scope | null, id: string): Promise<Uint8Array>;
 }
 
 /** MockSource generates an archive locally. Its parameters are its server details. */
@@ -76,7 +80,10 @@ export class MockSource implements DataSource {
   }
 
   describe(): string {
-    return `generated · seed ${this.params.seed}, ~${this.params.claimsPerContribution} claims per contribution`;
+    return (
+      `generated · seed ${this.params.seed}, up to ${this.params.claims.toLocaleString('en-US')} ` +
+      `claims, ~${this.params.claimsPerContribution} per contribution`
+    );
   }
 
   /** A generator is always healthy; reporting so keeps the UI uniform. */
@@ -101,8 +108,8 @@ export class MockSource implements DataSource {
    * scopeIds reads the branch each claim was stamped with. An unstamped claim is shared —
    * contributors, the branch table — so it belongs to every scope.
    */
-  async scopeIds(scope: Scope): Promise<ClaimId[]> {
-    return scopedClaims(this.wholeArchive(), scope.name).map((c) => c.id);
+  async scopeIds(scope: Scope): Promise<string[]> {
+    return scopedClaims(this.wholeArchive(), scope.name).map((c) => c.claim.id);
   }
 
   /**
@@ -145,7 +152,7 @@ export class MockSource implements DataSource {
  * listing cannot disagree. An unstamped claim is shared and belongs to every scope; a name
  * the branch table does not hold is no scope, and contains nothing.
  */
-function scopedClaims(archive: MockArchive, scope?: string): MockClaim[] {
+function scopedClaims(archive: MockArchive, scope?: string): DrawnClaim[] {
   if (!scope || scope === ARCHIVE_SCOPE) return archive.claims;
   if (!(scope in archive.branches)) return [];
   return archive.claims.filter((c) => c.branch === scope || c.branch === '');
@@ -184,14 +191,7 @@ export class RestSource implements DataSource {
   constructor(connection: Connection, secret: string) {
     this.connection = connection;
     this.secret = secret;
-    // One client per connection: a connection *is* a base URL and a credential, and the
-    // credential rides in a header on every route, which is what baseApiParams carries.
-    // Auth stays the explorer's — which kinds an instance accepts follows from how it was
-    // configured, so the client is handed headers rather than asked to negotiate.
-    this.api = new Api<unknown>({
-      baseUrl: apiBase(connection),
-      baseApiParams: { headers: authHeaders(connection, secret) },
-    });
+    this.api = apiFor(connection, secret);
   }
 
   describe(): string {
@@ -227,9 +227,10 @@ export class RestSource implements DataSource {
 
   /**
    * scopeIds runs the scoped query: `select.branch` names the scope, `output.detail: id` asks
-   * for identities. The answer is a JSON sequence, read line by line.
+   * for identities. The answer is a sequence of bare ids — see idsFromSequence for why that
+   * one read still frames its own records.
    */
-  async scopeIds(scope: Scope): Promise<ClaimId[]> {
+  async scopeIds(scope: Scope): Promise<string[]> {
     const response = await this.query(
       {
         select: { branch: scope.name, head: scope.head },
@@ -241,10 +242,44 @@ export class RestSource implements DataSource {
   }
 
   /**
+   * fetch reads claims through the query route: `detail: claims` carries each with its edges,
+   * `limit.results` caps it, and `form: original` is the id-defining form — what arrives is
+   * what the id was computed over.
+   */
+  async fetch(request: FetchRequest): Promise<ClaimPage> {
+    if (!request.scope) {
+      throw new Error(
+        'a server read needs a scope: pick a branch in the header first, since the query ' +
+          'contract makes select.branch mandatory',
+      );
+    }
+    const t0 = performance.now();
+    const response = await this.query(
+      {
+        select: { branch: request.scope.name, head: request.scope.head },
+        output: { detail: 'claims', form: 'original', encoding: 'json' },
+        limit: { results: request.limit },
+      },
+      `reading ${request.scope.name}`,
+    );
+    // Read as it arrives rather than in one piece: 24,000 claims take long enough that a
+    // reader deserves to watch the count climb, and the library's reader is a push parser,
+    // so the decode is incremental anyway.
+    const claims = await claimsFromBody(response, request.onProgress);
+    return {
+      claims,
+      // A server read carries no contribution index; see contributionUnknown in core/claims.
+      contributions: contributionUnknown,
+      elapsedMs: performance.now() - t0,
+      origin: `${request.scope.name} · query`,
+    };
+  }
+
+  /**
    * content reads the claim's bytes from the route that serves them for its scope: this picks
    * which scope's route answers, and the client builds the path.
    */
-  async content(scope: Scope | null, id: ClaimId): Promise<Uint8Array> {
+  async content(scope: Scope | null, id: string): Promise<Uint8Array> {
     const branch = scope === null || scope.name === ARCHIVE_SCOPE ? null : scope.name;
     const response = await this.answer(
       () =>
@@ -271,47 +306,18 @@ export class RestSource implements DataSource {
   }
 
   /**
-   * fetch reads claims through the query route: `detail: claims` carries each with its edges,
-   * `limit.results` caps it, and `form: original` is the id-defining form — what arrives is
-   * what the id was computed over.
-   */
-  async fetch(request: FetchRequest): Promise<ClaimPage> {
-    if (!request.scope) {
-      throw new Error(
-        'a server read needs a scope: pick a branch in the header first, since the query ' +
-          'contract makes select.branch mandatory',
-      );
-    }
-    const t0 = performance.now();
-    const response = await this.query(
-      {
-        select: { branch: request.scope.name, head: request.scope.head },
-        output: { detail: 'claims', form: 'original', encoding: 'json' },
-        limit: { results: request.limit },
-      },
-      `reading ${request.scope.name}`,
-    );
-    // Read as it arrives rather than in one piece: 24,000 claims take long enough that a
-    // reader deserves to watch the count climb, and the records are line-delimited, so the
-    // parse is incremental anyway.
-    const claims = await claimsFromStream(response, request.onProgress);
-    return {
-      claims,
-      // A server read carries no contribution index; see contributionUnknown.
-      contributions: 0,
-      elapsedMs: performance.now() - t0,
-      origin: `${request.scope.name} · POST /query`,
-    };
-  }
-
-  /**
    * query posts a RankeQL query with the response format unset, which the route otherwise
    * declares as `json`: a result set is a JSON *sequence*, so parsing it as one document
    * would both fail and defeat the streaming. Unset, the client answers with the response
    * itself, whose body the readers below take apart record by record as it arrives.
+   *
+   * What goes on the wire is `query_codec`'s: `EncodeQuery` holds the query to the rules the
+   * schema cannot state and drops what says nothing. Its text is handed back as an object
+   * because the client formats its own bodies — a string body would be JSON-encoded twice.
    */
-  private query(query: ApiQuery, what: string): Promise<Response> {
-    return this.answer(() => this.api.query.query(query, { format: undefined }), what);
+  private query(query: RankeQuery, what: string): Promise<Response> {
+    const canonical = JSON.parse(EncodeQuery(query)) as ApiQuery;
+    return this.answer(() => this.api.query.query(canonical, { format: undefined }), what);
   }
 
   /**
@@ -390,138 +396,74 @@ async function failureBody(response: Response): Promise<string> {
 }
 
 /**
- * idsFromSequence reads the ids out of a JSON-sequence body — a bare string or an object
- * carrying one, each stripped of RFC 7464's record separator.
+ * idsFromSequence reads the ids out of an `output.detail: id` body, whose records are bare
+ * JSON strings rather than claims.
+ *
+ * STOPGAP — `@flocko-motion/ranke` owns sequence framing, and its reader decodes claim
+ * records only: an id record carries no `type` and no `created_at`, so `newSeqReader` refuses
+ * it. Until the library reads an identity sequence, this repeats RFC 7464's framing, which is
+ * the duplication the rest of this file exists to remove. Delete it the moment that lands.
  */
-export function idsFromSequence(body: string): ClaimId[] {
-  const ids: ClaimId[] = [];
-  for (const line of body.split('\n')) {
-    const text = line.replace(/^\u001e/, '').trim();
+export function idsFromSequence(body: string): string[] {
+  const ids: string[] = [];
+  for (const record of body.split(RS)) {
+    const text = record.trim();
     if (text === '') continue;
-    let record: unknown;
+    let parsed: unknown;
     try {
-      record = JSON.parse(text);
+      parsed = JSON.parse(text);
     } catch {
-      continue; // a partial line, or the execution report the query may append
+      continue; // a truncated record, or the execution report a query may append
     }
-    if (typeof record === 'string') {
-      ids.push(record);
-    } else if (record && typeof record === 'object') {
-      const id = (record as { id?: unknown }).id;
-      if (typeof id === 'string') ids.push(id);
-    }
+    if (typeof parsed === 'string') ids.push(parsed);
   }
   return ids;
 }
 
-/**
- * A server read carries no contribution index: the archive expresses that order as the head
- * chain, deriving it is a traversal, and no output field reports it. So claims arrive at 0 —
- * which the layered layout draws and the history layout cannot.
- */
-export const contributionUnknown = 0;
+/** The record separator RFC 7464 opens every record of a JSON sequence with. */
+const RS = '\u001e';
+
+/** encoder turns a body already in hand into the bytes the library's reader takes. */
+const encoder = new TextEncoder();
 
 /**
- * claimsFromStream reads a JSON-sequence body as it arrives, reporting the count as it goes. A
- * record may be split across chunks, so the tail of each chunk is held back until its line ends.
+ * claimsFromBody decodes a result sequence with the library's reader, reporting as it goes:
+ * how many claims are decoded, and how many bytes the reader has taken. A record split across
+ * two chunks is the reader's business, not this loop's.
  */
-export async function claimsFromStream(
+export async function claimsFromBody(
   response: Response,
-  onProgress?: (read: number, through: number | null) => void,
-): Promise<MockClaim[]> {
+  onProgress?: (read: number, bytesRead: number) => void,
+): Promise<DrawnClaim[]> {
+  const reader = newSeqReader('json');
+  const claims: DrawnClaim[] = [];
   const body = response.body;
-  if (!body) return claimsFromSequence(await response.text());
 
-  // How far through is measured in bytes, which the response usually declares. Claims would be
-  // the better unit and cost a second walk of the closure to count.
-  const declared = Number(response.headers?.get?.('content-length') ?? '');
-  const total = Number.isFinite(declared) && declared > 0 ? declared : null;
-
-  const claims: MockClaim[] = [];
-  const decoder = new TextDecoder();
-  const reader = body.getReader();
-  let held = '';
-  let announced = 0;
-  let bytes = 0;
-
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    bytes += value.byteLength;
-    held += decoder.decode(value, { stream: true });
-    const lines = held.split('\n');
-    // The last piece may be half a record, so it waits for the rest.
-    held = lines.pop() ?? '';
-    for (const line of lines) claims.push(...claimsFromSequence(line));
-    // Announced per chunk rather than per claim: the point is a moving number, not every one.
-    if (onProgress && claims.length !== announced) {
-      announced = claims.length;
-      onProgress(announced, total === null ? null : Math.min(1, bytes / total));
+  if (!body) {
+    // No stream to pull: the body is already in hand, which is what a stubbed response gives.
+    for (const claim of reader.push(encoder.encode(await response.text()))) {
+      claims.push(drawn(claim));
     }
+    for (const claim of reader.end()) claims.push(drawn(claim));
+    onProgress?.(claims.length, reader.bytesRead);
+    return claims;
   }
-  held += decoder.decode();
-  claims.push(...claimsFromSequence(held));
-  onProgress?.(claims.length, total === null ? null : 1);
-  return claims;
-}
 
-/**
- * claimsFromSequence maps the query's JSON records onto what the graph builder reads. Only
- * `created_at` is converted, to the epoch milliseconds a renderer sorts on.
- */
-export function claimsFromSequence(body: string): MockClaim[] {
-  const claims: MockClaim[] = [];
-  for (const line of body.split('\n')) {
-    const text = line.replace(/^\u001e/, '').trim();
-    if (text === '') continue;
-    let record: WireClaim;
-    try {
-      record = JSON.parse(text) as WireClaim;
-    } catch {
-      continue; // a partial line, or the execution report a query may append
-    }
-    if (!record.id || !record.type) continue; // the report, which carries neither
-    claims.push({
-      id: record.id,
-      type: record.type,
-      created_at: Date.parse(record.created_at ?? '') || 0,
-      encoding: record.encoding,
-      content_size: record.content_size,
-      label: labelOf(record),
-      contribution: contributionUnknown,
-      branch: '',
-      edges: (record.edges ?? []).map((e) => ({
-        type: e.type ?? '',
-        reference: e.reference ?? '',
-        name: e.name,
-        relation_direction: e.relation_direction,
-      })),
-    });
-  }
-  return claims;
-}
-
-/** The claim fields this client reads off the wire. */
-interface WireClaim {
-  id?: string;
-  type?: string;
-  created_at?: string;
-  encoding?: string;
-  content?: string;
-  content_size?: number;
-  edges?: { type?: string; reference?: string; name?: string; relation_direction?: 1 | -1 }[];
-}
-
-/** labelOf captions a node: text content decodes, anything else gets its type and a short id. */
-function labelOf(record: WireClaim): string {
-  const short = `${record.type ?? 'claim'} ${(record.id ?? '').slice(0, 8)}`;
-  if (!record.content || !record.encoding?.startsWith('text/')) return short;
+  const chunks = body.getReader();
   try {
-    const text = atob(record.content).trim();
-    return text.length > 0 ? text.slice(0, 80) : short;
-  } catch {
-    return short;
+    for (;;) {
+      const { done, value } = await chunks.read();
+      if (done) break;
+      for (const claim of reader.push(value)) claims.push(drawn(claim));
+      // Reported per chunk rather than per claim: the point is a moving number, not every one.
+      onProgress?.(claims.length, reader.bytesRead);
+    }
+    for (const claim of reader.end()) claims.push(drawn(claim));
+  } finally {
+    chunks.releaseLock();
   }
+  onProgress?.(claims.length, reader.bytesRead);
+  return claims;
 }
 
 /** sourceFor builds the source a connection stands for. */

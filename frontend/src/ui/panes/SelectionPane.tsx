@@ -63,7 +63,7 @@ function contentBody(content: NonNullable<ReturnType<typeof useExplorer.getState
       return (
         <>
           <p className="note content-about">
-            {bytes(data.length)} · {content.encoding ?? 'no encoding declared'}
+            {bytes(data.length)} · {content.encoding || 'no encoding declared'}
             {text ? '' : ' — shown as bytes, the encoding naming no way to read them'}
           </p>
           <pre className={`content-body${text ? '' : ' is-hex'}`}>

@@ -11,8 +11,6 @@
  * absent by the rule rather than by a special case.
  */
 
-import type { ClaimId } from './mock/model.ts';
-
 /** The reserved name of the archive-wide scope, as grants and RankeQL spell it. */
 export const ARCHIVE_SCOPE = '$archive';
 
@@ -21,7 +19,7 @@ export interface Scope {
   /** `$archive`, or a branch name. */
   name: string;
   /** The claim id this scope's closure is rooted at. */
-  head: ClaimId;
+  head: string;
 }
 
 /** isArchive reports whether a scope is the archive-wide one rather than a branch. */
@@ -35,7 +33,7 @@ export function scopeLabel(scope: Scope): string {
 }
 
 /** shortHead abbreviates a head id for a label, where the full id would not fit. */
-export function shortHead(head: ClaimId): string {
+export function shortHead(head: string): string {
   return head.length > 12 ? `${head.slice(0, 12)}…` : head;
 }
 

@@ -274,8 +274,10 @@ test('claims a scope names but the cache lacks are countable', () => {
   assert.equal(missing, 1, 'a claim the server has and the cache does not went unnoticed');
 });
 
-// The wire shape an ids-only query answers in: a JSON sequence, one identity per record.
+// The wire shape an ids-only query answers in: a JSON sequence whose records are bare
+// strings, which is what the endpoint writes for an id result (serve.go, KindClaimId). A
+// record that is not one — the execution report a query may append — is no identity.
 test('an ids-only result is read out of a JSON sequence', () => {
-  const body = '\u001e"id-a"\n\u001e{"id":"id-b"}\n\n\u001e{"startedAt":"t","events":[]}\n';
+  const body = '\u001e"id-a"\n\u001e"id-b"\n\n\u001e{"startedAt":"t","events":[]}\n';
   assert.deepEqual(idsFromSequence(body), ['id-a', 'id-b']);
 });

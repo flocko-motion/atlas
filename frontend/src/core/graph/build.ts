@@ -10,8 +10,9 @@
  */
 
 import { DirectedGraph } from 'graphology';
-import type { MockArchive, MockClaim } from '../mock/model.ts';
-import { classOf } from '../mock/model.ts';
+import { contentEncoding, contentSize, matchTypeList } from '@flocko-motion/ranke';
+import type { DrawnClaim } from '../claims.ts';
+import type { MockArchive } from '../mock/model.ts';
 import { yieldToPaint } from '../scheduler.ts';
 
 /** CLASS_COLOR maps a node class to its paint colour (Okabe–Ito, colour-safe). */
@@ -36,7 +37,8 @@ export interface BuildOptions {
   /** `full` also stores the claim metadata a detail pane needs. */
   attrs?: 'lean' | 'full';
   /**
-   * Edge types to leave out, matched by prefix. Every claim carries a
+   * Edge types to leave out, as the type globs a query's `edges` takes — so
+   * `contribution/*` drops a class and a leading `-` excludes. Every claim carries a
    * `contribution/contributor` edge, so a contributor node's degree equals the
    * number of claims it signed — a star that dominates layout and the picture.
    */
@@ -58,7 +60,7 @@ export interface MergeStats {
  */
 export function addClaims(
   graph: DirectedGraph,
-  claims: MockClaim[],
+  claims: DrawnClaim[],
   opts: BuildOptions = {},
 ): MergeStats {
   const t0 = performance.now();
@@ -89,7 +91,7 @@ export interface ProgressReport {
  */
 export async function addClaimsProgressively(
   graph: DirectedGraph,
-  claims: MockClaim[],
+  claims: DrawnClaim[],
   opts: BuildOptions = {},
   onProgress?: (report: ProgressReport) => void,
 ): Promise<MergeStats> {
@@ -128,19 +130,21 @@ export async function addClaimsProgressively(
 /** addNodes merges the claims themselves, skipping any already present. */
 function addNodes(
   graph: DirectedGraph,
-  claims: MockClaim[],
+  claims: DrawnClaim[],
   opts: BuildOptions,
 ): { addedNodes: number; duplicateClaims: number } {
   const attrs = opts.attrs ?? 'full';
   let addedNodes = 0;
   let duplicateClaims = 0;
 
-  for (const claim of claims) {
+  for (const drawn of claims) {
+    const claim = drawn.claim;
     if (graph.hasNode(claim.id)) {
       duplicateClaims++;
       continue;
     }
-    const cls = classOf(claim.type);
+    // The class arrives split by the decoder, so nothing here re-reads the type string.
+    const cls = claim.typeClass;
     const base = {
       x: 0,
       y: 0,
@@ -149,7 +153,7 @@ function addNodes(
       // `contribution` is in even the lean profile: it is the layout's axis, not
       // metadata. `claimType`, never `type` — Sigma reads `type` as the name of
       // the rendering program to use.
-      contribution: claim.contribution,
+      contribution: drawn.contribution,
       cls,
     };
     graph.addNode(
@@ -158,11 +162,11 @@ function addNodes(
         ? base
         : {
             ...base,
-            label: claim.label,
+            label: drawn.label,
             claimType: claim.type,
-            createdAt: claim.created_at,
-            contentSize: claim.content_size,
-            encoding: claim.encoding,
+            createdAt: claim.createdAtMs,
+            contentSize: contentSize(claim.content),
+            encoding: contentEncoding(claim.content),
           },
     );
     addedNodes++;
@@ -173,15 +177,17 @@ function addNodes(
 /** addEdges merges each claim's typed references, once both ends are present. */
 function addEdges(
   graph: DirectedGraph,
-  claims: MockClaim[],
+  claims: DrawnClaim[],
   opts: BuildOptions,
 ): { addedEdges: number; danglingRefs: number } {
   const drop = opts.dropEdgeTypes ?? [];
   let addedEdges = 0;
   let danglingRefs = 0;
-  for (const claim of claims) {
+  for (const { claim } of claims) {
     for (const edge of claim.edges) {
-      if (drop.some((prefix) => edge.type.startsWith(prefix))) continue;
+      // Matched by the library's glob rules, which are the contract's: `contribution/*`
+      // names a class, a `*` never crosses the `/`, and a leading `-` re-admits.
+      if (drop.length > 0 && matchTypeList(drop, edge.type)) continue;
       if (!graph.hasNode(edge.reference)) {
         danglingRefs++;
         continue;

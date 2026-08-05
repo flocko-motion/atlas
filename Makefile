@@ -7,6 +7,11 @@
 
 OPENAPI   := openapi/openapi.yaml
 API_OUT   := openapi
+# The explorer reads an instance through this client, and `frontend/` builds on its own
+# (its Makefile and package.json are not wired into this one). So the generated client is
+# copied in and committed, as `frontend/explorer.html` is: `make -C frontend` needs nothing
+# from here, and `check-generated` notices when the copy goes stale.
+EXPLORER_CLIENT := frontend/src/core/data/openapi.gen.ts
 # openapi.yaml $refs rql.schema.json, which no generator resolves on its own, so
 # every one of them reads this bundle: the same document with the external schema
 # lifted into components/schemas.
@@ -78,13 +83,15 @@ check-tools: ## Verify the generation toolchain is installed (reports all missin
 	fi; \
 	echo "generation toolchain OK (go + node)"
 
-generate: check-tools ## Generate every artifact from the spec into openapi/ (Go server, TS client, HTML, Markdown) + docs/openapi/ symlinks
+generate: check-tools ## Generate every artifact from the spec into openapi/ (Go server, TS client, HTML, Markdown) + the explorer's copy of the client + docs/openapi/ symlinks
 	@echo ">> bundle   → $(OPENAPI_GEN)"
 	@npx --yes $(REDOCLY) bundle $(OPENAPI) -o $(OPENAPI_GEN) >/dev/null
 	@echo ">> gen-go   → $(API_OUT)/openapi.gen.go"
 	@go tool oapi-codegen -config $(API_OUT)/oapi-codegen.yaml $(OPENAPI_GEN)
 	@echo ">> gen-ts   → $(API_OUT)/openapi.gen.ts"
 	@npx --yes $(SWAGGER_TS) generate -p $(OPENAPI_GEN) -o $(API_OUT) -n openapi.gen.ts >/dev/null
+	@echo ">> copy     → $(EXPLORER_CLIENT)"
+	@cp $(API_OUT)/openapi.gen.ts $(EXPLORER_CLIENT)
 	@echo ">> gen-html → $(API_OUT)/openapi.html"
 	@npx --yes $(REDOCLY) build-docs $(OPENAPI_GEN) -o $(API_OUT)/openapi.html >/dev/null
 	@echo ">> gen-md   → $(API_OUT)/openapi.md"
@@ -213,7 +220,7 @@ check-rql-schema: ## Fail if the vendored RQL schema differs from the latest ran
 # HEAD — so uncommitted work in hand is not mistaken for drift. `generate` is
 # byte-idempotent, so a changed hash means the artifacts were stale.
 GEN_ARTIFACTS := $(OPENAPI_GEN) $(API_OUT)/openapi.gen.go $(API_OUT)/openapi.gen.ts \
-                 $(API_OUT)/openapi.html $(API_OUT)/openapi.md
+                 $(API_OUT)/openapi.html $(API_OUT)/openapi.md $(EXPLORER_CLIENT)
 
 check-generated: ## Fail if `make generate` would change anything (spec edited without regenerating)
 	@sums=$$(mktemp); \
