@@ -2,19 +2,18 @@
  * package: core / query
  * type:    data
  * job:     hold what to read from the active source
- * limits:  the request, not the archive it runs against (-> core/connections)
+ * limits:  the form a reader fills in, not the query it becomes (-> core/data/source)
  *
- * A connection identifies an archive; a query is a request against it, so the same query
- * against two connections is meaningful. Shaped to grow into the REST contract's
- * `select`/`where`/`order`/`limit`.
+ * A connection identifies an archive; this says what to read from it, so the same settings
+ * against two connections are meaningful. It is deliberately *not* a RankeQL query: that type
+ * is the library's, generated from the released schema, and `core/data/source` builds one from
+ * these settings at request time. `classes` is why the two differ — a class selection is what
+ * the view draws, not what the read asks for.
  */
 
 import { create } from 'zustand';
 
-/** Claim classes a query may restrict itself to; empty means every class. */
-export const CLAIM_CLASSES = ['source', 'derivation', 'entity', 'relation', 'contribution'];
-
-export interface Query {
+export interface QueryForm {
   /**
    * Scope to read — `select.branch` in the contract — or null until one is known.
    *
@@ -30,11 +29,11 @@ export interface Query {
   classes: string[];
 }
 
-export const DEFAULT_QUERY: Query = { branch: null, limit: 100000, classes: [] };
+export const DEFAULT_QUERY: QueryForm = { branch: null, limit: 100000, classes: [] };
 
 interface QueryState {
-  query: Query;
-  patchQuery: (patch: Partial<Query>) => void;
+  query: QueryForm;
+  patchQuery: (patch: Partial<QueryForm>) => void;
   toggleClass: (cls: string) => void;
 }
 
@@ -52,8 +51,8 @@ export const useQuery = create<QueryState>((set) => ({
     })),
 }));
 
-/** describeQuery summarises a query for a view's tab label. */
-export function describeQuery(query: Query): string {
+/** describeQuery summarises the settings for a view's tab label. */
+export function describeQuery(query: QueryForm): string {
   const scope = query.classes.length === 0 ? 'all classes' : query.classes.join('+');
   return `${query.limit >= 1000 ? `${Math.round(query.limit / 1000)}k` : query.limit} · ${scope}`;
 }

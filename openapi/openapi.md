@@ -54,8 +54,8 @@ access model reserves read alike and differ only in which scope they name:
 Content is addressed by the **claim** that holds it (not a raw hash), so whether the
 bytes are inline or a separate blob is hidden and the read stays scoped as its route
 is scoped. Content also rides **inline** in query results via `output.content`; the
-content route fetches the bytes for a single claim — including the blob an
-`output.content.overflow: reference` stub leaves behind.
+content route fetches the bytes for a single claim — including whatever a capped read
+truncated or dropped, since a claim keeps its `content_hash` either way.
 
 No path segment carries a `$`. The reserved names live in grants (`R $universe`) and
 in a RankeQL body (`select.branch`), and a route names the same scope as a plain
@@ -83,15 +83,22 @@ type frames the sequence:
   - `cbor` → `application/cbor-seq` (RFC 8742) — binary.
 
 Verifiability is a property of the *shaping*, not of the framing alone:
-`detail: claims` + `form: original` + `encoding: cbor` reproduces the canonical
-serialization a claim's id is computed over, and is the only combination directly
-re-hashable and signature-checkable against that id. Every other shaping is a
-rendering for convenience.
+`detail: claims` + `form: original` + `encoding: cbor` + `content: {max: 0}`
+reproduces the canonical serialization a claim's id is computed over, and is the only
+combination directly re-hashable and signature-checkable against that id (`R-QCANON`).
+Every other shaping is a rendering for convenience.
 
-A by-id claim GET returns the claim as its signed CBOR (`application/cbor`); a
-content GET streams the blob as raw bytes (`application/octet-stream`). In query
-results content is instead carried inline (base64 under `json`, byte strings under
-`cbor`), capped by `output.content`.
+**The content axis is part of that combination, not a detail of it.** A query inlines
+no content unless `output.content` asks (`R-QCONTENT`), so a read shaped for
+verification states `content: {max: 0}` — a cap of zero meaning *in full*, as a zero
+bound does everywhere else in a query. Omit it and the claims arrive without their
+content, which re-hashes to something other than the id. `content_size` is served
+either way, so a client always sees that content exists and how long it is.
+
+A by-id claim GET returns the claim as its signed CBOR (`application/cbor`) whole, so
+it needs none of this; a content GET streams the blob as raw bytes
+(`application/octet-stream`). In query results content is instead carried inline
+(base64 under `json`, byte strings under `cbor`), bounded by `output.content`.
 
 ## Credentials and authorization
 
@@ -1396,7 +1403,7 @@ A read, evaluated in a fixed logical order: select generates the result set, whe
 |Name|Type|Required|Restrictions|Description|
 |---|---|---|---|---|
 |select|[Select](#schemaselect)|true|none|A generator in four independent parts: branch is the scope, head the closure read, claim where the walk starts, path the traversal. Scope and start are independent because a walk runs both ways — a uses step reaches the claims that cite the current one, which lie above it, so the closure decides a reverse step's answer.|
-|where|[Where](#schemawhere)|false|none|A boolean tree. Each node is exactly one of the and / or / not combinators over sub-trees, or a leaf naming a field and its test. Within a where, or is boolean; across generators it unions whole result sets. A leaf may name any field a claim carries, including the derived height (R-HEIGHT-FIELD).|
+|where|[Where](#schemawhere)|false|none|A boolean tree. Each node is exactly one of the and / or / not combinators over sub-trees, or a leaf naming a field and its test. Within a where, or is boolean; across generators it unions whole result sets. A leaf may name any field a claim carries, height included (V-HEIGHT).|
 |output|[Output](#schemaoutput)|false|none|Shapes each result along orthogonal axes. detail: claims with form: original and encoding: cbor reproduces the canonical serialization S(v) a claim's id is computed over, and is the only output form directly verifiable against that id (R-QCANON).|
 |order|[Order](#schemaorder)|false|none|Sort keys applied in priority order. Claims lacking a key's field sort last, and the archive's natural (created_at, id) order breaks any remaining ties, so the sort always resolves to a total order (R-QSORT).|
 |limit|[Limit](#schemalimit)|false|none|Bounds the read. A read cut short by either bound is a complete answer to the query as bounded, not an error (R-QLIMIT).|
@@ -1411,17 +1418,17 @@ A read, evaluated in a fixed logical order: select generates the result set, whe
 
 ```json
 {
-  "startedAt": "2019-08-24T14:15:22Z",
-  "elapsedMs": 0,
+  "started_at": "2019-08-24T14:15:22Z",
+  "elapsed_ns": 0,
   "results": 0,
   "truncated": true,
   "events": [
     {
-      "atMs": 0,
+      "at_ns": 0,
       "engine": "string",
       "op": "string",
       "level": "error",
-      "durationMs": 0,
+      "duration_ns": 0,
       "detail": "string",
       "attrs": {}
     }
@@ -1438,8 +1445,8 @@ so a reader never mistakes it for data, and always last.
 
 |Name|Type|Required|Restrictions|Description|
 |---|---|---|---|---|
-|startedAt|string(date-time)|false|none|Wall clock at query start.|
-|elapsedMs|integer|false|none|Total execution time in milliseconds.|
+|started_at|string(date-time)|false|none|Wall clock at query start.|
+|elapsed_ns|integer|false|none|Total execution time in nanoseconds. The unit is in the name because the<br>value is a bare integer, and it is nanoseconds because a `trace` report<br>exists to show steps a millisecond would round away.|
 |results|integer|false|none|Number of result items emitted before this report.|
 |truncated|boolean|false|none|True if `limit.results` or `limit.time` cut the read short.|
 |events|[[QueryEvent](#schemaqueryevent)]|false|none|The ordered, multi-engine execution log, at the requested verbosity.|
@@ -1453,11 +1460,11 @@ so a reader never mistakes it for data, and always last.
 
 ```json
 {
-  "atMs": 0,
+  "at_ns": 0,
   "engine": "string",
   "op": "string",
   "level": "error",
-  "durationMs": 0,
+  "duration_ns": 0,
   "detail": "string",
   "attrs": {}
 }
@@ -1465,18 +1472,18 @@ so a reader never mistakes it for data, and always last.
 ```
 
 One entry in a query's execution log — a stage, a routing decision, or a
-lowering.
+translation.
 
 ### Properties
 
 |Name|Type|Required|Restrictions|Description|
 |---|---|---|---|---|
-|atMs|integer|false|none|Offset from `startedAt` in milliseconds.|
+|at_ns|integer|false|none|Offset from `started_at` in nanoseconds.|
 |engine|string|false|none|Who emitted it (e.g. native, cypher, stack, partition).|
-|op|string|false|none|What it did (e.g. load-root, step, filter, sort, route, lower-cypher).|
+|op|string|false|none|What it did (e.g. load-root, step, filter, sort, route, translate-cypher).|
 |level|string|false|none|The entry's own level; a report carries everything at or above the<br>verbosity `execution.report` asked for.|
-|durationMs|integer|false|none|Elapsed time for a timed step; 0 for a point event.|
-|detail|string|false|none|Human-readable message, or the lowered query text (e.g. the Cypher).|
+|duration_ns|integer|false|none|Elapsed time for a timed step, in nanoseconds; 0 for a point event.|
+|detail|string|false|none|Human-readable message, or the translated query text (e.g. the Cypher).|
 |attrs|object|false|none|Structured extras — layer or shard name, depth, edge and result counts, …|
 
 #### Enumerated Values
@@ -1934,13 +1941,13 @@ A claim id: id(v) = Sign(H(S(v))) for a node, id(e) = H(S(e)) for an edge, carri
 
 ```
 
-A glob over class/sub, e.g. derivation/* or entity/person. A leading - excludes the type it names (R-QHOPS).
+A glob over class/sub, e.g. derivation/* or entity/person. A leading - excludes. Exclusion decides: a type matching an excluded pattern is refused whatever the included patterns say, and a list of exclusions alone admits every other type (R-QSTEPS).
 
 ### Properties
 
 |Name|Type|Required|Restrictions|Description|
 |---|---|---|---|---|
-|*anonymous*|string|false|none|A glob over class/sub, e.g. derivation/* or entity/person. A leading - excludes the type it names (R-QHOPS).|
+|*anonymous*|string|false|none|A glob over class/sub, e.g. derivation/* or entity/person. A leading - excludes. Exclusion decides: a type matching an excluded pattern is refused whatever the included patterns say, and a list of exclusions alone admits every other type (R-QSTEPS).|
 
 <h2 id="tocS_PathStep">PathStep</h2>
 <!-- backwards compatibility -->
@@ -1964,7 +1971,7 @@ A glob over class/sub, e.g. derivation/* or entity/person. A leading - excludes 
 
 ```
 
-One bounded walk: follow the typed edges in direction dir and yield every claim reached at between min and max hops from the starting set, optionally constrained to nodes types. edges gates every hop; nodes gates the claims a step yields, never those it passes through. A min above a bounded max is refused by the implementation — a JSON Schema cannot compare two sibling values (R-QHOPS).
+One bounded walk: follow the typed edges in direction dir and yield every claim reached at between min and max hops from the starting set, optionally constrained to nodes types. edges gates every hop; nodes gates the claims a step yields, never those it passes through. A min above a bounded max is refused by the implementation — a JSON Schema cannot compare two sibling values (R-QSTEPS).
 
 ### Properties
 
@@ -2042,7 +2049,7 @@ A generator in four independent parts: branch is the scope, head the closure rea
 
 ```
 
-A boolean tree. Each node is exactly one of the and / or / not combinators over sub-trees, or a leaf naming a field and its test. Within a where, or is boolean; across generators it unions whole result sets. A leaf may name any field a claim carries, including the derived height (R-HEIGHT-FIELD).
+A boolean tree. Each node is exactly one of the and / or / not combinators over sub-trees, or a leaf naming a field and its test. Within a where, or is boolean; across generators it unions whole result sets. A leaf may name any field a claim carries, height included (V-HEIGHT).
 
 ### Properties
 
@@ -2051,28 +2058,28 @@ oneOf
 |Name|Type|Required|Restrictions|Description|
 |---|---|---|---|---|
 |*anonymous*|object|false|none|none|
-|» and|[[Where](#schemawhere)]|true|none|[A boolean tree. Each node is exactly one of the and / or / not combinators over sub-trees, or a leaf naming a field and its test. Within a where, or is boolean; across generators it unions whole result sets. A leaf may name any field a claim carries, including the derived height (R-HEIGHT-FIELD).]|
+|» and|[[Where](#schemawhere)]|true|none|[A boolean tree. Each node is exactly one of the and / or / not combinators over sub-trees, or a leaf naming a field and its test. Within a where, or is boolean; across generators it unions whole result sets. A leaf may name any field a claim carries, height included (V-HEIGHT).]|
 
 xor
 
 |Name|Type|Required|Restrictions|Description|
 |---|---|---|---|---|
 |*anonymous*|object|false|none|none|
-|» or|[[Where](#schemawhere)]|true|none|[A boolean tree. Each node is exactly one of the and / or / not combinators over sub-trees, or a leaf naming a field and its test. Within a where, or is boolean; across generators it unions whole result sets. A leaf may name any field a claim carries, including the derived height (R-HEIGHT-FIELD).]|
+|» or|[[Where](#schemawhere)]|true|none|[A boolean tree. Each node is exactly one of the and / or / not combinators over sub-trees, or a leaf naming a field and its test. Within a where, or is boolean; across generators it unions whole result sets. A leaf may name any field a claim carries, height included (V-HEIGHT).]|
 
 xor
 
 |Name|Type|Required|Restrictions|Description|
 |---|---|---|---|---|
 |*anonymous*|object|false|none|none|
-|» not|[Where](#schemawhere)|true|none|A boolean tree. Each node is exactly one of the and / or / not combinators over sub-trees, or a leaf naming a field and its test. Within a where, or is boolean; across generators it unions whole result sets. A leaf may name any field a claim carries, including the derived height (R-HEIGHT-FIELD).|
+|» not|[Where](#schemawhere)|true|none|A boolean tree. Each node is exactly one of the and / or / not combinators over sub-trees, or a leaf naming a field and its test. Within a where, or is boolean; across generators it unions whole result sets. A leaf may name any field a claim carries, height included (V-HEIGHT).|
 
 xor
 
 |Name|Type|Required|Restrictions|Description|
 |---|---|---|---|---|
 |*anonymous*|object|false|none|A leaf: one field, one comparison.|
-|» field|string|true|none|The field tested — any field a claim carries, or the derived height.|
+|» field|string|true|none|The field tested — any field a claim carries, height included.|
 |» test|[Comparison](#schemacomparison)|true|none|One operator applied to one field. eq, ne, lt, le, gt and ge take a value, in a set, glob a shell-style wildcard. Exactly one is present.|
 
 <h2 id="tocS_Value">Value</h2>
@@ -2137,14 +2144,14 @@ One operator applied to one field. eq, ne, lt, le, gt and ge take a value, in a 
 
 ```
 
-Inline content per claim. Absent, no content is inlined and a claim carries only its content_hash (R-QOUTPUT).
+Inline content per claim. Absent, no content is inlined (R-QCONTENT).
 
 ### Properties
 
 |Name|Type|Required|Restrictions|Description|
 |---|---|---|---|---|
-|max|integer|true|none|Cap in bytes on the content inlined per claim.|
-|overflow|string|true|none|What becomes of content past the cap: cutoff truncates, omit drops it, reference leaves a content_hash stub in its place.|
+|max|integer|true|none|Cap in bytes on the content inlined per claim; 0 inlines every claim's content in full.|
+|overflow|string|false|none|What becomes of content past the cap: cutoff inlines the bytes up to it, omit inlines whole values only. Absent, omit. A claim keeps every field it carries either way (R-QCONTENT).|
 
 #### Enumerated Values
 
@@ -2152,7 +2159,6 @@ Inline content per claim. Absent, no content is inlined and a claim carries only
 |---|---|
 |overflow|cutoff|
 |overflow|omit|
-|overflow|reference|
 
 <h2 id="tocS_Output">Output</h2>
 <!-- backwards compatibility -->
@@ -2181,11 +2187,11 @@ Shapes each result along orthogonal axes. detail: claims with form: original and
 
 |Name|Type|Required|Restrictions|Description|
 |---|---|---|---|---|
-|shape|string|false|none|single yields the reached endpoints, one element each; path yields routes, each running outward from the frontier claim its walk began at (R-QOUTPUT).|
-|detail|string|false|none|How much each element carries: id (the id, or the ids along a path), graph (nodes joined by the edges between them), or claims (the full claim for each node — the node with all its outgoing edges, so richer than graph) (R-QOUTPUT).|
-|form|string|false|none|Which field values a claim carries: original as written, a diff-overlaid claim's delta; materialized with any contribution/diff chain resolved over the predecessor it references, recursively to a base claim. A property of the values, hence orthogonal to detail and encoding (R-QOUTPUT).|
-|content|[OutputContent](#schemaoutputcontent)|false|none|Inline content per claim. Absent, no content is inlined and a claim carries only its content_hash (R-QOUTPUT).|
-|encoding|string|false|none|json is text with content base64-encoded, cbor is binary; the same information either way (R-QOUTPUT).|
+|shape|string|false|none|single yields the reached endpoints, one element each; path yields routes, each running outward from the frontier claim its walk began at (R-QSHAPE).|
+|detail|string|false|none|What each element carries: id (the id alone) or claims (the claim in full). Under shape: path it applies to every claim in the route (R-QDETAIL).|
+|form|string|false|none|Which field values a claim carries: original as written, a diff-overlaid claim's delta; materialized with any contribution/diff chain resolved over the predecessor it references, recursively to a base claim. A property of the values, hence orthogonal to detail and encoding (R-QFORM).|
+|content|[OutputContent](#schemaoutputcontent)|false|none|Inline content per claim. Absent, no content is inlined (R-QCONTENT).|
+|encoding|string|false|none|json is text with content base64-encoded, cbor is binary; the same information either way (R-QENCODING).|
 
 #### Enumerated Values
 
@@ -2194,7 +2200,6 @@ Shapes each result along orthogonal axes. detail: claims with form: original and
 |shape|single|
 |shape|path|
 |detail|id|
-|detail|graph|
 |detail|claims|
 |form|original|
 |form|materialized|
@@ -2221,7 +2226,7 @@ Shapes each result along orthogonal axes. detail: claims with form: original and
 
 |Name|Type|Required|Restrictions|Description|
 |---|---|---|---|---|
-|field|string|true|none|The field sorted on — any field a claim carries, or the derived height.|
+|field|string|true|none|The field sorted on — any field a claim carries, height included.|
 |compare|string|false|none|How the values compare (R-QSORT).|
 |dir|string|false|none|Sort direction (R-QSORT).|
 
@@ -2326,7 +2331,7 @@ Where the query runs and how it reports on itself. These controls reach executio
 |Name|Type|Required|Restrictions|Description|
 |---|---|---|---|---|
 |layer|string|false|none|Pins the query to one named storage or execution layer; absent, the backend chooses by capability.|
-|report|string|false|none|Report verbosity: info gives high-level stages, debug routing and lowering, trace per-claim detail. Set, and only then, the stream carries one final report record after the last element, typed distinctly from result claims (R-QREPORT).|
+|report|string|false|none|Report verbosity: info gives high-level stages, debug routing and translation, trace per-claim detail. Set, and only then, the stream carries one final report record after the last element, typed distinctly from result claims (R-QREPORT).|
 
 #### Enumerated Values
 

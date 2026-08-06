@@ -7,6 +7,11 @@
 
 OPENAPI   := openapi/openapi.yaml
 API_OUT   := openapi
+# The explorer reads an instance through this client, and `frontend/` builds on its own
+# (its Makefile and package.json are not wired into this one). So the generated client is
+# copied in and committed, as `frontend/explorer.html` is: `make -C frontend` needs nothing
+# from here, and `check-generated` notices when the copy goes stale.
+EXPLORER_CLIENT := frontend/src/core/data/openapi.gen.ts
 # openapi.yaml $refs rql.schema.json, which no generator resolves on its own, so
 # every one of them reads this bundle: the same document with the external schema
 # lifted into components/schemas.
@@ -50,11 +55,17 @@ help: ## Show this help
 # openapi.yaml $refs this file for the whole read language, so the query type is
 # ranke-graph's and this repo holds no second copy of it. Committed, which keeps
 # `make generate` offline and reproducible; run pull-rql-schema to take a newer
-# release and review the diff.
+# revision and review the diff.
+#
+# Taken from the spec on `main`, not from the latest release: the specification is the
+# source of truth, and an implementation that disagrees with it has the bug. A release is
+# a snapshot of that source, so vendoring one means serving whatever the spec said when it
+# was cut — which is how this contract came to require `output.content.overflow` for a day
+# after R-QCONTENT made it optional. Point RQL_SCHEMA_URL at a release to pin one instead.
 RQL_SCHEMA     := $(API_OUT)/rql.schema.json
-RQL_SCHEMA_URL ?= $(RANKE_GRAPH_REPO)/releases/latest/download/rql.schema.json
+RQL_SCHEMA_URL ?= https://raw.githubusercontent.com/flocko-motion/ranke-graph/refs/heads/$(RANKE_GRAPH_REF)/spec/rql.schema.json
 
-pull-rql-schema: ## Pull rql.schema.json from the latest ranke-graph release into openapi/
+pull-rql-schema: ## Pull rql.schema.json from the ranke-graph spec into openapi/
 	@command -v curl > /dev/null || { echo "curl not found"; exit 1; }
 	@command -v jq > /dev/null || { echo "jq not found"; exit 1; }
 	@echo ">> pull     → $(RQL_SCHEMA)  ($(RQL_SCHEMA_URL))"
@@ -78,13 +89,15 @@ check-tools: ## Verify the generation toolchain is installed (reports all missin
 	fi; \
 	echo "generation toolchain OK (go + node)"
 
-generate: check-tools ## Generate every artifact from the spec into openapi/ (Go server, TS client, HTML, Markdown) + docs/openapi/ symlinks
+generate: check-tools ## Generate every artifact from the spec into openapi/ (Go server, TS client, HTML, Markdown) + the explorer's copy of the client + docs/openapi/ symlinks
 	@echo ">> bundle   → $(OPENAPI_GEN)"
 	@npx --yes $(REDOCLY) bundle $(OPENAPI) -o $(OPENAPI_GEN) >/dev/null
 	@echo ">> gen-go   → $(API_OUT)/openapi.gen.go"
 	@go tool oapi-codegen -config $(API_OUT)/oapi-codegen.yaml $(OPENAPI_GEN)
 	@echo ">> gen-ts   → $(API_OUT)/openapi.gen.ts"
 	@npx --yes $(SWAGGER_TS) generate -p $(OPENAPI_GEN) -o $(API_OUT) -n openapi.gen.ts >/dev/null
+	@echo ">> copy     → $(EXPLORER_CLIENT)"
+	@cp $(API_OUT)/openapi.gen.ts $(EXPLORER_CLIENT)
 	@echo ">> gen-html → $(API_OUT)/openapi.html"
 	@npx --yes $(REDOCLY) build-docs $(OPENAPI_GEN) -o $(API_OUT)/openapi.html >/dev/null
 	@echo ">> gen-md   → $(API_OUT)/openapi.md"
@@ -189,22 +202,22 @@ ranke-go-version: ## Recommend a ranke-go bump if a newer release exists
 
 # --- Release gate ----------------------------------------------------------
 #
-# The artifacts can lie in two silent ways: ranke-graph released a newer RQL
-# schema, or someone edited the spec and never regenerated. Either ships a
+# The artifacts can lie in two silent ways: the RQL schema moved in ranke-graph, or
+# someone edited the spec here and never regenerated. Either ships a
 # contract the code does not implement, so releasing checks both and refuses.
 
-check-rql-schema: ## Fail if the vendored RQL schema differs from the latest ranke-graph release
+check-rql-schema: ## Fail if the vendored RQL schema differs from the ranke-graph spec
 	@command -v curl > /dev/null || { echo "curl not found"; exit 1; }
-	@echo ">> check    → $(RQL_SCHEMA) against the release"
+	@echo ">> check    → $(RQL_SCHEMA) against the spec"
 	@tmp=$$(mktemp); \
 	curl -fsSL "$(RQL_SCHEMA_URL)" -o "$$tmp" \
 		|| { rm -f "$$tmp"; echo "   cannot reach $(RQL_SCHEMA_URL)"; exit 1; }; \
 	if diff -q "$$tmp" $(RQL_SCHEMA) > /dev/null 2>&1; then \
-		rm -f "$$tmp"; echo "   matches the release"; \
+		rm -f "$$tmp"; echo "   matches the spec"; \
 	else \
 		echo ""; diff -u $(RQL_SCHEMA) "$$tmp" | head -40; rm -f "$$tmp"; \
 		echo ""; \
-		echo "   ranke-graph has released a newer RQL schema — the source of truth moved."; \
+		echo "   the RQL schema moved in ranke-graph — the source of truth is ahead of this copy."; \
 		echo "   Take it:  make pull-rql-schema && make generate"; \
 		exit 1; \
 	fi
@@ -213,7 +226,7 @@ check-rql-schema: ## Fail if the vendored RQL schema differs from the latest ran
 # HEAD — so uncommitted work in hand is not mistaken for drift. `generate` is
 # byte-idempotent, so a changed hash means the artifacts were stale.
 GEN_ARTIFACTS := $(OPENAPI_GEN) $(API_OUT)/openapi.gen.go $(API_OUT)/openapi.gen.ts \
-                 $(API_OUT)/openapi.html $(API_OUT)/openapi.md
+                 $(API_OUT)/openapi.html $(API_OUT)/openapi.md $(EXPLORER_CLIENT)
 
 check-generated: ## Fail if `make generate` would change anything (spec edited without regenerating)
 	@sums=$$(mktemp); \

@@ -41,6 +41,11 @@ export interface LoadRequest {
 
 let viewCounter = 0;
 
+/** kib renders a byte count for a status line, where the exact figure says nothing. */
+function kib(bytes: number): string {
+  return `${Math.round(bytes / 1024).toLocaleString('en-US')} KiB`;
+}
+
 /** log appends a line to the store's log, which the log pane renders. */
 function log(line: string): void {
   useExplorer.getState().appendLog(line);
@@ -136,14 +141,15 @@ export async function load(req: LoadRequest = {}): Promise<void> {
     page = await source.fetch({
       limit: req.limit ?? useQuery.getState().query.limit,
       scope,
-      onProgress: (read, through) => {
-        // The count of claims to come is only known where membership was asked for first; the
-        // bytes are known either way, so the bar has something to show regardless.
+      onProgress: (read, bytesRead) => {
+        // How many claims are still to come is only known where membership was asked for
+        // first. Without that there is no total to be a fraction of — a streamed body declares
+        // no length — so the bar runs indeterminate and the bytes read say it is moving.
         useExplorer.getState().patchStatus({
           busy: expected > 0
             ? `reading claims · ${read.toLocaleString('en-US')} of ${expected.toLocaleString('en-US')}`
-            : `reading claims · ${read.toLocaleString('en-US')}`,
-          progress: expected > 0 ? Math.min(1, read / expected) : through,
+            : `reading claims · ${read.toLocaleString('en-US')} · ${kib(bytesRead)}`,
+          progress: expected > 0 ? Math.min(1, read / expected) : null,
         });
       },
     });
@@ -190,7 +196,7 @@ export async function load(req: LoadRequest = {}): Promise<void> {
   // The claims that came back *are* the scope's membership, so a read establishes it where it
   // was not already known. Asking separately would be a second walk of the same closure.
   if (scope && !membersOf(scope.name)) {
-    setMembers(scope.name, page.claims.map((claim) => claim.id));
+    setMembers(scope.name, page.claims.map((drawn) => drawn.claim.id));
   }
 
   const g = graph();

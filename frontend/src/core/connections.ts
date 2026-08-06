@@ -2,7 +2,8 @@
  * package: core / connections
  * type:    data
  * job:     hold the ranke-db instances the explorer can talk to, and their credentials
- * limits:  an address book; it issues no requests (-> core/data/source)
+ * limits:  an address book, plus the health check that says whether an entry answers;
+ *          reading an archive is core/data/source's
  *
  * A static bundle holding several instances at once, or none (mock data). Auth kinds
  * mirror `openapi/openapi.yaml`. Secrets stay in memory unless `remember` opts in —
@@ -10,6 +11,8 @@
  */
 
 import { create } from 'zustand';
+
+import { Api } from './data/openapi.gen.ts';
 
 export type AuthKind = 'none' | 'apikey' | 'jwt' | 'macaroon';
 
@@ -53,7 +56,14 @@ export interface Connection {
   mock: MockParams;
 }
 
-export const DEFAULT_MOCK: MockParams = { claims: 100000, claimsPerContribution: 10, seed: 0x5eed };
+/**
+ * The generator's defaults. `claims` is a ceiling on the archive, and it is deliberately not
+ * the largest one that works: every claim is built, encoded and hashed by the library, which
+ * costs ~0.12 ms — so 10k generates in about a second and 100k in twelve, with nothing to look
+ * at until it finishes. Raise it in the Server pane when the point is scale; the benches measure
+ * the ceiling and report what it costs.
+ */
+export const DEFAULT_MOCK: MockParams = { claims: 10000, claimsPerContribution: 10, seed: 0x5eed };
 
 /** Where `make dev` serves, which is what a local dev instance answers on. */
 export const LOCAL_DEV_URL = 'http://localhost:8080';
@@ -237,37 +247,61 @@ export function authHeaders(connection: Connection, secret: string): Record<stri
   }
 }
 
-/** endpoint joins a connection's base URL with a path, tolerating trailing slashes. */
-export function endpoint(connection: Connection, path: string): string {
-  const base = connection.baseUrl.replace(/\/+$/, '');
-  return `${base}${path.startsWith('/') ? path : `/${path}`}`;
+/**
+ * apiBase is a connection's base URL as a client joins route paths onto it: no trailing
+ * slash, since every route in the contract begins with one.
+ */
+export function apiBase(connection: Connection): string {
+  return connection.baseUrl.replace(/\/+$/, '');
 }
 
 /**
- * probe checks a connection by asking for `/health`, which every instance serves.
- * It is the only request the explorer makes before the user asks for data, and it
- * reports what came back rather than interpreting it.
+ * apiFor builds the generated client a connection is read through — one per connection,
+ * because a connection *is* a base URL and a credential, and that credential rides in a
+ * header on every route. Auth stays the explorer's: which kinds an instance accepts follows
+ * from how it was configured, so the client is handed headers rather than asked to negotiate.
+ */
+export function apiFor(connection: Connection, secret: string): Api<unknown> {
+  return new Api<unknown>({
+    baseUrl: apiBase(connection),
+    baseApiParams: { headers: authHeaders(connection, secret) },
+  });
+}
+
+/**
+ * probe checks a connection by asking what the health route reports, which every instance
+ * serves. It is the only request the explorer makes before the user asks for data, and it
+ * reports what came back rather than interpreting it — hence the response format left unset,
+ * which hands back the answer with its body still to read.
  */
 export async function probe(connection: Connection, secret: string): Promise<ProbeResult> {
   const t0 = performance.now();
   try {
-    const response = await fetch(endpoint(connection, '/health'), {
-      headers: authHeaders(connection, secret),
-      mode: 'cors',
-    });
+    const answer = await apiFor(connection, secret).health.health({ format: undefined });
+    return {
+      state: 'ok',
+      latencyMs: performance.now() - t0,
+      body: (await answer.text()).slice(0, 400),
+    };
+  } catch (thrown) {
     const latencyMs = performance.now() - t0;
-    const body = (await response.text()).slice(0, 400);
-    if (!response.ok) {
-      return { state: 'failed', latencyMs, detail: `HTTP ${response.status}`, body };
+    // The client throws the response where the instance refused, and an Error where the
+    // request never got an answer at all. A CORS rejection and a dead host are
+    // indistinguishable from here; say so rather than guessing, because the fix differs
+    // completely.
+    if (thrown instanceof Error) {
+      return {
+        state: 'failed',
+        latencyMs,
+        detail: `unreachable, or blocked by CORS (${String(thrown)})`,
+      };
     }
-    return { state: 'ok', latencyMs, body };
-  } catch (err) {
-    // A CORS rejection and a dead host are indistinguishable from here; say so
-    // rather than guessing, because the fix differs completely.
+    const answer = thrown as Response;
     return {
       state: 'failed',
-      latencyMs: performance.now() - t0,
-      detail: `unreachable, or blocked by CORS (${String(err)})`,
+      latencyMs,
+      detail: `HTTP ${answer.status}`,
+      body: (await answer.text().catch(() => '')).slice(0, 400),
     };
   }
 }

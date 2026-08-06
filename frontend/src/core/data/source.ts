@@ -8,16 +8,22 @@
  * act: one data path, not a real and a test one.
  */
 
+import { EncodeQuery, newSeqReader, readIds } from '@flocko-motion/ranke';
+import type { Query as RankeQuery } from '@flocko-motion/ranke';
+import { contributionUnknown, drawn } from '../claims.ts';
+import type { DrawnClaim } from '../claims.ts';
 import { generate } from '../mock/generate.ts';
-import type { ClaimId, MockArchive, MockClaim } from '../mock/model.ts';
+import type { MockArchive } from '../mock/model.ts';
 import { ARCHIVE_SCOPE } from '../scope.ts';
 import type { Scope } from '../scope.ts';
-import { authHeaders, endpoint, probe } from '../connections.ts';
+import { apiFor, probe } from '../connections.ts';
 import type { Connection, MockParams, ProbeResult } from '../connections.ts';
+import { Api } from './openapi.gen.ts';
+import type { Error as ApiError, HttpResponse, Query as ApiQuery } from './openapi.gen.ts';
 
 /** What a read returns: claims, and what the source can say about them. */
 export interface ClaimPage {
-  claims: MockClaim[];
+  claims: DrawnClaim[];
   contributions: number;
   /** Time the source spent producing the page. */
   elapsedMs: number;
@@ -34,11 +40,11 @@ export interface FetchRequest {
    */
   scope?: Scope | null;
   /**
-   * Called as claims arrive: how many so far, and how far through the body, where the response
-   * declared its length. A count of claims yet to come would cost a second closure walk, but
-   * the bytes are free — the server already said how many there are.
+   * Called as claims arrive: how many are decoded so far, and how many bytes the reader has
+   * taken. The count of claims yet to come would cost a second closure walk; the bytes are
+   * the reader's own tally, so they cost nothing and move even between two whole records.
    */
-  onProgress?: (read: number, through: number | null) => void;
+  onProgress?: (read: number, bytesRead: number) => void;
 }
 
 export interface DataSource {
@@ -53,25 +59,14 @@ export interface DataSource {
    * The engine answers it — a branch's membership is its closure — and the client intersects
    * the id set with its cache.
    */
-  scopeIds(scope: Scope): Promise<ClaimId[]>;
+  scopeIds(scope: Scope): Promise<string[]>;
   fetch(request: FetchRequest): Promise<ClaimPage>;
   /**
    * content reads one claim's bytes. Content is addressed by the claim that holds it, so the
    * scope the claim was read in is the scope its content is read in — and nothing about
    * whether the bytes sit inline or in a blob reaches the caller.
    */
-  content(scope: Scope | null, id: ClaimId): Promise<Uint8Array>;
-}
-
-/** NotWiredError marks a capability the explorer has not bound to the contract yet. */
-export class NotWiredError extends Error {
-  constructor(what: string) {
-    super(
-      `${what} is not wired yet: the REST query contract has merged, but the explorer ` +
-        'imports no generated client from it so far. Use a mock source for now.',
-    );
-    this.name = 'NotWiredError';
-  }
+  content(scope: Scope | null, id: string): Promise<Uint8Array>;
 }
 
 /** MockSource generates an archive locally. Its parameters are its server details. */
@@ -85,7 +80,10 @@ export class MockSource implements DataSource {
   }
 
   describe(): string {
-    return `generated · seed ${this.params.seed}, ~${this.params.claimsPerContribution} claims per contribution`;
+    return (
+      `generated · seed ${this.params.seed}, up to ${this.params.claims.toLocaleString('en-US')} ` +
+      `claims, ~${this.params.claimsPerContribution} per contribution`
+    );
   }
 
   /** A generator is always healthy; reporting so keeps the UI uniform. */
@@ -110,8 +108,8 @@ export class MockSource implements DataSource {
    * scopeIds reads the branch each claim was stamped with. An unstamped claim is shared —
    * contributors, the branch table — so it belongs to every scope.
    */
-  async scopeIds(scope: Scope): Promise<ClaimId[]> {
-    return scopedClaims(this.wholeArchive(), scope.name).map((c) => c.id);
+  async scopeIds(scope: Scope): Promise<string[]> {
+    return scopedClaims(this.wholeArchive(), scope.name).map((c) => c.claim.id);
   }
 
   /**
@@ -133,10 +131,14 @@ export class MockSource implements DataSource {
 
   /**
    * content has none to give: the generator produces sizes and encodings but never bytes,
-   * since what it exists to exercise is topology and paint.
+   * since what it exists to exercise is topology and paint. A property of a generated
+   * archive, not a capability still to be wired — a connection answers this.
    */
   async content(): Promise<Uint8Array> {
-    throw new NotWiredError('a generated archive holds no content bytes, only their sizes;');
+    throw new Error(
+      'a generated archive holds no content bytes, only their sizes — read content from a ' +
+        'connection to a real instance instead.',
+    );
   }
 
   /** wholeArchive is this source's full archive, whatever a read of it is capped at. */
@@ -150,7 +152,7 @@ export class MockSource implements DataSource {
  * listing cannot disagree. An unstamped claim is shared and belongs to every scope; a name
  * the branch table does not hold is no scope, and contains nothing.
  */
-function scopedClaims(archive: MockArchive, scope?: string): MockClaim[] {
+function scopedClaims(archive: MockArchive, scope?: string): DrawnClaim[] {
   if (!scope || scope === ARCHIVE_SCOPE) return archive.claims;
   if (!(scope in archive.branches)) return [];
   return archive.claims.filter((c) => c.branch === scope || c.branch === '');
@@ -175,16 +177,21 @@ function memoised(params: MockParams, claims: number): MockArchive {
   return lastArchive;
 }
 
-/** RestSource talks to a real instance. Health only, for now. */
+/**
+ * RestSource talks to a real instance through the client generated from `openapi.yaml`, so
+ * every route, path and response type it uses is the contract's rather than this file's.
+ */
 export class RestSource implements DataSource {
   readonly kind = 'rest' as const;
 
   private connection: Connection;
   private secret: string;
+  private api: Api<unknown>;
 
   constructor(connection: Connection, secret: string) {
     this.connection = connection;
     this.secret = secret;
+    this.api = apiFor(connection, secret);
   }
 
   describe(): string {
@@ -196,91 +203,51 @@ export class RestSource implements DataSource {
   }
 
   /**
-   * branches reads `GET /branches`, plus `GET /archive/info` for the branch-table head — the
-   * only route reporting it, and so the only way the archive becomes a nameable scope. If
-   * that read fails the archive is dropped rather than guessed.
+   * branches reads the branch listing, plus the archive report for the branch-table head —
+   * the only route reporting it, and so the only way the archive becomes a nameable scope.
+   * If that read fails the archive is dropped rather than guessed.
    */
   async branches(): Promise<Scope[]> {
-    const listed = await this.getJSON<{ branches?: { name?: string; head?: string }[] }>(
-      '/branches',
-      'listing branches',
-    );
-    const branches = (listed.branches ?? [])
-      .filter((b): b is { name: string; head: string } => Boolean(b.name && b.head))
+    const listed = await this.answer(() => this.api.branches.listBranches(), 'listing branches');
+    const branches = (listed.data.branches ?? [])
+      .filter((b) => Boolean(b.name && b.head))
       .map(({ name, head }) => ({ name, head }));
 
     try {
-      const archive = await this.getJSON<{ head?: string }>('/archive/info', 'reading the archive');
-      if (archive.head) return [{ name: ARCHIVE_SCOPE, head: archive.head }, ...branches];
+      const archive = await this.answer(
+        () => this.api.archive.getArchiveInfo(),
+        'reading the archive',
+      );
+      if (archive.data.head) return [{ name: ARCHIVE_SCOPE, head: archive.data.head }, ...branches];
     } catch {
       // Not grantable to this subject, or an older instance: the branches still stand.
     }
     return branches;
   }
 
-  /** getJSON reads one JSON route, naming what was being read when it fails. */
-  private async getJSON<T>(path: string, what: string): Promise<T> {
-    const response = await fetch(endpoint(this.connection, path), {
-      headers: authHeaders(this.connection, this.secret),
-    });
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status} ${what}`);
-    }
-    return (await response.json()) as T;
-  }
-
   /**
    * scopeIds runs the scoped query: `select.branch` names the scope, `output.detail: id` asks
-   * for identities. The answer is a JSON sequence, read line by line.
+   * for identities. The library reads that sequence too, so nothing here knows how a record
+   * of ids is framed — and a route arrives flattened into the claims along it.
    */
-  async scopeIds(scope: Scope): Promise<ClaimId[]> {
-    const response = await fetch(endpoint(this.connection, '/query'), {
-      method: 'POST',
-      headers: { ...authHeaders(this.connection, this.secret), 'Content-Type': 'application/json' },
-      body: JSON.stringify({
+  async scopeIds(scope: Scope): Promise<string[]> {
+    const response = await this.query(
+      {
         select: { branch: scope.name, head: scope.head },
         output: { detail: 'id', encoding: 'json' },
-      }),
-    });
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status} reading the ids in ${scope.name}`);
-    }
-    return idsFromSequence(await response.text());
-  }
-
-  /** content reads the claim's bytes from the route that serves them for its scope. */
-  async content(scope: Scope | null, id: ClaimId): Promise<Uint8Array> {
-    const where = scope === null || scope.name === ARCHIVE_SCOPE
-      ? '/archive'
-      : `/branches/${encodeURIComponent(scope.name)}`;
-    const response = await fetch(
-      endpoint(this.connection, `${where}/claims/${encodeURIComponent(id)}/content`),
-      { headers: authHeaders(this.connection, this.secret) },
+      },
+      `reading the ids in ${scope.name}`,
     );
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status} reading the content of ${id.slice(0, 12)}…`);
-    }
-    return new Uint8Array(await response.arrayBuffer());
-  }
-
-  /** headOf reads a branch head — the one moving target in an archive. */
-  async headOf(branch: string): Promise<string> {
-    const response = await fetch(
-      endpoint(this.connection, `/branches/${encodeURIComponent(branch)}/head`),
-      { headers: authHeaders(this.connection, this.secret) },
-    );
-    if (!response.ok) throw new Error(`HTTP ${response.status} reading ${branch} head`);
-    // The route answers `{"head": "<id>"}`, so the id has to be read out of it — reading the
-    // body as text returned the envelope.
-    const body = (await response.json()) as { head?: string };
-    if (typeof body.head !== 'string') throw new Error(`no head in the answer for ${branch}`);
-    return body.head;
+    const ids: string[] = [];
+    for await (const id of readIds(await bodyStream(response), 'json')) ids.push(id);
+    return ids;
   }
 
   /**
-   * fetch reads claims through `POST /query`: `detail: claims` carries each with its edges,
-   * `limit.results` caps it, and `form: original` is the id-defining form — what arrives is
-   * what the id was computed over.
+   * fetch reads claims: `detail: claims` carries each with its edges, `form: original` skips
+   * diff resolution, `limit.results` caps it. No `content`, so none is inlined (R-QCONTENT) —
+   * captions fall back to type and id, and a cap's worth per claim over 100k is a trade to
+   * make against a real archive. A projection to draw, not the verifiable shaping (R-QCANON).
    */
   async fetch(request: FetchRequest): Promise<ClaimPage> {
     if (!request.scope) {
@@ -290,165 +257,187 @@ export class RestSource implements DataSource {
       );
     }
     const t0 = performance.now();
-    const response = await fetch(endpoint(this.connection, '/query'), {
-      method: 'POST',
-      headers: { ...authHeaders(this.connection, this.secret), 'Content-Type': 'application/json' },
-      body: JSON.stringify({
+    const response = await this.query(
+      {
         select: { branch: request.scope.name, head: request.scope.head },
         output: { detail: 'claims', form: 'original', encoding: 'json' },
         limit: { results: request.limit },
-      }),
-    });
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status} reading ${request.scope.name}: ${await response.text()}`);
-    }
+      },
+      `reading ${request.scope.name}`,
+    );
     // Read as it arrives rather than in one piece: 24,000 claims take long enough that a
-    // reader deserves to watch the count climb, and the records are line-delimited, so the
-    // parse is incremental anyway.
-    const claims = await claimsFromStream(response, request.onProgress);
+    // reader deserves to watch the count climb, and the library's reader is a push parser,
+    // so the decode is incremental anyway.
+    const claims = await claimsFromBody(response, request.onProgress);
     return {
       claims,
-      // A server read carries no contribution index; see contributionUnknown.
-      contributions: 0,
+      // A server read carries no contribution index; see contributionUnknown in core/claims.
+      contributions: contributionUnknown,
       elapsedMs: performance.now() - t0,
-      origin: `${request.scope.name} · POST /query`,
+      origin: `${request.scope.name} · query`,
     };
   }
-}
 
-/**
- * idsFromSequence reads the ids out of a JSON-sequence body — a bare string or an object
- * carrying one, each stripped of RFC 7464's record separator.
- */
-export function idsFromSequence(body: string): ClaimId[] {
-  const ids: ClaimId[] = [];
-  for (const line of body.split('\n')) {
-    const text = line.replace(/^\u001e/, '').trim();
-    if (text === '') continue;
-    let record: unknown;
+  /**
+   * content reads the claim's bytes from the route that serves them for its scope: this picks
+   * which scope's route answers, and the client builds the path.
+   */
+  async content(scope: Scope | null, id: string): Promise<Uint8Array> {
+    const branch = scope === null || scope.name === ARCHIVE_SCOPE ? null : scope.name;
+    const response = await this.answer(
+      () =>
+        branch === null
+          ? this.api.archive.getArchiveClaimContent(id)
+          : this.api.branches.getBranchClaimContent(segment(branch), id),
+      `reading the content of ${id.slice(0, 12)}…`,
+    );
+    return new Uint8Array(await response.arrayBuffer());
+  }
+
+  /** headOf reads a branch head — the one moving target in an archive. */
+  async headOf(branch: string): Promise<string> {
+    const reported = await this.answer(
+      () => this.api.branches.getBranchHead(segment(branch)),
+      `reading ${branch} head`,
+    );
+    // The route answers `{"head": "<id>"}`, so the id has to be read out of it — reading the
+    // body as text returned the envelope.
+    if (typeof reported.data.head !== 'string') {
+      throw new Error(`no head in the answer for ${branch}`);
+    }
+    return reported.data.head;
+  }
+
+  /**
+   * query posts a RankeQL query with the response format unset — the route declares `json`,
+   * which would parse a *sequence* as one document. Unset, the client hands back the response
+   * for the readers below. `EncodeQuery` decides what goes on the wire; its text returns as an
+   * object because a string body would be JSON-encoded twice.
+   */
+  private query(query: RankeQuery, what: string): Promise<Response> {
+    const canonical = JSON.parse(EncodeQuery(query)) as ApiQuery;
+    return this.answer(() => this.api.query.query(canonical, { format: undefined }), what);
+  }
+
+  /**
+   * answer runs one generated call, naming the read in whatever goes wrong. The client throws
+   * the response rather than returning it, so a failure is only a status until it is told what
+   * was being read.
+   */
+  private async answer<T>(
+    call: () => Promise<HttpResponse<T, ApiError>>,
+    what: string,
+  ): Promise<HttpResponse<T, ApiError>> {
     try {
-      record = JSON.parse(text);
-    } catch {
-      continue; // a partial line, or the execution report the query may append
-    }
-    if (typeof record === 'string') {
-      ids.push(record);
-    } else if (record && typeof record === 'object') {
-      const id = (record as { id?: unknown }).id;
-      if (typeof id === 'string') ids.push(id);
+      return await call();
+    } catch (thrown) {
+      throw await failedRead(thrown, what);
     }
   }
-  return ids;
 }
 
 /**
- * A server read carries no contribution index: the archive expresses that order as the head
- * chain, deriving it is a traversal, and no output field reports it. So claims arrive at 0 —
- * which the layered layout draws and the history layout cannot.
+ * segment escapes a value the client interpolates into a route path. A claim id is base32 by
+ * the contract's pattern and needs none; a branch name is an unconstrained string, so a `/`
+ * or a space in one would otherwise change which route is called.
  */
-export const contributionUnknown = 0;
-
-/**
- * claimsFromStream reads a JSON-sequence body as it arrives, reporting the count as it goes. A
- * record may be split across chunks, so the tail of each chunk is held back until its line ends.
- */
-export async function claimsFromStream(
-  response: Response,
-  onProgress?: (read: number, through: number | null) => void,
-): Promise<MockClaim[]> {
-  const body = response.body;
-  if (!body) return claimsFromSequence(await response.text());
-
-  // How far through is measured in bytes, which the response usually declares. Claims would be
-  // the better unit and cost a second walk of the closure to count.
-  const declared = Number(response.headers?.get?.('content-length') ?? '');
-  const total = Number.isFinite(declared) && declared > 0 ? declared : null;
-
-  const claims: MockClaim[] = [];
-  const decoder = new TextDecoder();
-  const reader = body.getReader();
-  let held = '';
-  let announced = 0;
-  let bytes = 0;
-
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    bytes += value.byteLength;
-    held += decoder.decode(value, { stream: true });
-    const lines = held.split('\n');
-    // The last piece may be half a record, so it waits for the rest.
-    held = lines.pop() ?? '';
-    for (const line of lines) claims.push(...claimsFromSequence(line));
-    // Announced per chunk rather than per claim: the point is a moving number, not every one.
-    if (onProgress && claims.length !== announced) {
-      announced = claims.length;
-      onProgress(announced, total === null ? null : Math.min(1, bytes / total));
-    }
-  }
-  held += decoder.decode();
-  claims.push(...claimsFromSequence(held));
-  onProgress?.(claims.length, total === null ? null : 1);
-  return claims;
+function segment(value: string): string {
+  return encodeURIComponent(value);
 }
 
 /**
- * claimsFromSequence maps the query's JSON records onto what the graph builder reads. Only
- * `created_at` is converted, to the epoch milliseconds a renderer sorts on.
+ * failedRead names the read in whatever a generated call threw: a parsed body carries the
+ * contract's `Error`, an unparsed one still has its body, and a request that never arrived
+ * throws an `Error`.
  */
-export function claimsFromSequence(body: string): MockClaim[] {
-  const claims: MockClaim[] = [];
-  for (const line of body.split('\n')) {
-    const text = line.replace(/^\u001e/, '').trim();
-    if (text === '') continue;
-    let record: WireClaim;
+async function failedRead(thrown: unknown, what: string): Promise<Error> {
+  if (thrown instanceof Error) return new Error(`${what} failed: ${thrown.message}`);
+  if (typeof thrown !== 'object' || thrown === null) {
+    return new Error(`${what} failed: ${String(thrown)}`);
+  }
+  const answer = thrown as HttpResponse<unknown, ApiError>;
+  if (typeof answer.status !== 'number') return new Error(`${what} failed: ${String(thrown)}`);
+  const detail = statedError(answer.error) || (await failureBody(answer));
+  return new Error(`HTTP ${answer.status} ${what}${detail ? `: ${detail}` : ''}`);
+}
+
+/**
+ * statedError reads the message out of the contract's error body: parsed, where the route asked
+ * the client to parse one, or still text, where it did not.
+ */
+function statedError(body: unknown): string {
+  if (typeof body === 'string') {
     try {
-      record = JSON.parse(text) as WireClaim;
+      return statedError(JSON.parse(body));
     } catch {
-      continue; // a partial line, or the execution report a query may append
+      return ''; // not the contract's shape, so the body itself is the best there is
     }
-    if (!record.id || !record.type) continue; // the report, which carries neither
-    claims.push({
-      id: record.id,
-      type: record.type,
-      created_at: Date.parse(record.created_at ?? '') || 0,
-      encoding: record.encoding,
-      content_size: record.content_size,
-      label: labelOf(record),
-      contribution: contributionUnknown,
-      branch: '',
-      edges: (record.edges ?? []).map((e) => ({
-        type: e.type ?? '',
-        reference: e.reference ?? '',
-        name: e.name,
-        relation_direction: e.relation_direction,
-      })),
-    });
   }
-  return claims;
+  if (!body || typeof body !== 'object') return '';
+  const { code, error } = body as Partial<ApiError>;
+  return typeof error === 'string' ? error : typeof code === 'string' ? code : '';
 }
 
-/** The claim fields this client reads off the wire. */
-interface WireClaim {
-  id?: string;
-  type?: string;
-  created_at?: string;
-  encoding?: string;
-  content?: string;
-  content_size?: number;
-  edges?: { type?: string; reference?: string; name?: string; relation_direction?: 1 | -1 }[];
-}
-
-/** labelOf captions a node: text content decodes, anything else gets its type and a short id. */
-function labelOf(record: WireClaim): string {
-  const short = `${record.type ?? 'claim'} ${(record.id ?? '').slice(0, 8)}`;
-  if (!record.content || !record.encoding?.startsWith('text/')) return short;
+/**
+ * failureBody reads a failure body the client left unparsed, capped — it lands in a log line,
+ * not a document.
+ */
+async function failureBody(response: Response): Promise<string> {
+  let text = '';
   try {
-    const text = atob(record.content).trim();
-    return text.length > 0 ? text.slice(0, 80) : short;
+    text = (await response.text()).trim();
   } catch {
-    return short;
+    // A body already read, or none at all: the status still says what happened.
+    return '';
   }
+  return statedError(text) || text.slice(0, 400);
+}
+
+/** encoder turns a body already in hand into the bytes the library's readers take. */
+const encoder = new TextEncoder();
+
+/**
+ * bodyStream is the response's own stream, or a one-chunk stream over a body already read —
+ * which is what a stubbed response gives. The library's readers take a stream, so this is
+ * where that difference stops.
+ */
+async function bodyStream(response: Response): Promise<ReadableStream<Uint8Array>> {
+  if (response.body) return response.body;
+  const bytes = encoder.encode(await response.text());
+  return new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(bytes);
+      controller.close();
+    },
+  });
+}
+
+/**
+ * claimsFromBody decodes a result sequence with the library's reader, reporting as it goes:
+ * how many claims are decoded, and how many bytes the reader has taken. A record split across
+ * two chunks is the reader's business, not this loop's.
+ */
+export async function claimsFromBody(
+  response: Response,
+  onProgress?: (read: number, bytesRead: number) => void,
+): Promise<DrawnClaim[]> {
+  const reader = newSeqReader('json');
+  const claims: DrawnClaim[] = [];
+  const chunks = (await bodyStream(response)).getReader();
+  try {
+    for (;;) {
+      const { done, value } = await chunks.read();
+      if (done) break;
+      for (const claim of reader.push(value)) claims.push(drawn(claim));
+      // Reported per chunk rather than per claim: the point is a moving number, not every one.
+      onProgress?.(claims.length, reader.bytesRead);
+    }
+    for (const claim of reader.end()) claims.push(drawn(claim));
+  } finally {
+    chunks.releaseLock();
+  }
+  onProgress?.(claims.length, reader.bytesRead);
+  return claims;
 }
 
 /** sourceFor builds the source a connection stands for. */

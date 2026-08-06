@@ -13,17 +13,15 @@
  * rather than in bulk.
  */
 
-import type { ClaimId } from './mock/model.ts';
-
-const cache = new Map<ClaimId, Uint8Array>();
+const cache = new Map<string, Uint8Array>();
 
 /** contentOf returns bytes already read, or null. */
-export function contentOf(id: ClaimId): Uint8Array | null {
+export function contentOf(id: string): Uint8Array | null {
   return cache.get(id) ?? null;
 }
 
 /** rememberContent keeps a claim's bytes for the session. */
-export function rememberContent(id: ClaimId, bytes: Uint8Array): void {
+export function rememberContent(id: string, bytes: Uint8Array): void {
   cache.set(id, bytes);
 }
 

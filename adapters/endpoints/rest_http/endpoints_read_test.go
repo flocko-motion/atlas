@@ -82,11 +82,14 @@ func TestRankeQuery(t *testing.T) {
 		},
 		{
 			name: "the output axes stay orthogonal",
-			body: `{"select": {"branch": "foo"}, "output": {"shape": "path", "detail": "graph", "form": "original", "encoding": "cbor"}}`,
+			// Four axes, one each, none of them the default: what the case exists to catch is
+			// an axis read into the wrong field. `detail` is `claims` because the released RQL
+			// schema now offers `id` or `claims` and nothing else.
+			body: `{"select": {"branch": "foo"}, "output": {"shape": "path", "detail": "claims", "form": "original", "encoding": "cbor"}}`,
 			want: func(t *testing.T, q ranke.Query) {
 				want := ranke.Output{
 					Shape:    ranke.ShapePath,
-					Detail:   ranke.DetailGraph,
+					Detail:   ranke.DetailClaims,
 					Form:     ranke.FormOriginal,
 					Encoding: ranke.ResultCBOR,
 				}

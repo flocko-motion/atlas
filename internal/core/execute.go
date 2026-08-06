@@ -232,14 +232,16 @@ func (c *Core) scopedClaim(ctx context.Context, req *Request, archive ranke.Arch
 	return claim, mapLibError(err)
 }
 
-// branch resolves the request's branch. GetBranch's not-found is an unexported sentinel
-// wrapping nothing, so HasBranch is the only way to classify it.
+// branch resolves the request's branch. GetBranch says so itself when the table holds no
+// such name, so the error in hand classifies the absence: no second read, and no window in
+// which the branch table moves between the two. ErrBranchNotFound rather than the broader
+// ErrNotFound it also matches, so a missing branch is answered as one.
 func (c *Core) branch(ctx context.Context, req *Request, archive ranke.Archive) (ranke.Branch, error) {
 	branch, err := archive.GetBranch(ctx, req.Branch)
 	if err == nil {
 		return branch, nil
 	}
-	if exists, hasErr := archive.HasBranch(ctx, req.Branch); hasErr == nil && !exists {
+	if errors.Is(err, ranke.ErrBranchNotFound) {
 		return nil, fmt.Errorf("%w: branch %q", ErrNotFound, req.Branch)
 	}
 	return nil, mapLibError(err)

@@ -14,7 +14,6 @@ import { DirectedGraph } from 'graphology';
 
 import { MockSource, RestSource } from './data/source.ts';
 import type { DataSource } from './data/source.ts';
-import { idsFromSequence } from './data/source.ts';
 import { forgetMembers, membersOf, setMembers } from './graph/members.ts';
 import { ARCHIVE_SCOPE, scopeOptions } from './scope.ts';
 import type { Scope } from './scope.ts';
@@ -44,18 +43,23 @@ function viewWith(scope: Scope | null): ViewState {
 
 /**
  * stubFetch answers one URL with one body, so the REST backend is driven over the wire
- * shape it actually parses rather than through a hand-made double of itself.
+ * shape it actually parses rather than through a hand-made double of itself. The generated
+ * client clones a response before parsing it, so the stub answers `clone` as well — the
+ * request reaching `fetch` at all is what makes this a wire test.
  */
-function stubFetch(handler: (url: string) => { status?: number; body: unknown }) {
+function stubFetch(handler: (url: string, init?: RequestInit) => { status?: number; body: unknown }) {
   const original = globalThis.fetch;
-  globalThis.fetch = (async (input: string | URL | Request) => {
-    const { status = 200, body } = handler(String(input));
-    return {
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    const { status = 200, body } = handler(String(input), init);
+    const response: Partial<Response> = {
       ok: status >= 200 && status < 300,
       status,
+      headers: new Headers(),
       json: async () => body,
       text: async () => JSON.stringify(body),
-    } as Response;
+    };
+    response.clone = () => response as Response;
+    return response as Response;
   }) as typeof globalThis.fetch;
   return () => {
     globalThis.fetch = original;
@@ -89,6 +93,48 @@ test('branches list identically through the port from mock and REST', async () =
     assert.deepEqual(fromRest, named, 'the two backends disagree on the same branch table');
   } finally {
     restore();
+  }
+});
+
+// 2.2 — the routes are the generated client's, so a read is pinned to the contract's paths
+// rather than to a string in this repo. The archive head is what makes the archive a scope,
+// and it comes from the one route that reports it.
+test('the branch reads go out on the contract routes, archive head included', async () => {
+  const asked: string[] = [];
+  const restore = stubFetch((url) => {
+    asked.push(new URL(url).pathname);
+    return url.endsWith('/archive/info')
+      ? { body: { head: 'archive-head', height: 2, updatedAt: '2024-01-01T00:00:00Z', branches: 1 } }
+      : { body: { branches: [{ name: 'main', head: 'main-head' }] } };
+  });
+  try {
+    const scopes = await new RestSource(restConnection, '').branches();
+    assert.deepEqual(scopes, [
+      { name: ARCHIVE_SCOPE, head: 'archive-head' },
+      { name: 'main', head: 'main-head' },
+    ]);
+  } finally {
+    restore();
+  }
+  assert.deepEqual(asked, ['/branches', '/archive/info']);
+});
+
+// 2.1 — auth stays the explorer's: the client is handed the headers the connection's kind
+// calls for, and carries them on every route it builds.
+test('a connection’s credential rides on a generated read', async () => {
+  const sent: (HeadersInit | undefined)[] = [];
+  const restore = stubFetch((_url, init) => {
+    sent.push(init?.headers);
+    return { body: { branches: [] } };
+  });
+  try {
+    await new RestSource({ ...restConnection, authKind: 'apikey' }, 'the-key').branches();
+  } finally {
+    restore();
+  }
+  assert.ok(sent.length > 0, 'no request was made');
+  for (const headers of sent) {
+    assert.equal((headers as Record<string, string> | undefined)?.['X-API-Key'], 'the-key');
   }
 });
 
@@ -227,8 +273,22 @@ test('claims a scope names but the cache lacks are countable', () => {
   assert.equal(missing, 1, 'a claim the server has and the cache does not went unnoticed');
 });
 
-// The wire shape an ids-only query answers in: a JSON sequence, one identity per record.
-test('an ids-only result is read out of a JSON sequence', () => {
-  const body = '\u001e"id-a"\n\u001e{"id":"id-b"}\n\n\u001e{"startedAt":"t","events":[]}\n';
-  assert.deepEqual(idsFromSequence(body), ['id-a', 'id-b']);
+// An ids-only read decodes through the library, framing included: the endpoint writes each
+// identity as a bare string record (serve.go, KindClaimId), and the execution report a query
+// may append is not an identity — the reader passes it over rather than this file doing so.
+test('an ids-only read decodes through the library reader', async () => {
+  const body =
+    '\u001e"id-a"\n\u001e"id-b"\n\u001e["id-c","id-d"]\n\u001e{"started_at":"t","events":[]}\n';
+  const original = globalThis.fetch;
+  globalThis.fetch = (async () => new Response(body)) as typeof globalThis.fetch;
+  try {
+    // A real head: the query codec validates `select.head` as a multibase id before the
+    // request leaves, so a stand-in that is not one is refused here rather than by a server.
+    const head = 'bciqdlnrhbcnkalcqxrpxpmroin6iu5w6dgfjqoemvxlvvhtwepbe6ma';
+    const ids = await new RestSource(restConnection, '').scopeIds({ name: 'main', head });
+    // A route arrives flattened into the claims along it, which is the reader's doing.
+    assert.deepEqual(ids, ['id-a', 'id-b', 'id-c', 'id-d']);
+  } finally {
+    globalThis.fetch = original;
+  }
 });

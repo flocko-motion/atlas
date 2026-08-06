@@ -9,7 +9,8 @@
  */
 
 import { activeConnection, useConnections } from '../../core/connections.ts';
-import { CLAIM_CLASSES, useQuery } from '../../core/query.ts';
+import { NodeClasses } from '@flocko-motion/ranke';
+import { useQuery } from '../../core/query.ts';
 import { load } from '../../core/session.ts';
 import { useExplorer } from '../../core/store.ts';
 import { Button, Field, Select, Toggle } from '../components/Field.tsx';
@@ -50,7 +51,7 @@ export function QueryPane() {
       </Field>
 
       <h2>classes</h2>
-      {CLAIM_CLASSES.map((cls) => (
+      {NodeClasses.map((cls) => (
         <Toggle
           key={cls}
           label={cls}

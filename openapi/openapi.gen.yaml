@@ -34,8 +34,8 @@ info:
     Content is addressed by the **claim** that holds it (not a raw hash), so whether the
     bytes are inline or a separate blob is hidden and the read stays scoped as its route
     is scoped. Content also rides **inline** in query results via `output.content`; the
-    content route fetches the bytes for a single claim — including the blob an
-    `output.content.overflow: reference` stub leaves behind.
+    content route fetches the bytes for a single claim — including whatever a capped read
+    truncated or dropped, since a claim keeps its `content_hash` either way.
 
     No path segment carries a `$`. The reserved names live in grants (`R $universe`) and
     in a RankeQL body (`select.branch`), and a route names the same scope as a plain
@@ -63,15 +63,22 @@ info:
       - `cbor` → `application/cbor-seq` (RFC 8742) — binary.
 
     Verifiability is a property of the *shaping*, not of the framing alone:
-    `detail: claims` + `form: original` + `encoding: cbor` reproduces the canonical
-    serialization a claim's id is computed over, and is the only combination directly
-    re-hashable and signature-checkable against that id. Every other shaping is a
-    rendering for convenience.
+    `detail: claims` + `form: original` + `encoding: cbor` + `content: {max: 0}`
+    reproduces the canonical serialization a claim's id is computed over, and is the only
+    combination directly re-hashable and signature-checkable against that id (`R-QCANON`).
+    Every other shaping is a rendering for convenience.
 
-    A by-id claim GET returns the claim as its signed CBOR (`application/cbor`); a
-    content GET streams the blob as raw bytes (`application/octet-stream`). In query
-    results content is instead carried inline (base64 under `json`, byte strings under
-    `cbor`), capped by `output.content`.
+    **The content axis is part of that combination, not a detail of it.** A query inlines
+    no content unless `output.content` asks (`R-QCONTENT`), so a read shaped for
+    verification states `content: {max: 0}` — a cap of zero meaning *in full*, as a zero
+    bound does everywhere else in a query. Omit it and the claims arrive without their
+    content, which re-hashes to something other than the id. `content_size` is served
+    either way, so a client always sees that content exists and how long it is.
+
+    A by-id claim GET returns the claim as its signed CBOR (`application/cbor`) whole, so
+    it needs none of this; a content GET streams the blob as raw bytes
+    (`application/octet-stream`). In query results content is instead carried inline
+    (base64 under `json`, byte strings under `cbor`), bounded by `output.content`.
 
     ## Credentials and authorization
 
@@ -923,13 +930,16 @@ components:
         when `execution.report` names a verbosity. Typed distinctly from result items,
         so a reader never mistakes it for data, and always last.
       properties:
-        startedAt:
+        started_at:
           type: string
           format: date-time
           description: Wall clock at query start.
-        elapsedMs:
+        elapsed_ns:
           type: integer
-          description: Total execution time in milliseconds.
+          description: |
+            Total execution time in nanoseconds. The unit is in the name because the
+            value is a bare integer, and it is nanoseconds because a `trace` report
+            exists to show steps a millisecond would round away.
         results:
           type: integer
           description: Number of result items emitted before this report.
@@ -945,17 +955,17 @@ components:
       type: object
       description: |
         One entry in a query's execution log — a stage, a routing decision, or a
-        lowering.
+        translation.
       properties:
-        atMs:
+        at_ns:
           type: integer
-          description: Offset from `startedAt` in milliseconds.
+          description: Offset from `started_at` in nanoseconds.
         engine:
           type: string
           description: Who emitted it (e.g. native, cypher, stack, partition).
         op:
           type: string
-          description: What it did (e.g. load-root, step, filter, sort, route, lower-cypher).
+          description: What it did (e.g. load-root, step, filter, sort, route, translate-cypher).
         level:
           type: string
           enum:
@@ -967,12 +977,12 @@ components:
           description: |
             The entry's own level; a report carries everything at or above the
             verbosity `execution.report` asked for.
-        durationMs:
+        duration_ns:
           type: integer
-          description: Elapsed time for a timed step; 0 for a point event.
+          description: Elapsed time for a timed step, in nanoseconds; 0 for a point event.
         detail:
           type: string
-          description: Human-readable message, or the lowered query text (e.g. the Cypher).
+          description: Human-readable message, or the translated query text (e.g. the Cypher).
         attrs:
           type: object
           additionalProperties: true
@@ -1250,11 +1260,11 @@ components:
     TypeGlob:
       type: string
       minLength: 1
-      description: A glob over class/sub, e.g. derivation/* or entity/person. A leading - excludes the type it names (R-QHOPS).
+      description: 'A glob over class/sub, e.g. derivation/* or entity/person. A leading - excludes. Exclusion decides: a type matching an excluded pattern is refused whatever the included patterns say, and a list of exclusions alone admits every other type (R-QSTEPS).'
     PathStep:
       type: object
       additionalProperties: false
-      description: 'One bounded walk: follow the typed edges in direction dir and yield every claim reached at between min and max hops from the starting set, optionally constrained to nodes types. edges gates every hop; nodes gates the claims a step yields, never those it passes through. A min above a bounded max is refused by the implementation — a JSON Schema cannot compare two sibling values (R-QHOPS).'
+      description: 'One bounded walk: follow the typed edges in direction dir and yield every claim reached at between min and max hops from the starting set, optionally constrained to nodes types. edges gates every hop; nodes gates the claims a step yields, never those it passes through. A min above a bounded max is refused by the implementation — a JSON Schema cannot compare two sibling values (R-QSTEPS).'
       properties:
         edges:
           type: array
@@ -1315,7 +1325,7 @@ components:
               - head
             $comment: 'R-QHEAD: head is required under $universe.'
     Where:
-      description: A boolean tree. Each node is exactly one of the and / or / not combinators over sub-trees, or a leaf naming a field and its test. Within a where, or is boolean; across generators it unions whole result sets. A leaf may name any field a claim carries, including the derived height (R-HEIGHT-FIELD).
+      description: A boolean tree. Each node is exactly one of the and / or / not combinators over sub-trees, or a leaf naming a field and its test. Within a where, or is boolean; across generators it unions whole result sets. A leaf may name any field a claim carries, height included (V-HEIGHT).
       oneOf:
         - type: object
           additionalProperties: false
@@ -1354,7 +1364,7 @@ components:
             field:
               type: string
               minLength: 1
-              description: The field tested — any field a claim carries, or the derived height.
+              description: The field tested — any field a claim carries, height included.
             test:
               $ref: '#/components/schemas/Comparison'
     Value:
@@ -1391,20 +1401,18 @@ components:
       additionalProperties: false
       required:
         - max
-        - overflow
-      description: Inline content per claim. Absent, no content is inlined and a claim carries only its content_hash (R-QOUTPUT).
+      description: Inline content per claim. Absent, no content is inlined (R-QCONTENT).
       properties:
         max:
           type: integer
           minimum: 0
-          description: Cap in bytes on the content inlined per claim.
+          description: Cap in bytes on the content inlined per claim; 0 inlines every claim's content in full.
         overflow:
           type: string
           enum:
             - cutoff
             - omit
-            - reference
-          description: 'What becomes of content past the cap: cutoff truncates, omit drops it, reference leaves a content_hash stub in its place.'
+          description: 'What becomes of content past the cap: cutoff inlines the bytes up to it, omit inlines whole values only. Absent, omit. A claim keeps every field it carries either way (R-QCONTENT).'
     Output:
       type: object
       additionalProperties: false
@@ -1415,20 +1423,19 @@ components:
           enum:
             - single
             - path
-          description: single yields the reached endpoints, one element each; path yields routes, each running outward from the frontier claim its walk began at (R-QOUTPUT).
+          description: single yields the reached endpoints, one element each; path yields routes, each running outward from the frontier claim its walk began at (R-QSHAPE).
         detail:
           type: string
           enum:
             - id
-            - graph
             - claims
-          description: 'How much each element carries: id (the id, or the ids along a path), graph (nodes joined by the edges between them), or claims (the full claim for each node — the node with all its outgoing edges, so richer than graph) (R-QOUTPUT).'
+          description: 'What each element carries: id (the id alone) or claims (the claim in full). Under shape: path it applies to every claim in the route (R-QDETAIL).'
         form:
           type: string
           enum:
             - original
             - materialized
-          description: 'Which field values a claim carries: original as written, a diff-overlaid claim''s delta; materialized with any contribution/diff chain resolved over the predecessor it references, recursively to a base claim. A property of the values, hence orthogonal to detail and encoding (R-QOUTPUT).'
+          description: 'Which field values a claim carries: original as written, a diff-overlaid claim''s delta; materialized with any contribution/diff chain resolved over the predecessor it references, recursively to a base claim. A property of the values, hence orthogonal to detail and encoding (R-QFORM).'
         content:
           $ref: '#/components/schemas/OutputContent'
         encoding:
@@ -1436,7 +1443,7 @@ components:
           enum:
             - json
             - cbor
-          description: json is text with content base64-encoded, cbor is binary; the same information either way (R-QOUTPUT).
+          description: json is text with content base64-encoded, cbor is binary; the same information either way (R-QENCODING).
     OrderKey:
       type: object
       additionalProperties: false
@@ -1446,7 +1453,7 @@ components:
         field:
           type: string
           minLength: 1
-          description: The field sorted on — any field a claim carries, or the derived height.
+          description: The field sorted on — any field a claim carries, height included.
         compare:
           type: string
           enum:
@@ -1495,4 +1502,4 @@ components:
             - info
             - debug
             - trace
-          description: 'Report verbosity: info gives high-level stages, debug routing and lowering, trace per-claim detail. Set, and only then, the stream carries one final report record after the last element, typed distinctly from result claims (R-QREPORT).'
+          description: 'Report verbosity: info gives high-level stages, debug routing and translation, trace per-claim detail. Set, and only then, the stream carries one final report record after the last element, typed distinctly from result claims (R-QREPORT).'

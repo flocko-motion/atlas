@@ -10,19 +10,17 @@
  * graph data, and graph data never enters React state.
  */
 
-import type { ClaimId } from '../mock/model.ts';
-
-const members = new Map<string, Set<ClaimId>>();
+const members = new Map<string, Set<string>>();
 
 /** setMembers records the ids a scope reported, replacing any earlier answer. */
-export function setMembers(scope: string, ids: Iterable<ClaimId>): Set<ClaimId> {
+export function setMembers(scope: string, ids: Iterable<string>): Set<string> {
   const set = new Set(ids);
   members.set(scope, set);
   return set;
 }
 
 /** membersOf returns a scope's reported ids, or null when it has not been asked. */
-export function membersOf(scope: string): Set<ClaimId> | null {
+export function membersOf(scope: string): Set<string> | null {
   return members.get(scope) ?? null;
 }
 
