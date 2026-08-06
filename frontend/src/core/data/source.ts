@@ -244,20 +244,10 @@ export class RestSource implements DataSource {
   }
 
   /**
-   * fetch reads claims through the query route: `detail: claims` carries each with its edges,
-   * `form: original` takes the values as written rather than resolving a diff chain, and
-   * `limit.results` caps the read.
-   *
-   * No `content` section, so no content is inlined (`R-QCONTENT`) — a claim arrives with its
-   * `content_size` and its address, and the bytes are fetched per claim on selection. That
-   * costs a caption: `labelOf` has no text to read, so a claim reads as its type and a short
-   * id until something asks for content. Asking here instead would inline a cap's worth on
-   * every claim of a 100 000-claim read, which is a trade to make against a real archive with
-   * numbers, not in advance.
-   *
-   * This shaping is *not* the verifiable one: that is `encoding: cbor` with
-   * `content: {max: 0}` (`R-QCANON`). What arrives here is a projection to draw, and the
-   * ids it carries are the server's word.
+   * fetch reads claims: `detail: claims` carries each with its edges, `form: original` skips
+   * diff resolution, `limit.results` caps it. No `content`, so none is inlined (R-QCONTENT) —
+   * captions fall back to type and id, and a cap's worth per claim over 100k is a trade to
+   * make against a real archive. A projection to draw, not the verifiable shaping (R-QCANON).
    */
   async fetch(request: FetchRequest): Promise<ClaimPage> {
     if (!request.scope) {
@@ -319,14 +309,10 @@ export class RestSource implements DataSource {
   }
 
   /**
-   * query posts a RankeQL query with the response format unset, which the route otherwise
-   * declares as `json`: a result set is a JSON *sequence*, so parsing it as one document
-   * would both fail and defeat the streaming. Unset, the client answers with the response
-   * itself, whose body the readers below take apart record by record as it arrives.
-   *
-   * What goes on the wire is `query_codec`'s: `EncodeQuery` holds the query to the rules the
-   * schema cannot state and drops what says nothing. Its text is handed back as an object
-   * because the client formats its own bodies — a string body would be JSON-encoded twice.
+   * query posts a RankeQL query with the response format unset — the route declares `json`,
+   * which would parse a *sequence* as one document. Unset, the client hands back the response
+   * for the readers below. `EncodeQuery` decides what goes on the wire; its text returns as an
+   * object because a string body would be JSON-encoded twice.
    */
   private query(query: RankeQuery, what: string): Promise<Response> {
     const canonical = JSON.parse(EncodeQuery(query)) as ApiQuery;
@@ -360,10 +346,9 @@ function segment(value: string): string {
 }
 
 /**
- * failedRead turns what a generated call threw into the error a reader sees. A route that asked
- * for a parsed body carries the contract's `Error` in `error`; one left unparsed still has its
- * body to read; and a request that never reached the server throws an `Error` whose message is
- * all there is to report.
+ * failedRead names the read in whatever a generated call threw: a parsed body carries the
+ * contract's `Error`, an unparsed one still has its body, and a request that never arrived
+ * throws an `Error`.
  */
 async function failedRead(thrown: unknown, what: string): Promise<Error> {
   if (thrown instanceof Error) return new Error(`${what} failed: ${thrown.message}`);
