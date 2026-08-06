@@ -41,7 +41,7 @@ layering above:
 
 | From | Comes | So this repo declares |
 |---|---|---|
-| `@flocko-motion/ranke` | `Claim`, `Edge`, the node classes, the content declaration, the sequence reader, the type-glob matcher, the RankeQL `Query` | no claim type, no vocabulary, no framing rule |
+| `@flocko-motion/ranke` | `Claim`, `Edge`, the node classes, the content declaration, the sequence readers (claims, ids, raw records), the type-glob matcher, the RankeQL `Query` | no claim type, no vocabulary, no framing rule |
 | `openapi/openapi.gen.ts` | every route, every request and response type | no path string, no wire field name |
 
 What the explorer *does* hold is drawing state the ADT has no reason to define — the
@@ -171,14 +171,12 @@ browser: `chrome-headless-shell` is missing 17 system libraries here (`libnspr4`
 tests use for podman-backed counterparts. A software rasteriser would have measured
 SwiftShader rather than a GPU, so nothing was faked in its place.
 
-**The container is capped at 2 GiB**, and that cap is now the binding constraint rather than a
-footnote: claims are built by the ADT library, so 100k of them are **770 MiB of objects** where
-the old hand-rolled shape was 97 MiB. Two things follow. The granularity sweep runs at 30k
-claims rather than 100k — five 100k archives in one process was OOM-killed at the third
-granularity. And the separate 300k run is gone: its claims alone measured **2 301 MiB** (113 s
-to build 300 002 claims and 1 129 121 edges), so it cannot complete here at all. The stale
-`results/graph-bench-300k.json` was deleted rather than left looking current; a machine with
-memory to spare can restore it with `make bench ARGS="--scales=300000 --granularities=skip"`.
+**The container is capped at 2 GiB**, which is worth knowing because it briefly bound: at
+`@flocko-motion/ranke` 0.2.1 a claim cost 8 KB of heap, so 100k of them were 770 MiB, the
+granularity sweep was OOM-killed at its third archive, and the 300k run could not finish at all.
+0.3.0 brought that to 1.8 KB — 171 MiB at 100k, 509 MiB at 300k — and both runs fit again, so
+the numbers below are measured at the shape they always were. `results/graph-bench-300k.json`
+is back, and it earns its place: it is where the heap wall shows up (see Open questions).
 
 **The frame numbers below were instead produced by a person running the page**, on
 an integrated AMD Radeon (Renoir) through ANGLE / OpenGL ES 3.2 — a laptop-class
@@ -215,9 +213,19 @@ is acyclic and `created_at` monotonic, as the ADT requires.
 means the ids are the content addresses of the canonical encoding — `id = H(S(v))`, 56 chars of
 multibase base32, identity-signed since no key is held here (§5.7) — the edge rules are
 enforced as they would be on a server, and the type a generated claim has is the type a read
-returns. That costs an encode and a SHA-256 per record, which is why generation is ~0.4 ms per
-claim rather than ~0.01 ms: see the table below, and the note on the default archive size.
-Deterministic: same `--seed`, same archive.
+returns. Deterministic: same `--seed`, same archive.
+
+That costs **~0.12 ms per claim** against ~0.01 ms for the object literals it replaced — 8 400
+claims a second, so 10k in a little over a second and 100k in twelve.
+
+It cost 2.5× that until `@flocko-motion/ranke` 0.3.0, and how it came down is the useful part.
+Taking a four-edge claim apart at 0.2.1 showed 243 µs, of which the cryptography was 8: each
+record was encoded to compute its id, encoded again inside `encodeNode` to hash the node,
+encoded a *third* time by `encodeClaim` for the stored bytes, and then parsed back by
+`decodeClaim` into the record the builder had all along. 0.3.0 keeps the edge bytes it already
+made (`encodeNodeWithEdges`), wraps the node bytes it already hashed (`encodeClaimFromNode`),
+and builds the `Claim` from the record instead of decoding its own output
+(`claimFromRecord`) — none of which changes a byte of what an id commits to.
 
 Content is the one thing a generator cannot invent: it declares an external content address
 and a size, so the sizes are realistic, but there are no bytes behind them — reading a
@@ -239,23 +247,41 @@ already holds. Raw: [`results/graph-bench.json`](results/graph-bench.json).
 
 | claims | edges | generate | JSON of the claims | JSON.parse | build → graphology | graph on heap | claims on heap |
 |---:|---:|---:|---:|---:|---:|---:|---:|
-| 1 000 | 3 787 | 0.3 s | 1.1 MiB | 8 ms | 19 ms | 1 MiB | 8 MiB |
-| 10 000 | 37 709 | 3.3 s | 11.4 MiB | 72 ms | 200 ms | 12 MiB | 77 MiB |
-| 100 000 | 377 121 | 30.3 s | 114.3 MiB | 1 030 ms | 2 778 ms | 111 MiB | **770 MiB** |
+| 1 000 | 3 787 | 0.15 s | 1.1 MiB | 5 ms | 14 ms | 1 MiB | 2 MiB |
+| 10 000 | 37 709 | 1.3 s | 11.4 MiB | 52 ms | 156 ms | 13 MiB | 17 MiB |
+| 100 000 | 377 121 | 8.8 s | 114.3 MiB | 712 ms | 2 128 ms | 123 MiB | 171 MiB |
 
-**~1.1 KiB per node** in graphology, and **~7.9 KiB per claim** as objects. That second
-figure is the one that changed: a claim is now the ADT library's `Claim`, which carries the
-split type, both timestamp forms, a content declaration and frozen edge records, where the old
-hand-rolled shape carried the four fields a renderer read. It is ~8× the heap, and at 100k it
-is 770 MiB sitting *beside* the graph for the whole session.
-
-Building the graph still costs ~2.7× parsing a payload of the same claims, so the pre-paint
-bill is graphology's rather than the wire's. Inspector metadata on every node (`full` vs `lean`
-attributes) adds ~7 % of heap and ~28 % of build time — more than it used to look, still not
-the problem.
+**~1.2 KiB per node** in graphology, and **~1.8 KiB per claim** as objects. Building the graph
+costs ~3× parsing a payload of the same claims, so the pre-paint bill is graphology's rather
+than the wire's. Inspector metadata on every node (`full` vs `lean` attributes) adds ~6 % of
+heap and nothing measurable in time — the two build columns land within the noise of each
+other, so display attributes are not the problem.
 
 The JSON column is the *decoded* claims stringified, which bounds a response from above rather
 than being one: a wire record carries `type` once, not split, and no epoch milliseconds.
+
+#### What a claim costs on the heap, and what it cost before 0.3.0
+
+A decoded claim with four edges measures **1 813 B**, against **1 296 B** for the same data in
+the old four-field `MockClaim` — so **~1.4×** buys a split type, both timestamp forms, a
+generation number, a content declaration and a `fields` record per node and per edge. That is
+the price of holding the model rather than a projection of it, and it is fair.
+
+It was **8 070 B** at 0.2.1, and finding out why is worth recording, because the shape was never
+the problem: the same data JSON round-tripped came to 1 728 B, and the shape hand-built came to
+1 816 — within 3 B of what 0.3.0 now returns. The missing ~6 KB was V8 **ConsStrings**.
+`base32Encode` built an id with `out += char` in a loop, so every id stayed a rope of ~57 nodes
+at 32 B each; a heap snapshot over 5 000 claims counted **1.16 M concatenated strings, 35 of
+56 MiB** — 232 ropes per claim, one per edge reference, per content hash, per id. Flattening
+them in place recovered 74 % and changed no value, which is what made the diagnosis certain.
+0.3.0 builds the digits into an array and joins them; flattening now recovers 5 B/claim, i.e.
+nothing.
+
+Two things the episode is worth remembering for. A rope is invisible to every structural
+measure — `JSON.stringify` of the object graph, a field-by-field size model, a diff of the
+shape — and shows up only in a heap snapshot or in what flattening gives back. And a heap
+figure that big means an allocation pattern, not a data model: 30× the wire size of a record
+should have been read as a bug from the start rather than as the cost of a claim.
 
 ### Shape: the two candidate axes
 
@@ -286,62 +312,56 @@ explorer carries beside the claim rather than a field of one.
 
 | claims | by history | by depth | random | circular | circlepack | ForceAtlas2 (Barnes-Hut) | 200 iterations |
 |---:|---:|---:|---:|---:|---:|---:|---:|
-| 1 000 | 1 ms | 2 ms | 1 ms | <1 ms | 16 ms | ~12 ms/iter | 2.5 s |
-| 10 000 | 6 ms | 5 ms | 2 ms | 2 ms | 148 ms | ~140 ms/iter | 27 s |
-| 100 000 | **110 ms** | 104 ms | 20 ms | 15 ms | 5 034 ms | ~2 600 ms/iter | 8.8 min |
+| 1 000 | 1 ms | 2 ms | 1 ms | <1 ms | 11 ms | ~7 ms/iter | 1.4 s |
+| 10 000 | 7 ms | 6 ms | 2 ms | 2 ms | 99 ms | ~87 ms/iter | 17 s |
+| 100 000 | **108 ms** | 129 ms | 20 ms | 15 ms | 3 930 ms | ~2 000 ms/iter | 6.8 min |
 
-- **The history axis is ~4 800× cheaper than a settled force layout at 100k**
-  (110 ms against 527 s) and it is deterministic — same archive, same picture, every
+- **The history axis is ~3 800× cheaper than a settled force layout at 100k**
+  (108 ms against 406 s) and it is deterministic — same archive, same picture, every
   time, which a force layout never gives you.
-- **ForceAtlas2 is the wall.** ~11× per 10× nodes to 10k, ~19× on the next decade. At
-  100k one iteration misses a 60 fps frame budget by ~160×. A worker (`make run` →
+- **ForceAtlas2 is the wall.** ~13× per 10× nodes to 10k, ~23× on the next decade. At
+  100k one iteration misses a 60 fps frame budget by ~120×. A worker (`make run` →
   *ForceAtlas2 (worker)*) moves the cost off the main thread without making it finish.
-- **Barnes-Hut is not optional**: at 10k, off costs ~1 050 ms/iter against ~140.
+- **Barnes-Hut is not optional**: at 10k, off costs ~710 ms/iter against ~87.
 - **Seeding barely matters**: from circlepack rather than random, 100k measured
-  ~2 100 ms/iter against ~2 600 — same order, no rescue.
-- **circlepack** groups by class attractively but costs 5.0 s at 100k. Fine to ~10k.
-- **depth pass**: computing every claim's depth is one sweep, 368 ms at 100k — an
+  ~1 500 ms/iter against ~2 000 — same order, no rescue.
+- **circlepack** groups by class attractively but costs 3.9 s at 100k. Fine to ~10k.
+- **depth pass**: computing every claim's depth is one sweep, 316 ms at 100k — an
   O(V+E) property, which is why the layered layout is nearly free.
 
-The force numbers are **~1.7× higher than the previous run** of the same topology, and the
-likeliest reason is the row above: 770 MiB of claim objects are live while the layout runs, so
-every iteration allocates against a heap eight times fuller than before. A shared host under
-memory pressure is the other candidate, and this container cannot tell the two apart — which is
-itself the argument for not holding decoded claims once they are in the graph.
+These land on the pre-library figures within the run-to-run noise, in both directions: build at
+100k is 2 128 ms against 2 274 before, circlepack 3 930 against 3 916, ForceAtlas2 at 10k
+87 ms/iter against ~130 — and at 100k 2 000 against ~1 500. A shared host with 24 of 43 GiB in
+use by other work measured **28 % between two runs of the same build**, which is the size of
+every gap above. Holding the decoded claims does not explain them either: with the archive
+released before the layout, 50k claims measured 3 650 ms for three FA2 iterations against
+3 375 ms with it held. The graph is the same graph, and nothing about it got dearer.
 
 ### Granularity: the parameter nobody can know
 
-Same 30 000 claims, varying claims per contribution. (30k rather than 100k: five archives of
-100k library-built claims in one process do not fit the container — see above.)
+Same 100 000 claims, varying claims per contribution:
 
 | claims/contribution | contributions | bookkeeping share | height | widest depth layer | rows | widest row | edges | FA2 |
 |---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| ~3 | 8 441 | **56 %** | 8 443 | 2 692 | 8 441 | 39 | 94 321 | ~5 200 ms/iter † |
-| ~10 | 2 031 | 14 % | 2 037 | 5 321 | 2 031 | 300 | 113 350 | ~480 ms/iter |
-| ~30 | 710 | 5 % | 719 | 5 862 | 710 | 968 | 116 975 | ~510 ms/iter |
-| ~100 | 190 | 1 % | 203 | 6 076 | 190 | 3 515 | 118 765 | ~440 ms/iter |
-| ~1000 | 11 | 0 % | 30 | 6 149 | 11 | 20 388 | 118 972 | ~520 ms/iter |
+| ~3 | 28 760 | **58 %** | 28 762 | 8 712 | 28 760 | 39 | 312 399 | ~1 630 ms/iter |
+| ~10 | 6 814 | 14 % | 6 820 | 17 710 | 6 814 | 301 | 377 121 | ~1 630 ms/iter |
+| ~30 | 2 530 | 5 % | 2 539 | 19 466 | 2 530 | 995 | 389 702 | ~1 710 ms/iter |
+| ~100 | 638 | 1 % | 651 | 20 242 | 638 | 3 515 | 395 253 | ~1 690 ms/iter |
+| ~1000 | 44 | 0 % | 65 | 20 486 | 44 | 35 805 | 396 664 | ~1 800 ms/iter |
 
 Three things fall out, and the first is not about rendering at all:
 
 1. **Fine-grained contributions make the archive mostly bookkeeping.** At ~3 claims
-   per contribution, **56 % of all claims are heads and branch tables** — the archive
+   per contribution, **58 % of all claims are heads and branch tables** — the archive
    is more history than content. At ~30 it is 5 %, at ~100 it is 1 %. That is a cost
    the server pays too (storage, closure walks, sequencer revisions), not just a
    picture problem.
-2. **Layout cost is indifferent to granularity** (440–520 ms/iter across a 300× range, reading
-   the † row for what it is). Edge count drives ForceAtlas2, and the edge count barely moves;
-   height does not drive it at all. A clean process measures the same five archives at
-   443–721 ms/iter — same conclusion, same order.
-
-   † The first sweep row reads **5 200 ms/iter**, and that figure is about the *run* rather
-   than the granularity: the sweep starts immediately after the 100k scale row, so its first
-   ForceAtlas2 probe pays for collecting that row's 770 MiB. The same archive in a clean
-   process is **721 ms/iter**. It is left in the table because it is what a full `make bench`
-   measures, and because it is the sharpest illustration of the heap lesson going: the same
-   layout over the same graph, ~7× slower for what was allocated before it started.
+2. **Layout cost is indifferent to granularity** (1 630–1 800 ms/iter across a 300× range).
+   Edge count drives ForceAtlas2, and the edge count barely moves — 312k to 397k, because the
+   head chain it loses is the head chain the content keeps citing; height does not drive it at
+   all.
 3. **The history axis degrades gracefully into uselessness.** At ~1000 claims per
-   contribution there are 11 rows of ~2 700 — no longer a ribbon, and a renderer
+   contribution there are 44 rows of ~2 270 — no longer a ribbon, and a renderer
    would need to lay out *within* a row. Below ~100 claims per contribution the
    axis works well; above that it needs a second dimension.
 
@@ -432,9 +452,9 @@ in the data, where verification needs it.
 ### Client footprint
 
 The whole stack — React, graphology, Sigma, the layouts, the ADT library, the generated REST
-client, the generator — bundles to **489 KB (140 KB gzipped)**, or one 489 KB self-contained
-`explorer.html`. The two libraries this client stopped hand-writing cost ~34 KB of that, for
-the claim model, the codec, the query type and every route.
+client, the generator — bundles to **494 KB (142 KB gzipped)**, or one 494 KB self-contained
+`explorer.html`. The two libraries this client stopped hand-writing cost ~38 KB of that, for
+the claim model, the codec, the sequence readers, the query type and every route.
 
 ## What this implies for an explorer
 
@@ -469,16 +489,18 @@ the claim model, the codec, the query type and every route.
   enough alone, which is itself worth confirming.
 - Frame times at 100k, and the same runs on a discrete GPU — though if the cost is
   edge upload and fill rate, an integrated GPU is the honest target anyway.
-- Whether 300k survives a browser tab. It looks worse than it did: the claims alone are
-  **2 301 MiB** now that they are real claims, which is over half a tab's usual 4 GiB
-  ceiling before the graph exists. An earlier run on a 1 120 MiB ceiling measured
-  ForceAtlas2 at **132 s/iteration** and then died with `Ineffective mark-compacts near
-  heap limit`; with 4 GiB the same graph took **6.7 s/iteration** — a 20× penalty purely
-  from GC pressure. Those figures predate both the contribution chains and library-built
-  claims, so they are indicative only, but the lesson is not: **peak heap is a
-  first-order performance factor**, and a browser tab's ceiling sits right there. The
-  first thing to try is not holding the decoded claims at all — merge each into the graph
-  as it arrives and drop it, which the streaming reader already makes possible.
+- Whether 300k survives a browser tab. It builds: 33 s to generate, 509 MiB of claims,
+  a 378 MiB graph, 7.8 s to build it, and the history layout still lands in **324 ms**.
+  Then ForceAtlas2 takes **145 s per iteration** — against 2.0 s at 100k, a **72× jump for
+  3× the nodes**, which is not a complexity curve but a heap wall: 509 + 378 MiB of live
+  objects under a 1.9 GiB ceiling leaves every iteration collecting rather than computing.
+  It is the same cliff an earlier run hit on a 1 120 MiB ceiling (132 s/iteration, then
+  `Ineffective mark-compacts near heap limit`), and it is the clearest measurement in this
+  file of one thing: **peak heap is a first-order performance factor**, and a browser tab's
+  ceiling sits right there. Which also says what to try — stop holding the page. Merging each
+  claim into the graph as it arrives and dropping it takes 509 MiB out of the read, and the
+  streaming reader already makes it possible. The deterministic layouts, meanwhile, do not
+  care: 324 ms at 300k.
 - **Labels when zoomed in.** They cost nothing at 50k zoomed out because Sigma culls
   almost all of them; the same camera path zoomed into a dense contribution row, where
   many nodes clear `labelRenderedSizeThreshold`, is the case that would actually price

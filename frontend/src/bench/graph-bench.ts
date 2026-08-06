@@ -36,13 +36,8 @@ const OUT = args.get('out') ?? new URL('../../results/graph-bench.json', import.
  * Real usage is unknowable, so it is swept at one scale rather than assumed.
  */
 const GRANULARITIES = (args.get('granularities') ?? '3,10,30,100,1000').split(',').map(Number);
-/**
- * The sweep runs below the largest scale on purpose. Claims are built by the ADT library, so
- * 100k of them are ~770 MiB of objects, and five archives that size in one process crosses the
- * 2 GiB the bench container is capped at — the third granularity was OOM-killed. 30k keeps the
- * curve and fits; pass `--granularity-scale=100000` where there is memory for it.
- */
-const GRANULARITY_SCALE = Number(args.get('granularity-scale') ?? 30000);
+/** The scale the granularity curve is measured at; the per-scale tables sweep separately. */
+const GRANULARITY_SCALE = Number(args.get('granularity-scale') ?? 100000);
 /** Granularity used for the per-scale tables; an assumption, flagged as one. */
 const DEFAULT_GRANULARITY = Number(args.get('per-contribution') ?? 10);
 

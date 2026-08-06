@@ -17,12 +17,12 @@
 - [x] 3.1 Replace `MockClaim` and `MockEdge` with the library's `Claim` and `Edge` throughout `core/`. Keep `contribution`, `branch` and `label` beside the claim, not inside a type restating it.
 - [x] 3.2 Delete `WireClaim` and `claimsFromSequence`; decode with `codec_json` through the library's reader.
 - [x] 3.3 Replace `claimsFromStream` with `readClaims` over the response body, or `SeqReader` where the push loop reads better, and take the progress count from `bytesRead` rather than from `content-length`.
-- [ ] 3.4 Delete `idsFromSequence`; an ids-only read decodes through the same reader.
-      **Blocked upstream.** An `output.detail: id` record is a bare JSON string (`serve.go`,
-      `KindClaimId`), and the library's reader decodes claim records only — `decodeClaimJSON`
-      requires `type` and `created_at`, and no raw-record reader is exported. `idsFromSequence`
-      stays as a stopgap naming ranke-ts as its owner; delete it when the library reads an
-      identity sequence.
+- [x] 3.4 Delete `idsFromSequence`; an ids-only read decodes through the same reader.
+      Was blocked upstream — the library's reader decoded claim records only, so an
+      `output.detail: id` sequence of bare strings had no reader and `idsFromSequence` stood in
+      as a stopgap naming its owner. ranke-ts 0.3.0 publishes `readIds` (plus `readRecords`,
+      `decodeResultRecord` and a raw framing reader), so the stopgap is gone and no framing rule
+      is left in this repo.
 - [x] 3.5 Replace `classOf()` with `typeClass`, and drop the `Date.parse` in favour of `createdAtMs`.
 - [x] 3.6 Replace the `startsWith` edge filter in `graph/build.ts:184` with `matchTypeList`, which implements the contract's glob rules including a leading `-`.
 - [x] 3.7 Delete `NODE_CLASSES`' class list in favour of `NodeClasses`; keep the generator's invented subtypes, which are open vocabulary.
@@ -36,11 +36,17 @@
 
 - [x] 5.1 Build generated claims through `claim_builder`, so mock and server data are one type on one code path.
 - [x] 5.2 Re-measure the benches. Generation now encodes where it previously assembled object literals, and `results/*.json` is committed on purpose.
-      Generation is ~25× slower (30.3 s per 100k, was ~1.1 s) and a claim is ~8× the heap
-      (770 MiB per 100k, was 97 MiB), which the container's 2 GiB cap now binds: the
-      granularity sweep moved to 30k claims and `results/graph-bench-300k.json` was deleted,
-      its 300k run no longer completing here (2 301 MiB of claims alone). Every table in
-      `frontend/README.md` re-measured with it.
+      Measured at ranke-ts 0.2.1, generation was ~25× slower (30.3 s per 100k) and a decoded
+      claim ~8× the heap (770 MiB per 100k, was 97 MiB) — enough that the container's 2 GiB cap
+      bound. Taking both apart put the causes upstream rather than in the model: about half the
+      build time was `claim_builder` encoding each record three times and decoding it back, and
+      ~74 % of the claim heap was ConsString ropes from `base32Encode`'s `out += char` loop.
+      Both are fixed in **0.3.0**; this change pins **0.4.0**, which measures the same: generation is 8 400 claims/s
+      (~0.12 ms each) and a claim is 1 813 B — ~1.4× the old hand-rolled shape, which is what
+      holding the model costs. Every table in `frontend/README.md` re-measured at the committed
+      shape, `results/graph-bench-300k.json` restored, the granularity sweep back at 100k.
+      Build and layout land on the pre-library figures within this host's ~28 % run-to-run
+      noise, which was measured rather than assumed.
 
 ## 6. Fix what the comparison found
 

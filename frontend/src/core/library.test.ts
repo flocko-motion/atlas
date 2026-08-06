@@ -111,6 +111,7 @@ test('no source file spells out a route path or a wire field name', () => {
 const FORBIDDEN: Record<string, RegExp> = {
   'a route path': /['"`]\/(branches|archive|universe|query|contribute|health|system)\b/,
   'a wire field name': /['"`](created_at|content_size|content_hash|relation_direction)['"`]/,
+  'a report field name': /['"`](started_at|elapsed_ns|at_ns|duration_ns)['"`]/,
 };
 
 /** sources lists the explorer's own TypeScript: no generated file, and no test fixture. */

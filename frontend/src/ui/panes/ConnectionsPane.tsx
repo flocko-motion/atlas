@@ -74,7 +74,7 @@ function ConnectionRow({ connection }: { connection: Connection }) {
               placeholder="mock archive"
             />
           </Field>
-          <Field label="claims" hint="the archive's ceiling, ~0.4 ms each to build">
+          <Field label="claims" hint="the archive's ceiling, ~0.12 ms each to build">
             <Select
               value={connection.mock.claims}
               options={[1000, 10000, 100000, 300000].map((n) => ({

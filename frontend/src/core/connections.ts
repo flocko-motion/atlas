@@ -59,9 +59,9 @@ export interface Connection {
 /**
  * The generator's defaults. `claims` is a ceiling on the archive, and it is deliberately not
  * the largest one that works: every claim is built, encoded and hashed by the library, which
- * costs ~0.4 ms — so 10k generates in a few seconds and 100k in the better part of a minute,
- * with nothing to look at until it finishes. Raise it in the Server pane when the point is
- * scale; the benches measure the ceiling and report what it costs.
+ * costs ~0.12 ms — so 10k generates in about a second and 100k in twelve, with nothing to look
+ * at until it finishes. Raise it in the Server pane when the point is scale; the benches measure
+ * the ceiling and report what it costs.
  */
 export const DEFAULT_MOCK: MockParams = { claims: 10000, claimsPerContribution: 10, seed: 0x5eed };
 

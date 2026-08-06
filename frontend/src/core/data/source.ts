@@ -8,7 +8,7 @@
  * act: one data path, not a real and a test one.
  */
 
-import { EncodeQuery, newSeqReader } from '@flocko-motion/ranke';
+import { EncodeQuery, newSeqReader, readIds } from '@flocko-motion/ranke';
 import type { Query as RankeQuery } from '@flocko-motion/ranke';
 import { contributionUnknown, drawn } from '../claims.ts';
 import type { DrawnClaim } from '../claims.ts';
@@ -227,8 +227,8 @@ export class RestSource implements DataSource {
 
   /**
    * scopeIds runs the scoped query: `select.branch` names the scope, `output.detail: id` asks
-   * for identities. The answer is a sequence of bare ids — see idsFromSequence for why that
-   * one read still frames its own records.
+   * for identities. The library reads that sequence too, so nothing here knows how a record
+   * of ids is framed — and a route arrives flattened into the claims along it.
    */
   async scopeIds(scope: Scope): Promise<string[]> {
     const response = await this.query(
@@ -238,13 +238,26 @@ export class RestSource implements DataSource {
       },
       `reading the ids in ${scope.name}`,
     );
-    return idsFromSequence(await response.text());
+    const ids: string[] = [];
+    for await (const id of readIds(await bodyStream(response), 'json')) ids.push(id);
+    return ids;
   }
 
   /**
    * fetch reads claims through the query route: `detail: claims` carries each with its edges,
-   * `limit.results` caps it, and `form: original` is the id-defining form — what arrives is
-   * what the id was computed over.
+   * `form: original` takes the values as written rather than resolving a diff chain, and
+   * `limit.results` caps the read.
+   *
+   * No `content` section, so no content is inlined (`R-QCONTENT`) — a claim arrives with its
+   * `content_size` and its address, and the bytes are fetched per claim on selection. That
+   * costs a caption: `labelOf` has no text to read, so a claim reads as its type and a short
+   * id until something asks for content. Asking here instead would inline a cap's worth on
+   * every claim of a 100 000-claim read, which is a trade to make against a real archive with
+   * numbers, not in advance.
+   *
+   * This shaping is *not* the verifiable one: that is `encoding: cbor` with
+   * `content: {max: 0}` (`R-QCANON`). What arrives here is a projection to draw, and the
+   * ids it carries are the server's word.
    */
   async fetch(request: FetchRequest): Promise<ClaimPage> {
     if (!request.scope) {
@@ -395,36 +408,24 @@ async function failureBody(response: Response): Promise<string> {
   return statedError(text) || text.slice(0, 400);
 }
 
-/**
- * idsFromSequence reads the ids out of an `output.detail: id` body, whose records are bare
- * JSON strings rather than claims.
- *
- * STOPGAP — `@flocko-motion/ranke` owns sequence framing, and its reader decodes claim
- * records only: an id record carries no `type` and no `created_at`, so `newSeqReader` refuses
- * it. Until the library reads an identity sequence, this repeats RFC 7464's framing, which is
- * the duplication the rest of this file exists to remove. Delete it the moment that lands.
- */
-export function idsFromSequence(body: string): string[] {
-  const ids: string[] = [];
-  for (const record of body.split(RS)) {
-    const text = record.trim();
-    if (text === '') continue;
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(text);
-    } catch {
-      continue; // a truncated record, or the execution report a query may append
-    }
-    if (typeof parsed === 'string') ids.push(parsed);
-  }
-  return ids;
-}
-
-/** The record separator RFC 7464 opens every record of a JSON sequence with. */
-const RS = '\u001e';
-
-/** encoder turns a body already in hand into the bytes the library's reader takes. */
+/** encoder turns a body already in hand into the bytes the library's readers take. */
 const encoder = new TextEncoder();
+
+/**
+ * bodyStream is the response's own stream, or a one-chunk stream over a body already read —
+ * which is what a stubbed response gives. The library's readers take a stream, so this is
+ * where that difference stops.
+ */
+async function bodyStream(response: Response): Promise<ReadableStream<Uint8Array>> {
+  if (response.body) return response.body;
+  const bytes = encoder.encode(await response.text());
+  return new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(bytes);
+      controller.close();
+    },
+  });
+}
 
 /**
  * claimsFromBody decodes a result sequence with the library's reader, reporting as it goes:
@@ -437,19 +438,7 @@ export async function claimsFromBody(
 ): Promise<DrawnClaim[]> {
   const reader = newSeqReader('json');
   const claims: DrawnClaim[] = [];
-  const body = response.body;
-
-  if (!body) {
-    // No stream to pull: the body is already in hand, which is what a stubbed response gives.
-    for (const claim of reader.push(encoder.encode(await response.text()))) {
-      claims.push(drawn(claim));
-    }
-    for (const claim of reader.end()) claims.push(drawn(claim));
-    onProgress?.(claims.length, reader.bytesRead);
-    return claims;
-  }
-
-  const chunks = body.getReader();
+  const chunks = (await bodyStream(response)).getReader();
   try {
     for (;;) {
       const { done, value } = await chunks.read();

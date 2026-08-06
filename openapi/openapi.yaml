@@ -35,8 +35,8 @@ info:
     Content is addressed by the **claim** that holds it (not a raw hash), so whether the
     bytes are inline or a separate blob is hidden and the read stays scoped as its route
     is scoped. Content also rides **inline** in query results via `output.content`; the
-    content route fetches the bytes for a single claim — including the blob an
-    `output.content.overflow: reference` stub leaves behind.
+    content route fetches the bytes for a single claim — including whatever a capped read
+    truncated or dropped, since a claim keeps its `content_hash` either way.
 
     No path segment carries a `$`. The reserved names live in grants (`R $universe`) and
     in a RankeQL body (`select.branch`), and a route names the same scope as a plain
@@ -64,15 +64,22 @@ info:
       - `cbor` → `application/cbor-seq` (RFC 8742) — binary.
 
     Verifiability is a property of the *shaping*, not of the framing alone:
-    `detail: claims` + `form: original` + `encoding: cbor` reproduces the canonical
-    serialization a claim's id is computed over, and is the only combination directly
-    re-hashable and signature-checkable against that id. Every other shaping is a
-    rendering for convenience.
+    `detail: claims` + `form: original` + `encoding: cbor` + `content: {max: 0}`
+    reproduces the canonical serialization a claim's id is computed over, and is the only
+    combination directly re-hashable and signature-checkable against that id (`R-QCANON`).
+    Every other shaping is a rendering for convenience.
 
-    A by-id claim GET returns the claim as its signed CBOR (`application/cbor`); a
-    content GET streams the blob as raw bytes (`application/octet-stream`). In query
-    results content is instead carried inline (base64 under `json`, byte strings under
-    `cbor`), capped by `output.content`.
+    **The content axis is part of that combination, not a detail of it.** A query inlines
+    no content unless `output.content` asks (`R-QCONTENT`), so a read shaped for
+    verification states `content: {max: 0}` — a cap of zero meaning *in full*, as a zero
+    bound does everywhere else in a query. Omit it and the claims arrive without their
+    content, which re-hashes to something other than the id. `content_size` is served
+    either way, so a client always sees that content exists and how long it is.
+
+    A by-id claim GET returns the claim as its signed CBOR (`application/cbor`) whole, so
+    it needs none of this; a content GET streams the blob as raw bytes
+    (`application/octet-stream`). In query results content is instead carried inline
+    (base64 under `json`, byte strings under `cbor`), bounded by `output.content`.
 
     ## Credentials and authorization
 

@@ -1,0 +1,84 @@
+{
+  "what": "graphology build + layout cost for a Ranke-Graph shaped archive",
+  "caveat": "Heap deltas under ~10 MiB sit in the allocator noise floor; read the 100k row. Layout and build are pure JS on V8, so they transfer to the browser; paint does not.",
+  "node": "v24.18.0",
+  "platform": "linux/x64",
+  "cpu": "AMD Ryzen 7 PRO 5850U with Radeon Graphics",
+  "cores": 16,
+  "heapLimitMB": 1996,
+  "seed": 24301,
+  "fa2ProbeIterations": 3,
+  "gcExposed": true,
+  "claimsPerContribution": 10,
+  "results": [
+    {
+      "requested": 300000,
+      "claims": 300002,
+      "byClass": {
+        "contribution": 42312,
+        "source": 52830,
+        "derivation": 115960,
+        "entity": 52825,
+        "relation": 36075
+      },
+      "contributions": 21154,
+      "depth": {
+        "height": 21160,
+        "meanDepth": 1097.3324211171926,
+        "p95Depth": 10085,
+        "layers": 21161,
+        "widestLayer": 52830,
+        "aspect": 0.4005300018928639,
+        "computeMs": 1520.0769789999977
+      },
+      "layeredMs": 768.9108659999984,
+      "history": {
+        "rows": 21154,
+        "widestRow": 301,
+        "meanRow": 14.181809586839368,
+        "aspect": 70.27906976744185
+      },
+      "historyMs": 324.41611399999965,
+      "generateMs": 33162.071987,
+      "heapClaimsMB": 508.65293884277344,
+      "payloadMB": 342.8639249801636,
+      "payloadParseMs": 2510.113037999996,
+      "payloadStringifyMs": 2703.603946999996,
+      "buildLeanMs": 7782.528926000006,
+      "buildFullMs": 7716.985243000003,
+      "heapLeanMB": 377.57530212402344,
+      "heapFullMB": 400.39075469970703,
+      "mergedEdges": 0,
+      "layout": {
+        "randomMs": 221.31424100000004,
+        "circularMs": 38.517925000000105,
+        "circlepackMs": 30027.295692999993
+      },
+      "profiles": [
+        {
+          "profile": "all-edges",
+          "edges": 1129045,
+          "degree": {
+            "max": 75195,
+            "mean": 7.526916487223419,
+            "p50": 5,
+            "p99": 15,
+            "hubs": 473
+          },
+          "fa2BarnesHut": {
+            "setupMs": 0,
+            "msPerIter": 145561.31182200002,
+            "est200Ms": 29112262.364400003,
+            "est500Ms": 72780655.91100001
+          },
+          "fa2Plain": null,
+          "fa2FromCirclepack": null
+        }
+      ]
+    }
+  ],
+  "granularitySweep": {
+    "atClaims": 100000,
+    "results": []
+  }
+}

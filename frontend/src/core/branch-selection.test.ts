@@ -14,7 +14,6 @@ import { DirectedGraph } from 'graphology';
 
 import { MockSource, RestSource } from './data/source.ts';
 import type { DataSource } from './data/source.ts';
-import { idsFromSequence } from './data/source.ts';
 import { forgetMembers, membersOf, setMembers } from './graph/members.ts';
 import { ARCHIVE_SCOPE, scopeOptions } from './scope.ts';
 import type { Scope } from './scope.ts';
@@ -274,10 +273,22 @@ test('claims a scope names but the cache lacks are countable', () => {
   assert.equal(missing, 1, 'a claim the server has and the cache does not went unnoticed');
 });
 
-// The wire shape an ids-only query answers in: a JSON sequence whose records are bare
-// strings, which is what the endpoint writes for an id result (serve.go, KindClaimId). A
-// record that is not one — the execution report a query may append — is no identity.
-test('an ids-only result is read out of a JSON sequence', () => {
-  const body = '\u001e"id-a"\n\u001e"id-b"\n\n\u001e{"startedAt":"t","events":[]}\n';
-  assert.deepEqual(idsFromSequence(body), ['id-a', 'id-b']);
+// An ids-only read decodes through the library, framing included: the endpoint writes each
+// identity as a bare string record (serve.go, KindClaimId), and the execution report a query
+// may append is not an identity — the reader passes it over rather than this file doing so.
+test('an ids-only read decodes through the library reader', async () => {
+  const body =
+    '\u001e"id-a"\n\u001e"id-b"\n\u001e["id-c","id-d"]\n\u001e{"started_at":"t","events":[]}\n';
+  const original = globalThis.fetch;
+  globalThis.fetch = (async () => new Response(body)) as typeof globalThis.fetch;
+  try {
+    // A real head: the query codec validates `select.head` as a multibase id before the
+    // request leaves, so a stand-in that is not one is refused here rather than by a server.
+    const head = 'bciqdlnrhbcnkalcqxrpxpmroin6iu5w6dgfjqoemvxlvvhtwepbe6ma';
+    const ids = await new RestSource(restConnection, '').scopeIds({ name: 'main', head });
+    // A route arrives flattened into the claims along it, which is the reader's doing.
+    assert.deepEqual(ids, ['id-a', 'id-b', 'id-c', 'id-d']);
+  } finally {
+    globalThis.fetch = original;
+  }
 });

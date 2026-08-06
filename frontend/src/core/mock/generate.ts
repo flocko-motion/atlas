@@ -9,11 +9,11 @@
  * ribbon, not a ball.
  *
  * Every claim is built by the library's `claim_builder`, so a generated archive holds real
- * claims: content-addressed ids over the canonical encoding, the edge rules enforced, and
- * the same type a read from an instance returns. That costs an encode and a hash per record —
- * see the bench numbers in `README.md` — and it buys a generator that cannot drift from the
- * model it stands in for. Claims are identity-signed (§5.7): no key is held here, so the
- * contributors publish none.
+ * claims: content-addressed ids over the canonical encoding, the edge rules enforced, and the
+ * same type a read from an instance returns. It buys a generator that cannot drift from the
+ * model it stands in for, and it costs ~0.12 ms a claim — an encode and a hash per record, which
+ * is what a claim costs (see README.md for where that figure went between library releases).
+ * Claims are identity-signed (§5.7): no key is held here, so the contributors publish none.
  */
 
 import { hashContent, newClaim } from '@flocko-motion/ranke';

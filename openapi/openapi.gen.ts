@@ -14,7 +14,7 @@
 export interface Query {
   /** A generator in four independent parts: branch is the scope, head the closure read, claim where the walk starts, path the traversal. Scope and start are independent because a walk runs both ways — a uses step reaches the claims that cite the current one, which lie above it, so the closure decides a reverse step's answer. */
   select: Select;
-  /** A boolean tree. Each node is exactly one of the and / or / not combinators over sub-trees, or a leaf naming a field and its test. Within a where, or is boolean; across generators it unions whole result sets. A leaf may name any field a claim carries, including the derived height (R-HEIGHT-FIELD). */
+  /** A boolean tree. Each node is exactly one of the and / or / not combinators over sub-trees, or a leaf naming a field and its test. Within a where, or is boolean; across generators it unions whole result sets. A leaf may name any field a claim carries, height included (V-HEIGHT). */
   where?: Where;
   /** Shapes each result along orthogonal axes. detail: claims with form: original and encoding: cbor reproduces the canonical serialization S(v) a claim's id is computed over, and is the only output form directly verifiable against that id (R-QCANON). */
   output?: Output;
@@ -36,9 +36,13 @@ export interface QueryReport {
    * Wall clock at query start.
    * @format date-time
    */
-  startedAt?: string;
-  /** Total execution time in milliseconds. */
-  elapsedMs?: number;
+  started_at?: string;
+  /**
+   * Total execution time in nanoseconds. The unit is in the name because the
+   * value is a bare integer, and it is nanoseconds because a `trace` report
+   * exists to show steps a millisecond would round away.
+   */
+  elapsed_ns?: number;
   /** Number of result items emitted before this report. */
   results?: number;
   /** True if `limit.results` or `limit.time` cut the read short. */
@@ -49,23 +53,23 @@ export interface QueryReport {
 
 /**
  * One entry in a query's execution log — a stage, a routing decision, or a
- * lowering.
+ * translation.
  */
 export interface QueryEvent {
-  /** Offset from `startedAt` in milliseconds. */
-  atMs?: number;
+  /** Offset from `started_at` in nanoseconds. */
+  at_ns?: number;
   /** Who emitted it (e.g. native, cypher, stack, partition). */
   engine?: string;
-  /** What it did (e.g. load-root, step, filter, sort, route, lower-cypher). */
+  /** What it did (e.g. load-root, step, filter, sort, route, translate-cypher). */
   op?: string;
   /**
    * The entry's own level; a report carries everything at or above the
    * verbosity `execution.report` asked for.
    */
   level?: "error" | "warn" | "info" | "debug" | "trace";
-  /** Elapsed time for a timed step; 0 for a point event. */
-  durationMs?: number;
-  /** Human-readable message, or the lowered query text (e.g. the Cypher). */
+  /** Elapsed time for a timed step, in nanoseconds; 0 for a point event. */
+  duration_ns?: number;
+  /** Human-readable message, or the translated query text (e.g. the Cypher). */
   detail?: string;
   /** Structured extras — layer or shard name, depth, edge and result counts, … */
   attrs?: Record<string, any>;
@@ -261,12 +265,12 @@ export interface Error {
 export type Id = string;
 
 /**
- * A glob over class/sub, e.g. derivation/* or entity/person. A leading - excludes the type it names (R-QHOPS).
+ * A glob over class/sub, e.g. derivation/* or entity/person. A leading - excludes. Exclusion decides: a type matching an excluded pattern is refused whatever the included patterns say, and a list of exclusions alone admits every other type (R-QSTEPS).
  * @minLength 1
  */
 export type TypeGlob = string;
 
-/** One bounded walk: follow the typed edges in direction dir and yield every claim reached at between min and max hops from the starting set, optionally constrained to nodes types. edges gates every hop; nodes gates the claims a step yields, never those it passes through. A min above a bounded max is refused by the implementation — a JSON Schema cannot compare two sibling values (R-QHOPS). */
+/** One bounded walk: follow the typed edges in direction dir and yield every claim reached at between min and max hops from the starting set, optionally constrained to nodes types. edges gates every hop; nodes gates the claims a step yields, never those it passes through. A min above a bounded max is refused by the implementation — a JSON Schema cannot compare two sibling values (R-QSTEPS). */
 export interface PathStep {
   /** Edge types every hop must match. */
   edges?: TypeGlob[];
@@ -301,7 +305,7 @@ export type Select = {
   path?: PathStep[];
 };
 
-/** A boolean tree. Each node is exactly one of the and / or / not combinators over sub-trees, or a leaf naming a field and its test. Within a where, or is boolean; across generators it unions whole result sets. A leaf may name any field a claim carries, including the derived height (R-HEIGHT-FIELD). */
+/** A boolean tree. Each node is exactly one of the and / or / not combinators over sub-trees, or a leaf naming a field and its test. Within a where, or is boolean; across generators it unions whole result sets. A leaf may name any field a claim carries, height included (V-HEIGHT). */
 export type Where =
   | {
       /** @minItems 1 */
@@ -312,12 +316,12 @@ export type Where =
       or: Where[];
     }
   | {
-      /** A boolean tree. Each node is exactly one of the and / or / not combinators over sub-trees, or a leaf naming a field and its test. Within a where, or is boolean; across generators it unions whole result sets. A leaf may name any field a claim carries, including the derived height (R-HEIGHT-FIELD). */
+      /** A boolean tree. Each node is exactly one of the and / or / not combinators over sub-trees, or a leaf naming a field and its test. Within a where, or is boolean; across generators it unions whole result sets. A leaf may name any field a claim carries, height included (V-HEIGHT). */
       not: Where;
     }
   | {
       /**
-       * The field tested — any field a claim carries, or the derived height.
+       * The field tested — any field a claim carries, height included.
        * @minLength 1
        */
       field: string;
@@ -348,34 +352,34 @@ export interface Comparison {
   glob?: string;
 }
 
-/** Inline content per claim. Absent, no content is inlined and a claim carries only its content_hash (R-QOUTPUT). */
+/** Inline content per claim. Absent, no content is inlined (R-QCONTENT). */
 export interface OutputContent {
   /**
-   * Cap in bytes on the content inlined per claim.
+   * Cap in bytes on the content inlined per claim; 0 inlines every claim's content in full.
    * @min 0
    */
   max: number;
-  /** What becomes of content past the cap: cutoff truncates, omit drops it, reference leaves a content_hash stub in its place. */
-  overflow: "cutoff" | "omit" | "reference";
+  /** What becomes of content past the cap: cutoff inlines the bytes up to it, omit inlines whole values only. Absent, omit. A claim keeps every field it carries either way (R-QCONTENT). */
+  overflow?: "cutoff" | "omit";
 }
 
 /** Shapes each result along orthogonal axes. detail: claims with form: original and encoding: cbor reproduces the canonical serialization S(v) a claim's id is computed over, and is the only output form directly verifiable against that id (R-QCANON). */
 export interface Output {
-  /** single yields the reached endpoints, one element each; path yields routes, each running outward from the frontier claim its walk began at (R-QOUTPUT). */
+  /** single yields the reached endpoints, one element each; path yields routes, each running outward from the frontier claim its walk began at (R-QSHAPE). */
   shape?: "single" | "path";
-  /** How much each element carries: id (the id, or the ids along a path), graph (nodes joined by the edges between them), or claims (the full claim for each node — the node with all its outgoing edges, so richer than graph) (R-QOUTPUT). */
-  detail?: "id" | "graph" | "claims";
-  /** Which field values a claim carries: original as written, a diff-overlaid claim's delta; materialized with any contribution/diff chain resolved over the predecessor it references, recursively to a base claim. A property of the values, hence orthogonal to detail and encoding (R-QOUTPUT). */
+  /** What each element carries: id (the id alone) or claims (the claim in full). Under shape: path it applies to every claim in the route (R-QDETAIL). */
+  detail?: "id" | "claims";
+  /** Which field values a claim carries: original as written, a diff-overlaid claim's delta; materialized with any contribution/diff chain resolved over the predecessor it references, recursively to a base claim. A property of the values, hence orthogonal to detail and encoding (R-QFORM). */
   form?: "original" | "materialized";
-  /** Inline content per claim. Absent, no content is inlined and a claim carries only its content_hash (R-QOUTPUT). */
+  /** Inline content per claim. Absent, no content is inlined (R-QCONTENT). */
   content?: OutputContent;
-  /** json is text with content base64-encoded, cbor is binary; the same information either way (R-QOUTPUT). */
+  /** json is text with content base64-encoded, cbor is binary; the same information either way (R-QENCODING). */
   encoding?: "json" | "cbor";
 }
 
 export interface OrderKey {
   /**
-   * The field sorted on — any field a claim carries, or the derived height.
+   * The field sorted on — any field a claim carries, height included.
    * @minLength 1
    */
   field: string;
@@ -412,7 +416,7 @@ export interface Execution {
    * @minLength 1
    */
   layer?: string;
-  /** Report verbosity: info gives high-level stages, debug routing and lowering, trace per-claim detail. Set, and only then, the stream carries one final report record after the last element, typed distinctly from result claims (R-QREPORT). */
+  /** Report verbosity: info gives high-level stages, debug routing and translation, trace per-claim detail. Set, and only then, the stream carries one final report record after the last element, typed distinctly from result claims (R-QREPORT). */
   report?: "info" | "debug" | "trace";
 }
 
@@ -707,8 +711,8 @@ export class HttpClient<SecurityDataType = unknown> {
  * Content is addressed by the **claim** that holds it (not a raw hash), so whether the
  * bytes are inline or a separate blob is hidden and the read stays scoped as its route
  * is scoped. Content also rides **inline** in query results via `output.content`; the
- * content route fetches the bytes for a single claim — including the blob an
- * `output.content.overflow: reference` stub leaves behind.
+ * content route fetches the bytes for a single claim — including whatever a capped read
+ * truncated or dropped, since a claim keeps its `content_hash` either way.
  *
  * No path segment carries a `$`. The reserved names live in grants (`R $universe`) and
  * in a RankeQL body (`select.branch`), and a route names the same scope as a plain
@@ -736,15 +740,22 @@ export class HttpClient<SecurityDataType = unknown> {
  *   - `cbor` → `application/cbor-seq` (RFC 8742) — binary.
  *
  * Verifiability is a property of the *shaping*, not of the framing alone:
- * `detail: claims` + `form: original` + `encoding: cbor` reproduces the canonical
- * serialization a claim's id is computed over, and is the only combination directly
- * re-hashable and signature-checkable against that id. Every other shaping is a
- * rendering for convenience.
+ * `detail: claims` + `form: original` + `encoding: cbor` + `content: {max: 0}`
+ * reproduces the canonical serialization a claim's id is computed over, and is the only
+ * combination directly re-hashable and signature-checkable against that id (`R-QCANON`).
+ * Every other shaping is a rendering for convenience.
  *
- * A by-id claim GET returns the claim as its signed CBOR (`application/cbor`); a
- * content GET streams the blob as raw bytes (`application/octet-stream`). In query
- * results content is instead carried inline (base64 under `json`, byte strings under
- * `cbor`), capped by `output.content`.
+ * **The content axis is part of that combination, not a detail of it.** A query inlines
+ * no content unless `output.content` asks (`R-QCONTENT`), so a read shaped for
+ * verification states `content: {max: 0}` — a cap of zero meaning *in full*, as a zero
+ * bound does everywhere else in a query. Omit it and the claims arrive without their
+ * content, which re-hashes to something other than the id. `content_size` is served
+ * either way, so a client always sees that content exists and how long it is.
+ *
+ * A by-id claim GET returns the claim as its signed CBOR (`application/cbor`) whole, so
+ * it needs none of this; a content GET streams the blob as raw bytes
+ * (`application/octet-stream`). In query results content is instead carried inline
+ * (base64 under `json`, byte strings under `cbor`), bounded by `output.content`.
  *
  * ## Credentials and authorization
  *

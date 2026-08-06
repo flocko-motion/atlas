@@ -95,6 +95,17 @@ test('a body with no stream still parses', async () => {
   assert.equal(claims[0].claim.id, 'id-9');
 });
 
+// A query may append an execution report as its last record. The reader passes it over, so
+// nothing here inspects a record to decide what it is — which is the point of the boundary.
+test('a trailing execution report is not read as a claim', async () => {
+  const body = `${record(1)}${RS}{"started_at":"t","elapsed_ns":1200,"results":1}\n`;
+  const claims = await claimsFromBody(chunked(body, 3));
+  assert.deepEqual(
+    claims.map((c) => c.claim.id),
+    ['id-1'],
+  );
+});
+
 // What a read cannot know: a claim arrives with no contribution index, since no output field
 // reports one — so it is 0, and the history layout says so rather than drawing a false order.
 test('a claim read from a response carries no contribution index', async () => {

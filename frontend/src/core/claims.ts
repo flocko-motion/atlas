@@ -45,7 +45,9 @@ export const contributionUnknown = 0;
 
 /**
  * labelOf captions a claim: inline text reads as text, anything else gets its type and a
- * short id. Content the read left external is a hash and no caption, so it falls back too.
+ * short id. There are two other ways to have no text — content the read left external, which
+ * is a hash, and content a capped read declared without carrying — and both fall back the
+ * same way, which is why this asks for the bytes rather than for the size.
  */
 export function labelOf(claim: Claim): string {
   const short = `${claim.type} ${claim.id.slice(0, 8)}`;
