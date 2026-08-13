@@ -42,10 +42,11 @@ response type the contract defines. The contract is generated on both sides of t
 so a client that transcribes it forfeits the one guarantee generation offers: that a
 change to the spec breaks the build rather than the running page.
 
-The RankeQL `Query` SHALL come from the ADT library instead, whose copy is generated from
-`rql.schema.json` — the schema the specification releases and `openapi.yaml` implements
-locally. The query the explorer sends is then typed by the standard rather than by one
-binding of it.
+The RankeQL `Query` SHALL come from the ADT library instead. Both the library and this
+repository generate their copy from `rql.schema.json`, the schema the specification
+releases, so either would be faithful; taking it from the library keeps the claim model
+and the language a claim is read with in one dependency, and the explorer then imports
+the ADT from one place rather than meeting half of it through a transport client.
 
 Credentials SHALL remain the explorer's. The authentication kinds an instance accepts
 follow from how it was configured, so the explorer SHALL build the request headers and the

@@ -19,13 +19,16 @@ framed sequence two ways, through `readClaims` over a `ReadableStream` or a `Seq
 push parser reporting `bytesRead`, and it carries `codec_json` for the JSON projection,
 `claim_builder` for constructing claims, and `matchTypeList` for the class globs the query
 contract specifies. Its `Query` comes from `rql.schema.json`, the schema the specification
-releases and `openapi.yaml` implements locally.
+releases.
 
 So the duplication now has an owner, and keeping it costs what duplication costs. Comparing
-the three copies of the query type found the first divergence already: `OutputContent`
-requires `overflow` in `rql.schema.json` and in the library, and leaves it optional in
-`openapi.yaml`. A client may therefore send `content: {max: 1024}` with no `overflow`, and
-the generated server accepts a body the standard rejects.
+the three copies of the query type showed what the cost looks like: `OutputContent` required
+`overflow` in `rql.schema.json` and in the library, and left it optional in `openapi.yaml`,
+so a client could send `content: {max: 1024}` with no `overflow` and the generated server
+would accept a body the standard rejects. That divergence has since gone the right way —
+`openapi.yaml` now `$ref`s `rql.schema.json` and holds no second copy of the language, with
+`make pull-rql-schema` taking a newer release and `openapi.gen.yaml` bundling the reference
+for generators that cannot follow it. The explorer is the copy that remains.
 
 > **Note, 2026-08-06 — the divergence went the other way, twice.** The premise above did not
 > survive contact: `openapi.yaml` holds no copy of the query type at all, `$ref`ing
