@@ -410,6 +410,9 @@ export function setOnLoaded(fn: () => void): void {
  * showAll returns to the whole archive: time back to its own scale, and the camera framing the
  * extent that scale occupies. The way back from anywhere, which is what makes zooming freely
  * comfortable.
+ *
+ * The camera is held to the same bound as the wheel, so on a graph too tall to frame within it
+ * the height overflows rather than the axis shrinking past what a gesture could undo.
  */
 export function showAll(): void {
   const store = useExplorer.getState();
@@ -601,9 +604,9 @@ export function dropLens(): void {
  * zoom in all but name.
  *
  * How far it may compress is not a constant: the floor is wherever the drawn axis has shrunk to
- * its allowed share of the viewport, since past that the picture is stranded in empty space and
- * the camera's own zoom is the right instrument. The caller measures that and passes a limit, so
- * this bound is only the backstop for a caller that cannot measure.
+ * its allowed share of the viewport (-> render/bounds), which the camera reaches by its own route
+ * and is held to as well. The caller measures that and passes a limit, so this bound is only the
+ * backstop for a caller that cannot measure.
  */
 export const STRETCH_MIN = 1 / 4096;
 export const STRETCH_MAX = 4096;

@@ -16,6 +16,7 @@ import { graph } from '../core/graph/universe.ts';
 import { inScope } from '../core/session.ts';
 import { useExplorer, activeView } from '../core/store.ts';
 import type { ViewState } from '../core/store.ts';
+import { ceiling, holdTo, pin } from './hold.ts';
 
 /** How long the pointer must rest before the preview updates. */
 const HOVER_DEBOUNCE_MS = 120;
@@ -198,6 +199,15 @@ export function highlight(nodes: string[]): void {
 function bindEvents(instance: Sigma): void {
   const store = useExplorer.getState();
 
+  // Every instrument ends at the camera, so holding it here is what makes the bound one bound
+  // rather than a limit per tool. Sigma reports a resize the same way, which is the case where
+  // nothing moved but the viewport the bound is measured against.
+  instance.getCamera().on('updated', holdCamera);
+  instance.on('resize', () => {
+    applyBound();
+    holdCamera();
+  });
+
   instance.on('clickNode', ({ node }) => {
     const previous = useExplorer.getState().selection.selected;
     useExplorer.getState().select(node);
@@ -295,6 +305,11 @@ export function canvasWidth(): number {
   return sigma?.getDimensions().width ?? 0;
 }
 
+/** canvasHeight is the other half of what the bound is measured against. */
+export function canvasHeight(): number {
+  return sigma?.getDimensions().height ?? 0;
+}
+
 /**
  * onPointer reports the pointer's canvas position, and null when it leaves. Taken from
  * Sigma's own captor rather than a DOM listener, so it agrees with what the renderer thinks
@@ -347,6 +362,9 @@ export function showLens(lensGraph: DirectedGraph): void {
   lens.refresh();
   lensHost.style.visibility = 'visible';
   sigma.getContainer().style.visibility = 'hidden';
+  // A new lens is built from the shared settings, which carry no ceiling of their own, so the
+  // instance the reader is about to drive is given one as it comes forward.
+  applyBound();
 }
 
 /**
@@ -426,12 +444,48 @@ export function pinExtent(x0: number, x1: number, y0: number, y1: number): void 
   const bbox = { x: [x0, x1] as [number, number], y: [y0, y1] as [number, number] };
   sigma?.setCustomBBox(bbox);
   lens?.setCustomBBox(bbox);
+  pin({ x0, x1, y0, y1 });
+  applyBound();
 }
 
 /** unpinExtent hands normalisation back to the graph, for the layouts that want fitting. */
 export function unpinExtent(): void {
   sigma?.setCustomBBox(null);
   lens?.setCustomBBox(null);
+  pin(null);
+  applyBound();
+}
+
+/** showing is the instance the reader is looking at, which is the one the bound acts on. */
+function showing(): Sigma | null {
+  return lensShowing() ? lens : sigma;
+}
+
+/** stretchNow is how far time is stretched, which the drawn graph carries but the camera does not. */
+function stretchNow(): number {
+  return activeView(useExplorer.getState())?.xStretch ?? 1;
+}
+
+/**
+ * applyBound gives both cameras the ceiling, so neither can be zoomed out past the picture.
+ *
+ * It goes in as a setting rather than onto the camera, because every settings update reinstalls
+ * the camera's limits from the settings — so a ceiling written to the field is wiped by the next
+ * unrelated toggle, while one held here is restored by it and applied to the live state.
+ */
+export function applyBound(): void {
+  const limit = ceiling(showing(), canvasWidth(), stretchNow());
+  for (const each of [sigma, lens]) {
+    // Setting schedules a refresh, and a stretch applies this on every wheel tick.
+    if (each && each.getSetting('maxCameraRatio') !== limit) {
+      each.setSetting('maxCameraRatio', limit);
+    }
+  }
+}
+
+/** holdCamera brings the picture back inside the bound after something moved it. */
+export function holdCamera(): void {
+  holdTo(showing(), canvasWidth(), canvasHeight(), stretchNow());
 }
 
 /**
