@@ -1,10 +1,10 @@
 # ranke-explorer — the browser client.
 #
-# `make` builds the distributable artifacts; `make run` starts the dev server.
+# `make` builds the distributable artifacts; `make dev` starts the dev server.
 # Dependencies install themselves on first use, so a clean checkout needs nothing
 # but node.
 
-.PHONY: all run build single bench bench-render check test clean help
+.PHONY: all dev build single bench bench-render check test clean help
 .DEFAULT_GOAL := all
 
 VITE  := node node_modules/vite/bin/vite.js
@@ -23,7 +23,7 @@ node_modules: package.json package-lock.json
 	@npm install --no-audit --no-fund
 	@touch node_modules
 
-run: node_modules ## Start the dev server (open the URL it prints, then press 'load')
+dev: node_modules ## Start the dev server (open the URL it prints, then press 'load')
 	@echo ">> sources live in the Server tab: a mock archive, or a ranke-db instance"
 	@$(VITE) --host
 

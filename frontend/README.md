@@ -6,7 +6,7 @@ endpoint, can hold several instances at once, and works with none at all against
 generated mock data.
 
 ```sh
-make run       # dev server — open the URL, then press 'load' in the header
+make dev       # dev server — open the URL, then press 'load' in the header
 make           # build dist/ and the self-contained explorer.html
 make bench     # the headless performance numbers below
 make help      # the rest
@@ -320,7 +320,7 @@ explorer carries beside the claim rather than a field of one.
   (108 ms against 406 s) and it is deterministic — same archive, same picture, every
   time, which a force layout never gives you.
 - **ForceAtlas2 is the wall.** ~13× per 10× nodes to 10k, ~23× on the next decade. At
-  100k one iteration misses a 60 fps frame budget by ~120×. A worker (`make run` →
+  100k one iteration misses a 60 fps frame budget by ~120×. A worker (`make dev` →
   *ForceAtlas2 (worker)*) moves the cost off the main thread without making it finish.
 - **Barnes-Hut is not optional**: at 10k, off costs ~710 ms/iter against ~87.
 - **Seeding barely matters**: from circlepack rather than random, 100k measured

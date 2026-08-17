@@ -149,7 +149,7 @@ Classical single-module Go repo at the repo root (module `github.com/flocko-moti
   graphology + Sigma v3 + zustand). Static bundle, no application server, no proxy, no
   database of its own; it talks straight to a ranke-db REST endpoint, holds several
   instances at once, and works with none at all against mock data. Its own
-  `package.json` and its own `Makefile`, not wired into the root one: `make -C frontend run`
+  `package.json` and its own `Makefile`, not wired into the root one: `make -C frontend dev`
   for the dev server, `make -C frontend` to build the distributable.
 
   Layering is strict and one-way: `core/` is **headless** (store, graph, layouts, mock
