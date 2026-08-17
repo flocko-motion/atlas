@@ -11,6 +11,9 @@
   --ok: #10b981;
   --bad: #ef4444;
   --warn: #f59e0b;
+  /* The ruler is not drawn over the graph but beside it: the canvas ends here, so every
+     measurement taken against the viewport is taken against what the reader can see. */
+  --ruler-height: 1.5rem;
   color-scheme: dark;
 }
 
@@ -89,7 +92,7 @@ body {
 .main { grid-area: main; display: flex; flex-direction: column; min-width: 0; }
 /* Everything drawn over the graph is positioned against this, which is the canvas alone. */
 .canvas-area { position: relative; flex: 1; min-height: 0; }
-.canvas-host { position: absolute; inset: 0; }
+.canvas-host { position: absolute; inset: 0 0 var(--ruler-height) 0; }
 /* The lens sits over the union and takes its place by becoming visible. */
 .canvas-lens { z-index: 1; }
 .canvas-overlay {
@@ -113,9 +116,9 @@ body {
 /* The time ruler: dates under the canvas, since the axis compresses silences and so
    carries no measurable duration of its own. */
 .time-ruler {
-  position: absolute; left: 0; right: 0; bottom: 0; height: 1.5rem;
+  position: absolute; left: 0; right: 0; bottom: 0; height: var(--ruler-height);
   border-top: 1px solid var(--line);
-  background: color-mix(in srgb, var(--panel) 85%, transparent);
+  background: var(--panel);
   color: var(--dim); font-variant-numeric: tabular-nums; font-size: 10px;
   pointer-events: none;
 }
@@ -141,7 +144,7 @@ body {
 
 /* The cursor: one line from the bubble down to the ruler, so the two read as one thing. */
 .time-cursor {
-  position: absolute; top: 0; bottom: 1.5rem;
+  position: absolute; top: 0; bottom: var(--ruler-height);
   border-left: 1px solid var(--accent);
   pointer-events: none;
 }
