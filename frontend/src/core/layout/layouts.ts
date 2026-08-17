@@ -66,6 +66,12 @@ export interface TimelineContext {
    * so the bands that remain fill the picture rather than leaving a gap where it was.
    */
   visible?: readonly string[];
+  /**
+   * How far the strata are stretched, 1 being the height below. It scales the finished
+   * positions rather than the height they are laid out in: a band keeps its lanes and its
+   * neighbours, and only the room between them grows.
+   */
+  yStretch?: number;
 }
 
 /** How tall the whole picture is, in graph units — the extent the renderer normalises against. */
@@ -105,6 +111,7 @@ export function assignTimeline(graph: DirectedGraph, ctx: TimelineContext): void
     else byBand.set(stratum, [node]);
   });
 
+  const stretch = ctx.yStretch ?? 1;
   const placed = new Map<string, { x: number; y: number }>();
   for (const [stratum, nodes] of byBand) {
     const base = baseOf.get(stratum);
@@ -113,7 +120,7 @@ export function assignTimeline(graph: DirectedGraph, ctx: TimelineContext): void
       const x = ctx.toX(ctx.createdAt(node));
       // A hidden band has no base; its claims keep a position so the reducer, not the
       // layout, is what hides them.
-      const y = (base ?? 0) + (i % lanes) * laneGap;
+      const y = ((base ?? 0) + (i % lanes) * laneGap) * stretch;
       placed.set(node, { x, y });
     });
   }

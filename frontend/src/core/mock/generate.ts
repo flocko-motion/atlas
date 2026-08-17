@@ -29,8 +29,9 @@ import {
   NodeTypeContributor,
   NodeTypeHead,
 } from '@flocko-motion/ranke';
+import { labelOf } from '../claims.ts';
 import type { DrawnClaim } from '../claims.ts';
-import { SUBTYPES } from './model.ts';
+import { NAMES, OCCASIONS, ORGS, PLACES, SUBTYPES, THINGS } from './model.ts';
 import type { ContentClass, MockArchive } from './model.ts';
 
 /** Content-class mix within a contribution, in claims per 1000. */
@@ -180,10 +181,15 @@ interface Emit {
   contributor?: Contributor;
   /** Every edge names the claim it cites, so the builder can carry what travels with it. */
   edges?: EdgeInput[];
-  /** External content of this size, for the classes that declare some. */
+  /** External content of this size, for the classes whose content is a blob. */
   size?: number;
-  /** The caption this claim is drawn with — a mock's, not the ADT's. */
-  label: string;
+  /** Inline content: what this claim says, carried in the record and committed to by its id. */
+  text?: string;
+  /**
+   * A caption for a claim carrying neither — the structural ones, whose content is their edges.
+   * The kind above it is the claim's own subtype, so no caller repeats it (-> core/claims).
+   */
+  detail?: string;
   /** Makes the claim a diff over the revision it names, as a branch table is. */
   diffOf?: string;
 }
@@ -219,6 +225,42 @@ export function generate(n: number, seedOrOpts: number | GenerateOptions = 0x5ee
 
   const claimAt = (index: number): Claim => claims[index].claim;
 
+  /**
+   * content declares what a claim carries. Short readable things are inline — the id commits to
+   * the bytes, so a reader who has the claim has what it says. A source is a document, so it
+   * stays external: an address and a size, with the blob in the Universe.
+   */
+  const content = (input: Emit) => {
+    if (input.text !== undefined) {
+      const bytes = new TextEncoder().encode(input.text);
+      return { content: { kind: 'inline' as const, bytes, size: bytes.length, encoding: CONTENT_ENCODING } };
+    }
+    if (input.size === undefined) return {};
+    return {
+      content: {
+        kind: 'external' as const,
+        hash: addresses.next(),
+        size: input.size,
+        encoding: CONTENT_ENCODING,
+      },
+    };
+  };
+
+  /** says invents what a claim of this class states, from the mock's vocabulary. */
+  const says = (cls: string, subtype: string): string => {
+    const of = <T,>(list: readonly T[]): T => pick(list, rnd);
+    if (cls === NodeClassEntity) {
+      if (subtype === 'person' || subtype === 'role') return of(NAMES);
+      if (subtype === 'organization') return of(ORGS);
+      if (subtype === 'place') return of(PLACES);
+      if (subtype === 'event') return `${of(PLACES)}, ${of(OCCASIONS)}`;
+      return `${of(THINGS)} from ${of(PLACES)}`;
+    }
+    if (cls === NodeClassRelation) return `${of(NAMES)} — ${of(NAMES)}`;
+    // A derivation says what it was drawn from; its own kind is the line above it.
+    return `${of(THINGS)}, ${of(PLACES)}`;
+  };
+
   const emit = (input: Emit): number => {
     clock += 1 + ((rnd() * 9000) | 0);
     const edges = input.edges ?? [];
@@ -227,16 +269,7 @@ export function generate(n: number, seedOrOpts: number | GenerateOptions = 0x5ee
       contributor: input.contributor,
       createdAt: new Date(clock),
       height: heightOver(input.contributor, edges),
-      ...(input.size === undefined
-        ? {}
-        : {
-            content: {
-              kind: 'external' as const,
-              hash: addresses.next(),
-              size: input.size,
-              encoding: CONTENT_ENCODING,
-            },
-          }),
+      ...content(input),
       edges,
       ...(input.diffOf === undefined ? {} : { diffOf: input.diffOf }),
     });
@@ -247,7 +280,9 @@ export function generate(n: number, seedOrOpts: number | GenerateOptions = 0x5ee
       // contribution keep '', meaning every branch: each claim references one, so a scoped
       // read has to carry them whatever it is scoped to.
       branch: '',
-      label: input.label,
+      // Captioned the way a read's claims are, so a mock archive and a real one draw alike: the
+      // library reads the inline bytes back out, and a structural claim falls back to its detail.
+      label: input.text === undefined ? `${claim.typeSub}\n${input.detail ?? ''}` : labelOf(claim),
     });
     byClass[claim.typeClass] = (byClass[claim.typeClass] ?? 0) + 1;
     // The builder adds the contributor edge every attributed claim carries, so the count
@@ -257,7 +292,7 @@ export function generate(n: number, seedOrOpts: number | GenerateOptions = 0x5ee
   };
 
   for (let i = 0; i < CONTRIBUTORS; i++) {
-    contributors.push(emit({ type: NodeTypeContributor, label: `contributor-${i}` }));
+    contributors.push(emit({ type: NodeTypeContributor, detail: `#${i}` }));
   }
 
   /** Every claim names its contributor — the attribution that makes contributors hubs. */
@@ -303,8 +338,7 @@ export function generate(n: number, seedOrOpts: number | GenerateOptions = 0x5ee
         type: `${NodeClassDerivation}/${subtype}`,
         contributor,
         edges,
-        size: 64 + ((rnd() * 4096) | 0),
-        label: `${subtype} ${claims.length}`,
+        text: says(NodeClassDerivation, subtype),
       });
       derivations.push(idx);
       return idx;
@@ -323,8 +357,7 @@ export function generate(n: number, seedOrOpts: number | GenerateOptions = 0x5ee
         type: `${NodeClassEntity}/${subtype}`,
         contributor,
         edges,
-        size: 32 + ((rnd() * 512) | 0),
-        label: `${subtype} ${claims.length}`,
+        text: says(NodeClassEntity, subtype),
       });
       entities.push(idx);
       entityPool.push(idx);
@@ -358,7 +391,7 @@ export function generate(n: number, seedOrOpts: number | GenerateOptions = 0x5ee
           type: `${NodeClassRelation}/${subtype}`,
           contributor,
           edges,
-          label: subtype,
+          text: says(NodeClassRelation, subtype),
         });
       }
     }
@@ -368,8 +401,10 @@ export function generate(n: number, seedOrOpts: number | GenerateOptions = 0x5ee
     const idx = emit({
       type: `${NodeClassSource}/${subtype}`,
       contributor: contributorFor(),
+      // A source is a document, so its bytes live in the Universe and the claim carries an
+      // address; the caption is what a catalogue entry for it would say.
       size: 512 + ((rnd() * 262144) | 0),
-      label: `${subtype} ${claims.length}`,
+      detail: `${pick(THINGS, rnd)}, ${pick(PLACES, rnd)}`,
     });
     sources.push(idx);
     return idx;
@@ -411,7 +446,7 @@ export function generate(n: number, seedOrOpts: number | GenerateOptions = 0x5ee
       type: NodeTypeHead,
       contributor: headContributor,
       edges: headEdges,
-      label: `${branch}@${contributions}`,
+      detail: `${branch}@${contributions}`,
     });
     claims[head].branch = branch;
     branchHeads.set(branch, head);
@@ -430,7 +465,7 @@ export function generate(n: number, seedOrOpts: number | GenerateOptions = 0x5ee
           referenced: claimAt(head),
         },
       ],
-      label: `branches r${contributions}`,
+      detail: `r${contributions}`,
       ...(prevTable === undefined ? {} : { diffOf: claimAt(prevTable).id }),
     });
     // The branch table indexes every branch, so it is shared rather than owned by one.

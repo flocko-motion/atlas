@@ -27,6 +27,28 @@ export const SUBTYPES: Record<ContentClass, readonly string[]> = {
   [NodeClassRelation]: ['knows', 'works_for', 'located_in', 'part_of', 'authored', 'family'],
 };
 
+/**
+ * The words a mock's inline content is drawn from. A generated archive is read by eye as well as
+ * measured, and a canvas of claims that say nothing exercises the paint but tells a reader
+ * nothing about what an archive looks like when it is full.
+ */
+export const NAMES = [
+  'Anna Weber', 'Piet de Vries', 'Johann Kessler', 'Marta Lindqvist', 'Elias Brandt',
+  'Sofie Haan', 'Karel Mertens', 'Ruth Bergmann',
+] as const;
+export const PLACES = [
+  'Bremen', 'Rotterdam', 'Gdańsk', 'Bergen', 'Antwerp', 'Riga', 'Hull', 'Malmö',
+] as const;
+export const ORGS = [
+  'Hansa Werke', 'Nordreederei', 'Kessler & Sohn', 'Baltic Salvage', 'Weser Docks',
+] as const;
+export const THINGS = [
+  'ledger', 'cargo manifest', 'crate', 'engine plate', 'harbour chart', 'crew list',
+] as const;
+export const OCCASIONS = [
+  'the 1897 refit', 'the spring auction', 'the harbour fire', 'the second survey',
+] as const;
+
 /** ContentClass is a node class a contribution's *content* is drawn from — every one but structure. */
 export type ContentClass = Exclude<NodeClass, 'contribution'>;
 

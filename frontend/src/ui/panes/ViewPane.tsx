@@ -17,6 +17,7 @@ import { activeView, useExplorer } from '../../core/store.ts';
 import { clear } from '../../core/graph/universe.ts';
 import { applyViewSettings, refreshSelection } from '../../render/renderer.ts';
 import { Button, Field, KeyValue, Select, Toggle } from '../components/Field.tsx';
+import { formatZoom } from '../format.ts';
 
 const LAYOUT_OPTIONS = (Object.keys(LAYOUT_LABELS) as LayoutName[]).map((value) => ({
   value,
@@ -87,15 +88,15 @@ export function ViewPane() {
               <h2>zooming</h2>
               <KeyValue
                 rows={[
-                  ['wheel', 'zoom, as everywhere'],
-                  ['shift + wheel', `stretch or compress time · ×${view.xStretch < 1 ? view.xStretch.toFixed(2) : view.xStretch.toFixed(0)}`],
+                  ['wheel', `zoom time · ×${formatZoom(view.xStretch)}`],
+                  ['shift + wheel', `zoom the strata · ×${formatZoom(view.yStretch)}`],
                   ['shift + drag', 'mark a region and zoom into it'],
                 ]}
               />
               <p className="note">
-                Time is the axis, so stretching it spreads the claims out without magnifying
-                them, keeping whatever is under the pointer where it is. Compressing time after
-                a zoom leaves the height alone, which is a vertical stretch in all but name.
+                Each axis zooms on its own, about whatever is under the pointer: the claims are
+                spread further apart rather than magnified, so a zoom on one axis leaves the other
+                at the scale it had.
               </p>
             </>
           ) : null}

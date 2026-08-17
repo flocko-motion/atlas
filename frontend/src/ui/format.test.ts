@@ -8,7 +8,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { asText, formatExact, formatInstant, hexDump, isTextual } from './format.ts';
+import { asText, formatExact, formatInstant, formatZoom, hexDump, isTextual } from './format.ts';
 
 const SECOND = 1000;
 const DAY = 86_400 * SECOND;
@@ -23,6 +23,15 @@ test('a label is written at the precision the visible span justifies', () => {
   assert.equal(formatInstant(at, 200 * DAY), '2024-03-04');
   assert.equal(formatInstant(at, 10 * YEAR), '2024-03');
   assert.equal(formatInstant(Number.NaN, DAY), '—');
+});
+
+test('a zoom is written at a precision that says something across its whole range', () => {
+  // The fit that greets a reader lands in the hundreds, and compressing time runs the other way.
+  assert.equal(formatZoom(238), '238');
+  assert.equal(formatZoom(4096), '4k');
+  assert.equal(formatZoom(1), '1.0');
+  assert.equal(formatZoom(0.25), '0.25');
+  assert.equal(formatZoom(0), '—');
 });
 
 test('bytes are read as text only where the encoding says they are', () => {

@@ -11,6 +11,8 @@ import assert from 'node:assert/strict';
 import {
   MIN_COVER,
   covered,
+  fillRatio,
+  fillStretch,
   hold,
   holdRange,
   needed,
@@ -21,41 +23,44 @@ import {
 /** A 1000 px viewport, so a share reads directly as pixels. */
 const VIEWPORT = 1000;
 
-test('the bound asks for the same share of the viewport whatever is being measured', () => {
-  assert.equal(needed(2000, VIEWPORT), MIN_COVER * VIEWPORT);
-  assert.equal(needed(VIEWPORT, VIEWPORT), MIN_COVER * VIEWPORT);
+// Two rules over one measurement: how small a zoom may draw the graph, which is what leaves
+// padding — and where a pan may then put it, which may add none of its own. Both axes are held
+// the same way; only how far each may be zoomed out differs, and that is the ceiling below.
+test('a pan adds no padding: a graph past the viewport covers it, whichever way it is pushed', () => {
+  const size = 2000; // larger than the viewport, as a stretched axis or a fitted band is
+  const { min, max } = holdRange(size, VIEWPORT);
+  assert.deepEqual({ min, max }, { min: VIEWPORT - size, max: 0 });
+  for (const start of [min, max, (min + max) / 2]) {
+    assert.equal(covered(start, size, VIEWPORT), VIEWPORT, `a near edge at ${start} left a gap`);
+  }
+  // A step beyond either end opens one, which is what makes these the ends.
+  assert.ok(covered(min - 1, size, VIEWPORT) < VIEWPORT);
+  assert.ok(covered(max + 1, size, VIEWPORT) < VIEWPORT);
 });
 
-test('a graph too small to meet the share is only asked to stay wholly in view', () => {
-  const size = 200; // well under MIN_COVER of the viewport
+// Where a fit lands: filling the viewport exactly, there is nowhere else for it to be.
+test('a graph the size of the viewport is held to it', () => {
+  assert.deepEqual(holdRange(VIEWPORT, VIEWPORT), { min: 0, max: 0 });
+  assert.equal(hold(270, VIEWPORT, VIEWPORT), -270, 'a picture pushed past the far edge');
+  assert.equal(hold(-270, VIEWPORT, VIEWPORT), 270, 'a picture pushed past the near one');
+});
+
+test('a graph smaller than the viewport is only asked to stay wholly in view', () => {
+  const size = 400; // padding a zoom left, which a pan keeps rather than adding to
   assert.equal(needed(size, VIEWPORT), size);
   const { min, max } = holdRange(size, VIEWPORT);
-  assert.equal(min, 0, 'its near edge may not go left of the viewport');
-  assert.equal(max, VIEWPORT - size, 'nor its far edge right of it');
+  assert.equal(min, 0, 'its near edge may not go past the near edge of the viewport');
+  assert.equal(max, VIEWPORT - size, 'nor its far edge past the far one');
 });
 
-test('panning stops with the required share still on graph, both directions', () => {
-  const size = 2000; // wider than the viewport, so the bound is the share
-  const { min, max } = holdRange(size, VIEWPORT);
-  for (const start of [min, max, (min + max) / 2]) {
-    assert.ok(
-      covered(start, size, VIEWPORT) >= MIN_COVER * VIEWPORT - 1e-6,
-      `start ${start} left only ${covered(start, size, VIEWPORT)} px covered`,
-    );
-  }
-  // A step beyond either end drops under the bound, which is what makes these the ends.
-  assert.ok(covered(min - 1, size, VIEWPORT) < MIN_COVER * VIEWPORT);
-  assert.ok(covered(max + 1, size, VIEWPORT) < MIN_COVER * VIEWPORT);
-});
-
-// Taking `needed` at whichever of its two branches applies, the range has room at both: the
-// containment branch leaves the slack the graph does not fill, and the coverage branch leaves
-// what may hang off each edge. So hold never has an inverted range to defend against.
+// Taking `needed` at whichever of its two branches applies, the range never inverts: the
+// containment branch leaves the slack the graph does not fill, the coverage branch leaves what
+// hangs off each edge, and at one size they meet. So hold has nothing to defend against.
 test('the range holds an edge rather than inverting, at any size against any viewport', () => {
   for (const viewport of [1, 250, 1000]) {
     for (const size of [0.01, 0.5, MIN_COVER, 0.99, 1, 2, 50].map((f) => f * viewport)) {
       const { min, max } = holdRange(size, viewport);
-      assert.ok(min < max, `${size} px of graph in ${viewport} px inverted to [${min}, ${max}]`);
+      assert.ok(min <= max, `${size} px of graph in ${viewport} px inverted to [${min}, ${max}]`);
     }
   }
 });
@@ -83,12 +88,44 @@ test('the stretch floor is the same bound solved the other way round', () => {
   assert.equal(1200 * floor, MIN_COVER * VIEWPORT);
 });
 
+// Fitting is the same arithmetic as the bound, asked for the whole viewport rather than the
+// bound's share of it — which is what fit-height did wrong while it sent a fixed ratio.
+test('the fitting ratio brings a drawn span to exactly the viewport, either way round', () => {
+  // A picture drawn at 400 px must grow to 1000: the camera zooms in, so its ratio falls.
+  const short = fillRatio(400, 1, VIEWPORT) as number;
+  assert.equal(short, 0.4);
+  assert.equal(400 / short, VIEWPORT);
+  // And one drawn at 2500 px must shrink to it, from whatever ratio it was measured at.
+  const tall = fillRatio(2500, 2, VIEWPORT) as number;
+  assert.equal(tall, 5);
+  assert.equal((2500 * 2) / tall, VIEWPORT);
+});
+
+// The strata are fitted by stretching them, since the camera would magnify the claims with them.
+test('the fitting stretch brings a drawn span to exactly the viewport, either way round', () => {
+  // Drawn 20 px tall at stretch 1 — a band of strata against a wide axis, which is the case the
+  // fit exists for. Filling 1000 px asks for fifty times the room.
+  const band = fillStretch(20, 1, VIEWPORT) as number;
+  assert.equal(band, 50);
+  assert.equal(20 * band, VIEWPORT);
+  // Size runs with the stretch, so a picture already taller than the viewport comes back down.
+  const tall = fillStretch(4000, 4, VIEWPORT) as number;
+  assert.equal(tall, 1);
+  assert.equal((4000 / 4) * tall, VIEWPORT);
+});
+
 test('a measurement that says nothing yields no bound rather than a wrong one', () => {
   for (const bad of [0, -1]) {
     assert.equal(ratioCeiling(bad, 1, VIEWPORT), null);
     assert.equal(ratioCeiling(1200, bad, VIEWPORT), null);
     assert.equal(ratioCeiling(1200, 1, bad), null);
     assert.equal(stretchFloor(bad, 1, VIEWPORT), null);
+    assert.equal(fillRatio(bad, 1, VIEWPORT), null);
+    assert.equal(fillRatio(1200, bad, VIEWPORT), null);
+    assert.equal(fillRatio(1200, 1, bad), null);
+    assert.equal(fillStretch(bad, 1, VIEWPORT), null);
+    assert.equal(fillStretch(1200, bad, VIEWPORT), null);
+    assert.equal(fillStretch(1200, 1, bad), null);
   }
 });
 

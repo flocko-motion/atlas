@@ -10,8 +10,8 @@
  */
 
 import { useEffect, useState } from 'react';
+import type { Box } from '../../render/camera.ts';
 import { onBox } from '../../render/renderer.ts';
-import type { Box } from '../../render/renderer.ts';
 
 export function ZoomBox() {
   const [box, setBox] = useState<Box | null>(null);

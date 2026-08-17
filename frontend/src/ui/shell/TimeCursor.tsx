@@ -14,9 +14,11 @@
  */
 
 import { useEffect, useState } from 'react';
-import { timeAxis } from '../../core/session.ts';
+import { timeAxis } from '../../core/timeline.ts';
 import { useExplorer } from '../../core/store.ts';
-import { canvasWidth, graphXAt, onPointer, onRender, viewportXAt } from '../../render/renderer.ts';
+import { graphXAt, viewportXAt } from '../../render/camera.ts';
+import { canvasWidth } from '../../render/instances.ts';
+import { onPointer, onRender } from '../../render/renderer.ts';
 import { formatExact } from '../format.ts';
 
 interface CursorAt {
@@ -54,14 +56,14 @@ export function TimeCursor() {
       setAt({ x, label: formatExact(instant) });
     };
 
-    const stopPointer = onPointer((px) => {
+    const stopPointer = onPointer((at) => {
       const axis = timeAxis();
-      if (px === null || !axis) {
+      if (at === null || !axis) {
         instant = null;
         setAt(null);
         return;
       }
-      const graphX = graphXAt(px);
+      const graphX = graphXAt(at.x);
       if (graphX === null) return;
       instant = axis.nearestInstant(axis.atX(graphX));
       redraw();

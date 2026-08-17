@@ -10,8 +10,9 @@
  */
 
 import { DirectedGraph } from 'graphology';
-import { contentEncoding, contentSize, matchTypeList } from '@flocko-motion/ranke';
+import { contentEncoding, contentSize, inlineBytes, matchTypeList } from '@flocko-motion/ranke';
 import type { DrawnClaim } from '../claims.ts';
+import { rememberContent } from '../content.ts';
 import type { MockArchive } from '../mock/model.ts';
 import { yieldToPaint } from '../scheduler.ts';
 
@@ -156,6 +157,12 @@ function addNodes(
       contribution: drawn.contribution,
       cls,
     };
+    // Bytes the record carries are already here, and a claim is content-addressed, so keeping
+    // them is a cache that can never be stale — and the detail pane needs no read to show them.
+    if (attrs !== 'lean') {
+      const held = inlineBytes(claim.content);
+      if (held) rememberContent(claim.id, held);
+    }
     graph.addNode(
       claim.id,
       attrs === 'lean'
@@ -174,13 +181,20 @@ function addNodes(
   return { addedNodes, duplicateClaims };
 }
 
-/** addEdges merges each claim's typed references, once both ends are present. */
+/**
+ * addEdges merges each claim's typed references, once both ends are present.
+ *
+ * An edge is a claim's statement in its own right — it has a type, its own content and the
+ * direction a relation reads in — so the full profile carries what a reader can be shown about
+ * one. The lean profile keeps the type alone, which is all a reducer needs.
+ */
 function addEdges(
   graph: DirectedGraph,
   claims: DrawnClaim[],
   opts: BuildOptions,
 ): { addedEdges: number; danglingRefs: number } {
   const drop = opts.dropEdgeTypes ?? [];
+  const attrs = opts.attrs ?? 'full';
   let addedEdges = 0;
   let danglingRefs = 0;
   for (const { claim } of claims) {
@@ -193,7 +207,19 @@ function addEdges(
         continue;
       }
       const before = graph.size;
-      graph.mergeDirectedEdge(claim.id, edge.reference, { claimType: edge.type });
+      graph.mergeDirectedEdge(
+        claim.id,
+        edge.reference,
+        attrs === 'lean'
+          ? { claimType: edge.type }
+          : {
+              claimType: edge.type,
+              contentSize: contentSize(edge.content),
+              encoding: contentEncoding(edge.content),
+              // RelationFrom (+1) or RelationTo (-1) on relation/*, 0 elsewhere (§4.7).
+              direction: edge.relationDirection,
+            },
+      );
       if (graph.size > before) addedEdges++;
     }
   }

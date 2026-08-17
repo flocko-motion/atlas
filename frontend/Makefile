@@ -4,7 +4,7 @@
 # Dependencies install themselves on first use, so a clean checkout needs nothing
 # but node.
 
-.PHONY: all dev build single bench bench-render check test clean help
+.PHONY: all dev build single bench bench-render check test clean help upgrade ranke-ts-version
 .DEFAULT_GOAL := all
 
 VITE  := node node_modules/vite/bin/vite.js
@@ -53,3 +53,41 @@ test: node_modules ## Run the headless core tests
 
 clean: ## Remove build output (explorer.html is committed, so it stays)
 	@rm -rf dist
+
+# --- Dependencies ----------------------------------------------------------
+
+# ranke-ts is the model this client is built on — the same claims, ids and taxonomy the
+# server holds through ranke-go — so it is pinned exactly and bumped deliberately, the way
+# the module is next door (see ../scripts/upgrade.sh).
+#
+# It is fetched LAST: `npm update` has already moved everything within its range, so the
+# final install is what makes an explicit pin stick.
+#
+#   make upgrade                       # everything, ranke-ts to latest
+#   RANKE_TS_VERSION=0.5.0 make upgrade  # take that version instead
+#
+# Revert with: git checkout package.json package-lock.json
+RANKE_TS         := @flocko-motion/ranke
+RANKE_TS_VERSION ?= latest
+
+upgrade: node_modules ## Upgrade every dependency and ranke-ts, then check, test and build (RANKE_TS_VERSION=x.y.z)
+	@echo ">> dependencies: npm update"
+	@npm update --save --no-audit --no-fund
+	@echo ">> $(RANKE_TS): fetching $(RANKE_TS_VERSION)"
+	@npm install --save-exact --no-audit --no-fund $(RANKE_TS)@$(RANKE_TS_VERSION)
+	@echo ">> package.json changes:"
+	@git diff -U0 -- package.json | grep -E '^[-+][^-+]' | sed 's/^/     /' || echo "     (none)"
+	@echo ">> verifying the upgrade"
+	@$(MAKE) --no-print-directory check
+	@$(MAKE) --no-print-directory test
+	@$(MAKE) --no-print-directory build
+	@echo ">> upgrade OK — review the diff, then commit package.json/package-lock.json"
+
+ranke-ts-version: node_modules ## Report whether a newer ranke-ts release exists
+	@cur=$$(node -p "require('./package.json').dependencies['$(RANKE_TS)']"); \
+	latest=$$(npm view $(RANKE_TS) version 2>/dev/null); \
+	if [ -n "$$latest" ] && [ "$$cur" != "$$latest" ]; then \
+		echo ">> ranke-ts: on $$cur, latest is $$latest — bump: make upgrade"; \
+	else \
+		echo ">> ranke-ts: on $$cur, which is the latest"; \
+	fi

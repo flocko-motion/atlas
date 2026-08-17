@@ -130,13 +130,13 @@ export class MockSource implements DataSource {
   }
 
   /**
-   * content has none to give: the generator produces sizes and encodings but never bytes,
-   * since what it exists to exercise is topology and paint. A property of a generated
-   * archive, not a capability still to be wired — a connection answers this.
+   * content is only ever asked for what a generated claim does not carry. What the mock's claims
+   * say is inline, so the merge already holds it (-> core/graph/build); what is left is the
+   * sources, whose bytes are documents in a Universe this generator does not stand in for.
    */
   async content(): Promise<Uint8Array> {
     throw new Error(
-      'a generated archive holds no content bytes, only their sizes — read content from a ' +
+      'a generated source declares an address and a size, not bytes — read content from a ' +
         'connection to a real instance instead.',
     );
   }

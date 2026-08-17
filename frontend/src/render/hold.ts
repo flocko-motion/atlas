@@ -12,7 +12,7 @@
  */
 
 import type Sigma from 'sigma';
-import { hold, ratioCeiling } from './bounds.ts';
+import { fillStretch, hold, ratioCeiling } from './bounds.ts';
 
 export interface Extent {
   x0: number;
@@ -31,18 +31,28 @@ export function pin(extent: Extent | null): void {
   pinned = extent;
 }
 
+/** How far each axis is stretched away from the pinned extent. */
+export interface Stretch {
+  x: number;
+  y: number;
+}
+
 /**
- * drawnGraph is where the graph sits on the canvas, in viewport pixels. x carries the stretch,
- * because stretching time moves the picture while the camera stands still — which is the whole
- * reason a bound on the camera alone was never the bound.
+ * drawnGraph is where the graph sits on the canvas, in viewport pixels. Both axes carry their
+ * stretch, because stretching one moves the picture while the camera stands still — which is the
+ * whole reason a bound on the camera alone was never the bound.
  */
 function drawnGraph(
   showing: Sigma,
-  stretch: number,
+  stretch: Stretch,
 ): { x: number; y: number; width: number; height: number } | null {
   if (!pinned) return null;
-  const near = showing.graphToViewport({ x: pinned.x0 * stretch, y: pinned.y0 });
-  const far = showing.graphToViewport({ x: pinned.x1 * stretch, y: pinned.y1 });
+  // Measured against the camera as it is now. Sigma's cached projection is the one the last
+  // frame was drawn with, so a correction applied since would be measured a second time and
+  // applied twice — which is what put a freshly loaded graph half off the bottom of the canvas.
+  const now = { cameraState: showing.getCamera().getState() };
+  const near = showing.graphToViewport({ x: pinned.x0 * stretch.x, y: pinned.y0 * stretch.y }, now);
+  const far = showing.graphToViewport({ x: pinned.x1 * stretch.x, y: pinned.y1 * stretch.y }, now);
   return {
     x: Math.min(near.x, far.x),
     y: Math.min(near.y, far.y),
@@ -56,11 +66,47 @@ function drawnGraph(
  * is handed to Sigma's own camera, which checks it on every state it accepts, so the wheel, an
  * animation and a plain setState all stop in the same place with no caller remembering to ask.
  */
-export function ceiling(showing: Sigma | null, canvas: number, stretch: number): number | null {
+export function ceiling(showing: Sigma | null, canvas: number, stretch: Stretch): number | null {
   if (!showing || canvas <= 0) return null;
   const rect = drawnGraph(showing, stretch);
   if (!rect) return null;
   return ratioCeiling(rect.width, showing.getCamera().getState().ratio, canvas);
+}
+
+/**
+ * fitStretch is the y stretch at which the strata come to the full height of the viewport. Like
+ * the ceiling it is read off the drawn picture, so it answers for wherever the camera happens to
+ * be, and it is a fit rather than a bound: the whole height, not a share of it.
+ */
+export function fitStretch(showing: Sigma | null, height: number, stretch: Stretch): number | null {
+  if (!showing || height <= 0) return null;
+  const rect = drawnGraph(showing, stretch);
+  if (!rect) return null;
+  return fillStretch(rect.height, stretch.y, height);
+}
+
+/**
+ * offCentreY is how far the drawn strata sit below the middle of the canvas. A fit answers how
+ * tall they are and says nothing about where, and a picture that fills the height off-centre is
+ * not the view a reader was asking for.
+ */
+export function offCentreY(showing: Sigma | null, height: number, stretch: Stretch): number | null {
+  if (!showing || height <= 0) return null;
+  const rect = drawnGraph(showing, stretch);
+  if (!rect) return null;
+  return rect.y + rect.height / 2 - height / 2;
+}
+
+/**
+ * drawnRect is where the pinned extent sits on the canvas, for a readout. The bound is measured
+ * from exactly this, so a picture that sits wrong can be reported as numbers rather than as an
+ * impression of it.
+ */
+export function drawnRect(
+  showing: Sigma | null,
+  stretch: Stretch,
+): { x: number; y: number; width: number; height: number } | null {
+  return showing ? drawnGraph(showing, stretch) : null;
 }
 
 /**
@@ -71,7 +117,7 @@ export function ceiling(showing: Sigma | null, canvas: number, stretch: number):
  * Sigma knows about, and a stretch multiplies node x while the pinned extent stays unstretched —
  * so the bound it would keep is not the one the reader can see.
  */
-export function holdTo(showing: Sigma | null, width: number, height: number, stretch: number): void {
+export function holdTo(showing: Sigma | null, width: number, height: number, stretch: Stretch): void {
   if (!showing || !pinned || holding || width <= 0 || height <= 0) return;
 
   holding = true;

@@ -33,6 +33,7 @@ function viewWith(scope: Scope | null): ViewState {
     classes: [],
     layout: 'history',
     xStretch: 1,
+    yStretch: 1,
     edges: true,
     edgesOnMove: false,
     labels: true,

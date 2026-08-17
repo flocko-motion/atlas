@@ -25,6 +25,38 @@ export function formatInstant(at: number, span: number): string {
 }
 
 /**
+ * formatBytes writes a content size. Claims and edges both declare one, and a read that left the
+ * bytes where they are still says how many there were — so an absent size is a different fact
+ * from a size of zero.
+ */
+export function formatBytes(size: number | undefined): string {
+  if (size === undefined) return '—';
+  if (size < 1024) return `${size} B`;
+  if (size < 1048576) return `${(size / 1024).toFixed(1)} KiB`;
+  return `${(size / 1048576).toFixed(1)} MiB`;
+}
+
+/**
+ * inlineLabel writes a caption on one line. A caption is drawn on the canvas as two — what the
+ * claim is, then what it says — and a pane row has neither the room nor the reason for that.
+ */
+export function inlineLabel(label: string): string {
+  return label.split('\n').filter((line) => line.length > 0).join(' · ');
+}
+
+/**
+ * formatZoom writes a stretch factor as a reader would say it. The range runs over six orders of
+ * magnitude, so the precision follows the number rather than being fixed.
+ */
+export function formatZoom(stretch: number): string {
+  if (!Number.isFinite(stretch) || stretch <= 0) return '—';
+  if (stretch >= 1000) return `${Math.round(stretch / 1000)}k`;
+  if (stretch >= 10) return stretch.toFixed(0);
+  if (stretch >= 1) return stretch.toFixed(1);
+  return stretch.toFixed(2);
+}
+
+/**
  * formatExact writes an instant in full, to the millisecond. The ruler's labels are a scale
  * and shed precision the span does not justify; the cursor is a readout of one claim, so it
  * says exactly when — which is the only reason to point at a claim and ask.

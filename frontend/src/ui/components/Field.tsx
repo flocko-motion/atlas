@@ -130,3 +130,17 @@ export function KeyValue({ rows }: { rows: [string, React.ReactNode][] }) {
 export function Empty({ children }: { children: React.ReactNode }) {
   return <p className="empty">{children}</p>;
 }
+
+/**
+ * PaneTitle names what a pane is answering about. The Info pane answers about three different
+ * kinds of thing and swaps between them on a click, so the rows below it are only readable once
+ * the reader knows which kind is in front of them.
+ */
+export function PaneTitle({ children, hint }: { children: React.ReactNode; hint?: string }) {
+  return (
+    <h1 className="pane-title">
+      {children}
+      {hint ? <span className="pane-title-hint">{hint}</span> : null}
+    </h1>
+  );
+}

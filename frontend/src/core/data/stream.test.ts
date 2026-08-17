@@ -112,6 +112,7 @@ test('a claim read from a response carries no contribution index', async () => {
   const claims = await claimsFromBody(chunked(record(4), 1));
   assert.equal(claims[0].contribution, 0);
   assert.equal(claims[0].branch, '');
-  // Content the read left external is a hash, so the caption falls back to type and id.
-  assert.equal(claims[0].label, 'source/note id-4');
+  // Content the read left external is an address, so there is nothing to quote and the caption
+  // is the subtype alone — the class is the colour of the dot, and an id on a dot says nothing.
+  assert.equal(claims[0].label, 'note');
 });

@@ -12,17 +12,13 @@
  */
 
 import { useEffect } from 'react';
+import { shortId } from '../../core/claims.ts';
 import { CONTENT_LIMIT, claimDetail, fetchContent } from '../../core/session.ts';
+import type { Reference } from '../../core/session.ts';
 import { useExplorer } from '../../core/store.ts';
-import { Empty, KeyValue } from '../components/Field.tsx';
-import { asText, hexDump, isTextual } from '../format.ts';
-
-function bytes(size: number | undefined): string {
-  if (size === undefined) return '—';
-  if (size < 1024) return `${size} B`;
-  if (size < 1048576) return `${(size / 1024).toFixed(1)} KiB`;
-  return `${(size / 1048576).toFixed(1)} MiB`;
-}
+import { revealClaim } from '../../render/renderer.ts';
+import { Empty, KeyValue, PaneTitle } from '../components/Field.tsx';
+import { asText, formatBytes, hexDump, inlineLabel, isTextual } from '../format.ts';
 
 /**
  * ContentBlock shows the claim's bytes, read as text where the encoding says they are text
@@ -47,12 +43,12 @@ function contentBody(content: NonNullable<ReturnType<typeof useExplorer.getState
     case 'none':
       return <Empty>This claim carries no content.</Empty>;
     case 'loading':
-      return <p className="note">reading {bytes(content.size)}…</p>;
+      return <p className="note">reading {formatBytes(content.size)}…</p>;
     case 'too-large':
       return (
         <p className="note">
-          {bytes(content.size)} — too much to show. The limit is{' '}
-          {bytes(CONTENT_LIMIT)}, and the bytes are left where they are rather than fetched.
+          {formatBytes(content.size)} — too much to show. The limit is{' '}
+          {formatBytes(CONTENT_LIMIT)}, and the bytes are left where they are rather than fetched.
         </p>
       );
     case 'error':
@@ -63,7 +59,7 @@ function contentBody(content: NonNullable<ReturnType<typeof useExplorer.getState
       return (
         <>
           <p className="note content-about">
-            {bytes(data.length)} · {content.encoding || 'no encoding declared'}
+            {formatBytes(data.length)} · {content.encoding || 'no encoding declared'}
             {text ? '' : ' — shown as bytes, the encoding naming no way to read them'}
           </p>
           <pre className={`content-body${text ? '' : ' is-hex'}`}>
@@ -73,6 +69,52 @@ function contentBody(content: NonNullable<ReturnType<typeof useExplorer.getState
       );
     }
   }
+}
+
+/** How many rows a list shows before it says how many it is not showing. */
+const ROW_LIMIT = 40;
+
+/**
+ * RefList draws one side of a claim's edges. The arrow says which way the edge points, since the
+ * two lists are the same rows read from opposite ends.
+ */
+function RefList({ rows, arrow, empty }: { rows: Reference[]; arrow: string; empty: string }) {
+  if (rows.length === 0) return <Empty>{empty}</Empty>;
+  return (
+    <>
+      <ul className="refs">
+        {rows.slice(0, ROW_LIMIT).map((ref) => (
+          <li key={ref.edge}>
+            <button
+              type="button"
+              className="ref-edge"
+              onClick={() => useExplorer.getState().selectEdge(ref.edge)}
+              title="show this edge"
+            >
+              {ref.edgeType || '—'}
+            </button>
+            <span className="ref-arrow" aria-hidden="true">
+              {arrow}
+            </span>
+            <button
+              type="button"
+              className="ref-id"
+              onClick={() => revealClaim(ref.id)}
+              title={ref.id}
+            >
+              <span className="ref-type">{ref.claimType || '—'}</span>
+              <code>{shortId(ref.id)}</code>
+            </button>
+          </li>
+        ))}
+      </ul>
+      {rows.length > ROW_LIMIT ? (
+        <p className="note">
+          {(rows.length - ROW_LIMIT).toLocaleString('en-US')} further rows not listed.
+        </p>
+      ) : null}
+    </>
+  );
 }
 
 export function SelectionPane() {
@@ -85,15 +127,23 @@ export function SelectionPane() {
     if (selected) void fetchContent(selected);
   }, [selected]);
 
-  if (!detail) return <Empty>Click a claim to inspect it.</Empty>;
+  if (!detail) {
+    return (
+      <div className="pane">
+        <PaneTitle>claim</PaneTitle>
+        <Empty>Click a claim to inspect it.</Empty>
+      </div>
+    );
+  }
 
   return (
     <div className="pane">
+      <PaneTitle hint={detail.claimType}>claim</PaneTitle>
       <KeyValue
         rows={[
           ['id', <code className="claim-id">{detail.id}</code>],
           ['type', detail.claimType || '—'],
-          ['label', detail.label || '—'],
+          ['label', detail.label ? inlineLabel(detail.label) : '—'],
           ['contribution', detail.contribution.toLocaleString('en-US')],
           ['created', new Date(detail.createdAt).toISOString().replace('T', ' ').slice(0, 19)],
           ['degree', detail.degree.toLocaleString('en-US')],
@@ -104,30 +154,18 @@ export function SelectionPane() {
       <ContentBlock />
 
       <h2>references</h2>
-      {detail.references.length === 0 ? (
-        <Empty>An initial node — it references nothing.</Empty>
-      ) : (
-        <ul className="refs">
-          {detail.references.slice(0, 40).map((ref) => (
-            <li key={`${ref.type}:${ref.id}`}>
-              <span className="ref-type">{ref.type}</span>
-              <button
-                type="button"
-                className="ref-id"
-                onClick={() => useExplorer.getState().select(ref.id)}
-                title={ref.id}
-              >
-                {ref.id.slice(0, 12)}…
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
-      {detail.references.length > 40 ? (
-        <p className="note">
-          {(detail.references.length - 40).toLocaleString('en-US')} further references not listed.
-        </p>
-      ) : null}
+      <p className="note">
+        What this claim cites — its own edges. Both halves of a row are things to ask about: the
+        edge on the left, the claim it points at on the right.
+      </p>
+      <RefList rows={detail.references} arrow="→" empty="An initial node — it references nothing." />
+
+      <h2>citations</h2>
+      <p className="note">
+        What cites this claim — edges belonging to other claims, drawn in pink while this one is
+        selected. A claim cannot know them when it is written, so they accrue.
+      </p>
+      <RefList rows={detail.citations} arrow="←" empty="Nothing loaded cites this claim." />
     </div>
   );
 }
