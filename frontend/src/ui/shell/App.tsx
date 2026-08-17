@@ -143,9 +143,13 @@ function EmptyCanvas() {
   );
 }
 
+/** The share of the canvas width the axis compresses down to. A whole one leaves no margin. */
+const WIDTH_FIT = 0.6;
+
 /**
- * compressionFloor is the least stretch that still fills the viewport with axis, from what one
- * unit of stretch is worth on screen — which the camera and the window size both feed into.
+ * compressionFloor is the least stretch the wheel allows — the one drawing the axis across
+ * WIDTH_FIT of the canvas — from what one unit of stretch is worth on screen, which the camera
+ * and the window size both feed into.
  */
 function compressionFloor(stretch: number): number {
   const width = axisWidth();
@@ -154,7 +158,7 @@ function compressionFloor(stretch: number): number {
   const drawn = axisSpanOnScreen(width * stretch);
   if (drawn === null || drawn <= 0) return 0;
   const perUnit = drawn / stretch;
-  return perUnit > 0 ? canvas / perUnit : 0;
+  return perUnit > 0 ? (WIDTH_FIT * canvas) / perUnit : 0;
 }
 
 /**
@@ -221,8 +225,8 @@ export function App() {
       // vertical stretch in all but name.
       if (view?.layout !== 'timeline' || !shift) return false;
 
-      // Compression stops where the axis would be narrower than the viewport: past that the
-      // picture is stranded in empty space and the camera's zoom is the right instrument.
+      // Compression stops with the axis across WIDTH_FIT of the viewport: past that the picture
+      // is stranded in empty space and the camera's zoom is the right instrument.
       const floor = compressionFloor(view.xStretch);
 
       // A stretch multiplies graph x, so the content's new position is arithmetic.
