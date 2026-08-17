@@ -22,13 +22,16 @@ import {
   timelineExtent,
 } from '../../core/session.ts';
 import { useConnections } from '../../core/connections.ts';
+import { stretchFloor } from '../../render/bounds.ts';
 import {
   anchorAt,
+  applyBound,
   applyViewSettings,
   axisSpanOnScreen,
   canvasWidth,
   graphXAt,
   hideLens,
+  holdCamera,
   mount,
   mountLens,
   onRender,
@@ -143,13 +146,10 @@ function EmptyCanvas() {
   );
 }
 
-/** The share of the canvas width the axis compresses down to. A whole one leaves no margin. */
-const WIDTH_FIT = 0.6;
-
 /**
- * compressionFloor is the least stretch the wheel allows — the one drawing the axis across
- * WIDTH_FIT of the canvas — from what one unit of stretch is worth on screen, which the camera
- * and the window size both feed into.
+ * compressionFloor is the least stretch the wheel allows: the one that still leaves the bound's
+ * share of the canvas on graph. The camera reaches the same bound by its own route, so both read
+ * the drawn axis rather than each keeping a limit of its own.
  */
 function compressionFloor(stretch: number): number {
   const width = axisWidth();
@@ -157,8 +157,7 @@ function compressionFloor(stretch: number): number {
   if (width === null || width <= 0 || canvas <= 0 || stretch <= 0) return 0;
   const drawn = axisSpanOnScreen(width * stretch);
   if (drawn === null || drawn <= 0) return 0;
-  const perUnit = drawn / stretch;
-  return perUnit > 0 ? (WIDTH_FIT * canvas) / perUnit : 0;
+  return stretchFloor(drawn, stretch, canvas) ?? 0;
 }
 
 /**
@@ -225,8 +224,8 @@ export function App() {
       // vertical stretch in all but name.
       if (view?.layout !== 'timeline' || !shift) return false;
 
-      // Compression stops with the axis across WIDTH_FIT of the viewport: past that the picture
-      // is stranded in empty space and the camera's zoom is the right instrument.
+      // Compression stops where the bound does: past that the picture is stranded in empty
+      // space and the camera's zoom is the right instrument.
       const floor = compressionFloor(view.xStretch);
 
       // A stretch multiplies graph x, so the content's new position is arithmetic.
@@ -234,6 +233,10 @@ export function App() {
       const { applied } = stretchX(factor, shownGraph() ?? undefined, floor);
       repaint();
       if (under !== null && applied !== 1) anchorAt(viewportX, under * applied);
+      // The stretch moved the picture without moving the camera, so the camera's own share of
+      // the bound has just shifted under it.
+      applyBound();
+      holdCamera();
       return true;
     });
 
@@ -264,6 +267,9 @@ export function App() {
         unpinExtent();
       }
       refreshSelection();
+      // A load is the other way the picture moves without a gesture, and it was the one that
+      // used to land outside what the wheel could reach.
+      holdCamera();
     });
     // What an archive holds is the first thing worth knowing, and asking for it is not a
     // decision the reader should have to make. A sole branch then loads itself.
