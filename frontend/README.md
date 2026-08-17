@@ -98,10 +98,9 @@ zooming out. What is wanted is x alone.
 Sigma has one uniform `ratio` and no per-axis zoom, so this means rewriting x and leaving y
 where it is. Two properties decide the design:
 
-- **The switch point is fixed for a given archive and viewport.** The most x is ever
-  compressed is the ratio at which the whole axis fits the width; below that, further
-  zooming out has to become the classic uniform zoom, because there is nothing left to
-  compress. That maximum is computed once at startup and again on resize — not per frame.
+- **The switch point is fixed for a given archive and viewport.** Below it, further zooming
+  out has to become the classic uniform zoom. That floor is computed once at startup and
+  again on resize — not per frame.
 - **The cost is in the nodes loaded, not the nodes visible.** A stretch step rewrites x for
   every node and then pays an O(N) Sigma refresh, whether ten are on screen or ten thousand.
   So the gate is the loaded count. Measured refresh cost: **733 ms at 50k**, against a layout

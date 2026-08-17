@@ -72,15 +72,23 @@ test('no two labels come closer than the minimum gap', () => {
 test('a compressed stretch is thinned rather than coarsening the whole ruler', () => {
   const from = Date.parse('2024-01-01T00:00:00Z');
   const to = Date.parse('2024-07-01T00:00:00Z');
-  // Half the months land in the first 40 px; the rest are spread over the remaining 960.
-  const xOf = (instant: number) => {
+  // Half the months land in the first 4% of the width; the rest are spread over the remainder.
+  const crushed = (width: number) => (instant: number) => {
+    const head = width * 0.04;
     const through = (instant - from) / (to - from);
-    return through < 0.5 ? through * 80 : 40 + (through - 0.5) * 1920;
+    return through < 0.5 ? through * 2 * head : head + (through - 0.5) * 2 * (width - head);
   };
-  const ticks = timeTicks({ from, to, xOf, minGap: 60 });
-  assert.ok(ticks.some((t) => t.unit === 'month'), 'the crushed half coarsened the whole ruler');
-  for (let i = 1; i < ticks.length; i++) {
-    assert.ok(ticks[i].x - ticks[i - 1].x >= 60 - 1e-6, 'thinning left a collision');
+  // 1000 px draws the axis across the whole canvas; 600 is as far as the wheel compresses it,
+  // which is 40% past what used to be reachable.
+  for (const width of [1000, 600]) {
+    const ticks = timeTicks({ from, to, xOf: crushed(width), minGap: 60 });
+    assert.ok(
+      ticks.some((t) => t.unit === 'month'),
+      `the crushed half coarsened the whole ruler at ${width} px`,
+    );
+    for (let i = 1; i < ticks.length; i++) {
+      assert.ok(ticks[i].x - ticks[i - 1].x >= 60 - 1e-6, `thinning left a collision at ${width} px`);
+    }
   }
 });
 

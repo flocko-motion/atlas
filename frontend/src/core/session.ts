@@ -600,10 +600,10 @@ export function dropLens(): void {
  * scales both axes and compressing time afterwards leaves the height alone, which is a vertical
  * zoom in all but name.
  *
- * How far it may compress is not a constant: the floor is wherever the drawn axis would become
- * narrower than the viewport, since past that the picture is stranded in empty space and the
- * camera's own zoom is the right instrument. The caller measures that and passes a limit, so this
- * bound is only the backstop for a caller that cannot measure.
+ * How far it may compress is not a constant: the floor is wherever the drawn axis has shrunk to
+ * its allowed share of the viewport, since past that the picture is stranded in empty space and
+ * the camera's own zoom is the right instrument. The caller measures that and passes a limit, so
+ * this bound is only the backstop for a caller that cannot measure.
  */
 export const STRETCH_MIN = 1 / 4096;
 export const STRETCH_MAX = 4096;
