@@ -9,6 +9,8 @@
  * interaction modes — inert is more honest than pretending.
  */
 
+// The markup rather than a URL, so the topbar can hide the plate the tab icon needs.
+import icon from '../icon.svg?raw';
 import { useConnections } from '../../core/connections.ts';
 import {
   axisXOf,
@@ -155,9 +157,7 @@ export function Header() {
   return (
     <header className="topbar">
       <div className="brand">
-        <span className="brand-mark" aria-hidden="true">
-          ◆
-        </span>
+        <span className="brand-mark" aria-hidden="true" dangerouslySetInnerHTML={{ __html: icon }} />
         <span className="brand-name">Ranke Explorer</span>
       </div>
 

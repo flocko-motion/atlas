@@ -40,7 +40,10 @@ body {
   background: var(--panel);
 }
 .brand { display: flex; align-items: center; gap: 0.4rem; font-weight: 600; }
-.brand-mark { color: var(--accent); }
+.brand-mark { display: flex; width: 1.15rem; height: 1.15rem; }
+.brand-mark svg { width: 100%; height: 100%; }
+/* The plate backs the mark against unknown browser chrome; the topbar is already --panel. */
+.brand-mark .plate { display: none; }
 .toolbar { display: flex; gap: 0.25rem; }
 .tool {
   width: 1.9rem; height: 1.9rem;
