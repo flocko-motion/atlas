@@ -52,7 +52,7 @@ func rootCmd() *cobra.Command {
 	f.StringVar(&o.token, "token", "", "Authorization: Bearer credential")
 	f.StringVar(&o.apiKey, "api-key", "", "X-API-Key credential")
 	f.DurationVar(&o.wait, "wait", 0, "wait up to this long for the server to answer /health before writing")
-	root.AddCommand(exampleCmd(&o), chainCmd(&o))
+	root.AddCommand(exampleCmd(&o), chainCmd(&o), releaseCmd(&o))
 	return root
 }
 
@@ -88,6 +88,25 @@ func chainCmd(o *options) *cobra.Command {
 	}
 	c.Flags().IntVar(&contributions, "contributions", 20, "how many contributions to merge, one after another")
 	c.Flags().IntVar(&per, "claims", 10, "claims per contribution")
+	return c
+}
+
+// releaseCmd writes the release-process scenario: the shape the slides draw, built for real.
+func releaseCmd(o *options) *cobra.Command {
+	var releases int
+	c := &cobra.Command{
+		Use:   "release <url>",
+		Short: "Write a release process: four signing identities, two packages, one artifact each release",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return deliver(cmd, args[0], o, func(g *grower) (batches, error) {
+				// One branch: a release process is one line, and the flag that spreads a
+				// shape over several would say something about branches instead.
+				return g.release(cmd.Context(), o.branch, releases)
+			})
+		},
+	}
+	c.Flags().IntVar(&releases, "releases", 3, "how many releases to run, each carrying both packages")
 	return c
 }
 

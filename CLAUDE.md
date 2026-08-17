@@ -136,10 +136,11 @@ Classical single-module Go repo at the repo root (module `github.com/flocko-moti
 - `cmd/ranke-db/` — the server binary (`run <config>`, `verify <config>`; later `tui`/config edit)
 - `cmd/generator/` — a **client** that seeds a running instance over `POST /contribute`:
   it derives its own contributor identity, signs its own claims, and sends them as a
-  contribution stream. Shapes: `example` (4 claims) and `chain` (many contributions).
-  Seeding is never a server feature — a contributor is an application-held key.
-  `make dev SEED=example|chain` launches and seeds; `make seed SEED_URL=…` seeds a
-  running instance
+  contribution stream. Shapes: `example` (4 claims), `release` (a release process: four
+  signing identities the root attests, two packages meeting at one artifact, logs worth
+  reading) and `chain` (many contributions). Seeding is never a server feature — a
+  contributor is an application-held key. `make dev SEED=example|release|chain` launches
+  and seeds; `make seed SEED_URL=…` seeds a running instance
 - `internal/core/` (+ `internal/core/access/`) · `config/` · `adapters/<port>/` — the hexagon
   (each `adapters/<port>/<port>.go` holds the port contract + its `New` factory; the
   backends sit in subpackages)
