@@ -15,21 +15,22 @@
  */
 
 /**
- * At most this much of the viewport may be padding: the room a zoom is allowed to leave beside
- * the graph, once the drawing has shrunk past the canvas it is in.
+ * At most this much of the viewport may be empty at an edge. What is bounded is the emptiness,
+ * never the graph: panning into nothing is no use to a reader, while pushing part of the picture
+ * off the canvas is the whole point of zooming into it.
  */
 export const MAX_OUTSIDE = 0.4;
 
-/** So this much of it must find graph, which is the size a zoom may shrink the drawing to. */
+/** So this much of it must find graph, wherever the reader has pushed the picture to. */
 export const MIN_COVER = 1 - MAX_OUTSIDE;
 
 /**
- * needed is how many pixels of a viewport span must land on graph once the panning starts.
- * Padding is the zoom's business, and a pan may not add to what the zoom left: a graph larger
- * than the viewport covers it, and a smaller one stays wholly inside it.
+ * needed is how many pixels of a viewport span must land on graph. A graph drawn smaller than
+ * that can only be asked to stay wholly in view, since no position would do better; a larger one
+ * may hang off either edge, so long as the edge it leaves behind is not mostly empty.
  */
 export function needed(size: number, viewport: number): number {
-  return Math.min(size, viewport);
+  return Math.min(MIN_COVER * viewport, size);
 }
 
 /** covered is how many pixels of the viewport the graph reaches, given where its near edge is. */

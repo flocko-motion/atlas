@@ -9,6 +9,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  MAX_OUTSIDE,
   MIN_COVER,
   covered,
   fillRatio,
@@ -23,44 +24,51 @@ import {
 /** A 1000 px viewport, so a share reads directly as pixels. */
 const VIEWPORT = 1000;
 
-// Two rules over one measurement: how small a zoom may draw the graph, which is what leaves
-// padding — and where a pan may then put it, which may add none of its own. Both axes are held
-// the same way; only how far each may be zoomed out differs, and that is the ceiling below.
-test('a pan adds no padding: a graph past the viewport covers it, whichever way it is pushed', () => {
+// What the bound holds is the emptiness at an edge, never the graph: a reader zoomed in pushes
+// most of the picture off the canvas on purpose, and is only stopped from panning into nothing.
+test('a graph past the viewport may hang off either edge, up to the empty share', () => {
   const size = 2000; // larger than the viewport, as a stretched axis or a fitted band is
   const { min, max } = holdRange(size, VIEWPORT);
-  assert.deepEqual({ min, max }, { min: VIEWPORT - size, max: 0 });
   for (const start of [min, max, (min + max) / 2]) {
-    assert.equal(covered(start, size, VIEWPORT), VIEWPORT, `a near edge at ${start} left a gap`);
+    assert.ok(
+      covered(start, size, VIEWPORT) >= MIN_COVER * VIEWPORT - 1e-6,
+      `a near edge at ${start} left only ${covered(start, size, VIEWPORT)} px on graph`,
+    );
   }
-  // A step beyond either end opens one, which is what makes these the ends.
-  assert.ok(covered(min - 1, size, VIEWPORT) < VIEWPORT);
-  assert.ok(covered(max + 1, size, VIEWPORT) < VIEWPORT);
+  // The two ends are the same margin at opposite edges, which is what makes them symmetric.
+  assert.equal(max, MAX_OUTSIDE * VIEWPORT, 'this much may be empty before the near edge');
+  assert.equal(size + min, MIN_COVER * VIEWPORT, 'and this much reaches past the far one');
+  assert.ok(covered(min - 1, size, VIEWPORT) < MIN_COVER * VIEWPORT);
+  assert.ok(covered(max + 1, size, VIEWPORT) < MIN_COVER * VIEWPORT);
 });
 
-// Where a fit lands: filling the viewport exactly, there is nowhere else for it to be.
-test('a graph the size of the viewport is held to it', () => {
-  assert.deepEqual(holdRange(VIEWPORT, VIEWPORT), { min: 0, max: 0 });
-  assert.equal(hold(270, VIEWPORT, VIEWPORT), -270, 'a picture pushed past the far edge');
-  assert.equal(hold(-270, VIEWPORT, VIEWPORT), 270, 'a picture pushed past the near one');
+// A fit fills the viewport exactly, and is then free to move like anything else its size: the
+// far edge may lift off the far border, which is a margin the reader asked for by dragging.
+test('a graph the size of the viewport keeps its margin at either edge', () => {
+  assert.deepEqual(holdRange(VIEWPORT, VIEWPORT), {
+    min: -MAX_OUTSIDE * VIEWPORT,
+    max: MAX_OUTSIDE * VIEWPORT,
+  });
+  assert.equal(hold(500, VIEWPORT, VIEWPORT), -100, 'pushed past the empty share, not before it');
+  assert.equal(hold(300, VIEWPORT, VIEWPORT), 0, 'a margin the bound allows was taken back');
 });
 
 test('a graph smaller than the viewport is only asked to stay wholly in view', () => {
-  const size = 400; // padding a zoom left, which a pan keeps rather than adding to
+  const size = 200; // well under MIN_COVER of the viewport
   assert.equal(needed(size, VIEWPORT), size);
   const { min, max } = holdRange(size, VIEWPORT);
   assert.equal(min, 0, 'its near edge may not go past the near edge of the viewport');
   assert.equal(max, VIEWPORT - size, 'nor its far edge past the far one');
 });
 
-// Taking `needed` at whichever of its two branches applies, the range never inverts: the
-// containment branch leaves the slack the graph does not fill, the coverage branch leaves what
-// hangs off each edge, and at one size they meet. So hold has nothing to defend against.
+// Taking `needed` at whichever of its two branches applies, the range has room at both: the
+// containment branch leaves the slack the graph does not fill, and the coverage branch leaves
+// what may hang off each edge. So hold never has an inverted range to defend against.
 test('the range holds an edge rather than inverting, at any size against any viewport', () => {
   for (const viewport of [1, 250, 1000]) {
     for (const size of [0.01, 0.5, MIN_COVER, 0.99, 1, 2, 50].map((f) => f * viewport)) {
       const { min, max } = holdRange(size, viewport);
-      assert.ok(min <= max, `${size} px of graph in ${viewport} px inverted to [${min}, ${max}]`);
+      assert.ok(min < max, `${size} px of graph in ${viewport} px inverted to [${min}, ${max}]`);
     }
   }
 });
