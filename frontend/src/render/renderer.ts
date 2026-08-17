@@ -488,9 +488,8 @@ export function fitHeight(): void {
 }
 
 /**
- * axisSpanOnScreen is how wide the drawn axis currently is, in canvas pixels. What it bounds is
- * compression: an axis narrower than the viewport leaves the picture stranded in empty space, so
- * that is where compressing has to stop and the camera's own zoom takes over.
+ * axisSpanOnScreen is how wide the drawn axis currently is, in canvas pixels: the stretch and the
+ * camera's ratio composed. Compression is measured against it, by the caller that owns the bound.
  */
 export function axisSpanOnScreen(axisWidth: number): number | null {
   const instance = lensShowing() ? lens : sigma;

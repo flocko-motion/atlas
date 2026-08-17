@@ -225,8 +225,8 @@ export function App() {
       // vertical stretch in all but name.
       if (view?.layout !== 'timeline' || !shift) return false;
 
-      // Compression stops with the axis a little narrower than the viewport: past that the
-      // picture is stranded in empty space and the camera's zoom is the right instrument.
+      // Compression stops with the axis across WIDTH_FIT of the viewport: past that the picture
+      // is stranded in empty space and the camera's zoom is the right instrument.
       const floor = compressionFloor(view.xStretch);
 
       // A stretch multiplies graph x, so the content's new position is arithmetic.
