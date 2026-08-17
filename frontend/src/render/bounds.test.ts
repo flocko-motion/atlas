@@ -48,6 +48,18 @@ test('panning stops with the required share still on graph, both directions', ()
   assert.ok(covered(max + 1, size, VIEWPORT) < MIN_COVER * VIEWPORT);
 });
 
+// Taking `needed` at whichever of its two branches applies, the range has room at both: the
+// containment branch leaves the slack the graph does not fill, and the coverage branch leaves
+// what may hang off each edge. So hold never has an inverted range to defend against.
+test('the range holds an edge rather than inverting, at any size against any viewport', () => {
+  for (const viewport of [1, 250, 1000]) {
+    for (const size of [0.01, 0.5, MIN_COVER, 0.99, 1, 2, 50].map((f) => f * viewport)) {
+      const { min, max } = holdRange(size, viewport);
+      assert.ok(min < max, `${size} px of graph in ${viewport} px inverted to [${min}, ${max}]`);
+    }
+  }
+});
+
 test('hold moves an out-of-bounds edge back and leaves an in-bounds one alone', () => {
   const size = 2000;
   const { min, max } = holdRange(size, VIEWPORT);

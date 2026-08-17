@@ -46,8 +46,6 @@ export function holdRange(size: number, viewport: number): { min: number; max: n
 /** hold puts a near edge back inside that range, and reports how far it had to move. */
 export function hold(start: number, size: number, viewport: number): number {
   const { min, max } = holdRange(size, viewport);
-  // A viewport narrower than the graph inverts the two, and then any position is as good.
-  if (min > max) return 0;
   return Math.min(max, Math.max(min, start)) - start;
 }
 

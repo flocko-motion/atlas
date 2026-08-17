@@ -362,6 +362,9 @@ export function showLens(lensGraph: DirectedGraph): void {
   lens.refresh();
   lensHost.style.visibility = 'visible';
   sigma.getContainer().style.visibility = 'hidden';
+  // A new lens is built from the shared settings, which carry no ceiling of their own, so the
+  // instance the reader is about to drive is given one as it comes forward.
+  applyBound();
 }
 
 /**
@@ -463,11 +466,20 @@ function stretchNow(): number {
   return activeView(useExplorer.getState())?.xStretch ?? 1;
 }
 
-/** applyBound gives both cameras the ceiling, so neither can be zoomed out past the picture. */
+/**
+ * applyBound gives both cameras the ceiling, so neither can be zoomed out past the picture.
+ *
+ * It goes in as a setting rather than onto the camera, because every settings update reinstalls
+ * the camera's limits from the settings — so a ceiling written to the field is wiped by the next
+ * unrelated toggle, while one held here is restored by it and applied to the live state.
+ */
 export function applyBound(): void {
   const limit = ceiling(showing(), canvasWidth(), stretchNow());
   for (const each of [sigma, lens]) {
-    if (each) each.getCamera().maxRatio = limit;
+    // Setting schedules a refresh, and a stretch applies this on every wheel tick.
+    if (each && each.getSetting('maxCameraRatio') !== limit) {
+      each.setSetting('maxCameraRatio', limit);
+    }
   }
 }
 

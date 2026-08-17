@@ -64,9 +64,12 @@ export function ceiling(showing: Sigma | null, canvas: number, stretch: number):
 }
 
 /**
- * holdTo puts the picture back inside the bound. The ratio goes through the camera, which bounds
- * it on the way in; the pan is ours, since Sigma limits how far out a camera may zoom but not
- * where a graph may be pushed to.
+ * holdTo puts the picture back inside the bound. Only the pan is done here: the ratio is the
+ * camera's own ceiling, which it checks on every state it accepts.
+ *
+ * Sigma has a pan boundary of its own (`cameraPanBoundaries`), but it measures against the graph
+ * Sigma knows about, and a stretch multiplies node x while the pinned extent stays unstretched —
+ * so the bound it would keep is not the one the reader can see.
  */
 export function holdTo(showing: Sigma | null, width: number, height: number, stretch: number): void {
   if (!showing || !pinned || holding || width <= 0 || height <= 0) return;
@@ -74,11 +77,6 @@ export function holdTo(showing: Sigma | null, width: number, height: number, str
   holding = true;
   try {
     const camera = showing.getCamera();
-    // Re-stating the ratio is what applies a ceiling that has just moved under it.
-    const state = camera.getState();
-    const bounded = camera.getBoundedRatio(state.ratio);
-    if (bounded !== state.ratio) camera.setState({ ...state, ratio: bounded });
-
     const rect = drawnGraph(showing, stretch);
     if (!rect) return;
     const dx = hold(rect.x, rect.width, width);
