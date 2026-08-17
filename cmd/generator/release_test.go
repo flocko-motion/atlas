@@ -47,11 +47,16 @@ func TestReleaseSignsAsFourIdentities(t *testing.T) {
 			signers[contributorOf(t, claim).String()]++
 		}
 	}
-	if len(signers) != 4 {
-		t.Fatalf("claims signed by %d identities, want all four to have signed something", len(signers))
+	// Five: the four actors, plus the root, which signs the records and entities that
+	// introduce them — nobody else exists yet when those are written.
+	if len(signers) != 5 {
+		t.Fatalf("claims signed by %d identities, want the four actors and the root", len(signers))
+	}
+	if signers[g.selfClaim.ID().String()] == 0 {
+		t.Error("the root signed nothing, so nothing introduced the actors")
 	}
 	for id, n := range signers {
-		if _, ok := contributors[id]; !ok {
+		if _, ok := contributors[id]; !ok && id != g.selfClaim.ID().String() {
 			t.Errorf("%d claim(s) attributed to %s, which no contributor claim attests", n, id)
 		}
 	}
@@ -115,28 +120,36 @@ func TestReleaseSharesTheVulnerabilities(t *testing.T) {
 	if len(scans) != len(packages)*2 {
 		t.Fatalf("scans = %d, want one per package per release", len(scans))
 	}
-	shared := map[string]int{}
+	// How many scans reach each CVE. One is reached by every scan and one by a single
+	// package's, which is the arrangement the drawing is deliberate about: a claim two
+	// provenance paths arrive at, beside one only reached by a single path.
+	reached := map[string]int{}
 	for _, scan := range scans {
-		mentioned := edgesOfType(scan, edgeMentions)
-		if len(mentioned) != len(vulnerabilities) {
-			t.Errorf("scan mentions %d CVEs, want %d", len(mentioned), len(vulnerabilities))
-		}
-		for _, id := range mentioned {
-			shared[id.String()]++
+		for _, id := range edgesOfType(scan, edgeMentions) {
+			reached[findName(t, bs, id)]++
 		}
 	}
-	if len(shared) != len(vulnerabilities) {
-		t.Fatalf("scans reached %d distinct CVE claims, want %d", len(shared), len(vulnerabilities))
+	if len(reached) != len(vulnerabilities) {
+		t.Fatalf("scans reached %d distinct CVEs, want %d", len(reached), len(vulnerabilities))
 	}
-	for id, times := range shared {
-		if times != len(scans) {
-			t.Errorf("CVE %s reached by %d of %d scans, want every one", id, times, len(scans))
+	for _, v := range vulnerabilities {
+		want := len(scans)
+		if len(v.affects) > 0 {
+			want = len(scans) / len(packages) * len(v.affects)
 		}
+		if reached[v.id] != want {
+			t.Errorf("%s reached by %d of %d scans, want %d", v.id, reached[v.id], len(scans), want)
+		}
+	}
+	if reached[vulnerabilities[0].id] <= reached[vulnerabilities[1].id] {
+		t.Error("no CVE is shared more widely than another, so the graph shows no merge")
 	}
 }
 
-// TestReleaseNamesWhoDecided pins that an actor is named rather than derived from: a triage
-// decision reaches its candidate as an input and the deciders as a relation.
+// TestReleaseNamesWhoDecided pins that an actor is named rather than derived from, and named
+// as a PERSON rather than as a key: a contributor is operational and an entity semantic, and
+// the two never share a node (foundation paper §Taxonomy). A decision reaches its candidate as
+// an input and the deciders as a relation.
 func TestReleaseNamesWhoDecided(t *testing.T) {
 	g := newTestGrower(t)
 	bs, err := g.release(context.Background(), "main", 1)
@@ -152,17 +165,64 @@ func TestReleaseNamesWhoDecided(t *testing.T) {
 		if len(deciders) != 2 {
 			t.Fatalf("decision names %d deciders, want two", len(deciders))
 		}
+		named := map[string]bool{}
 		for _, id := range deciders {
 			who := findClaim(t, bs, id)
-			if who.Node().Type() != string(ranke.NodeTypeContributor) {
-				t.Errorf("decided_by reaches a %s, want a contributor claim", who.Node().Type())
+			if who.Node().Type() != typePerson {
+				t.Errorf("decided_by reaches a %s, want a %s", who.Node().Type(), typePerson)
+			}
+			named[fieldOf(t, who, "name")] = true
+		}
+		// The release manager and the security expert decided; the test executor and the CI
+		// runner did not, which the drawing is explicit about.
+		for _, who := range []string{whoRelease, whoSecurity} {
+			if !named[who] {
+				t.Errorf("decision does not name %s", who)
 			}
 		}
-		// A relation edge states its direction (§4.7), so a reader can tell which way it runs.
-		for _, edge := range decision.Edges() {
-			if edge.Type() == edgeDecidedBy && edge.RelationDirection() == 0 {
-				t.Error("decided_by edge states no direction")
+		for _, who := range []string{whoTests, whoCI} {
+			if named[who] {
+				t.Errorf("decision names %s, who does not decide", who)
 			}
+		}
+		// A relation edge states its direction (V-REL), so a reader can tell which way it runs.
+		for _, edge := range decision.Edges() {
+			if edge.Type() == edgeDecidedBy && edge.RelationDirection() != ranke.RelationTo {
+				t.Error("decided_by does not mark the person as the object of the relation")
+			}
+		}
+	}
+}
+
+// TestReleaseLinksKeysToPeople pins the one claim that joins the operational side to the
+// semantic one: each key claim cites the actor it belongs to, and each actor rests on the
+// record that introduced it.
+func TestReleaseLinksKeysToPeople(t *testing.T) {
+	g := newTestGrower(t)
+	bs, err := g.release(context.Background(), "main", 1)
+	if err != nil {
+		t.Fatalf("release: %v", err)
+	}
+	byType := claimsByType(bs)
+
+	keys := byType[string(ranke.NodeTypeContributor)]
+	if len(keys) != len(participants) {
+		t.Fatalf("attested %d keys, want %d", len(keys), len(participants))
+	}
+	for _, key := range keys {
+		of := edgesOfType(key, edgeIdentity)
+		if len(of) != 1 {
+			t.Fatalf("key claim cites %d actors, want exactly one", len(of))
+		}
+		actor := findClaim(t, bs, of[0])
+		if typ := actor.Node().Type(); typ != typePerson && typ != typeCIInstance {
+			t.Errorf("key claim cites a %s, want a person or a machine", typ)
+		}
+		// The actor has a path back to a source, which a contributor edge alone would not
+		// give it (D1).
+		if got := len(edgesOfType(actor, edgeInput)); got != 1 {
+			t.Errorf("%s cites %d records, want the one that introduced it",
+				actor.Node().Type(), got)
 		}
 	}
 }
@@ -228,9 +288,12 @@ func TestReleaseHeightsCountTheContributorEdge(t *testing.T) {
 		t.Fatalf("release: %v", err)
 	}
 	for _, claim := range claimsByType(bs)[typeGitSnapshot] {
-		// A source cites nothing but its contributor, which is itself at 1 — so 2.
-		if got := claim.Node().Height(); got != 2 {
-			t.Errorf("snapshot height = %d, want 2: its signer's claim is not an initial node", got)
+		// A source cites nothing but its contributor — but that key claim is four deep now:
+		// the record introducing the actor sits at 1, the actor entity at 2, the key at 3, so
+		// anything the key signs starts at 4. Getting this wrong is how a fixture ends up
+		// with heights that contradict its own edges.
+		if got := claim.Node().Height(); got != 4 {
+			t.Errorf("snapshot height = %d, want 4: record 1, actor 2, key 3, this 4", got)
 		}
 	}
 }
@@ -258,6 +321,12 @@ func edgesOfType(claim ranke.Claim, typ string) []ranke.Id {
 		}
 	}
 	return ids
+}
+
+// findName is the `name` field of the claim an id names.
+func findName(t *testing.T, bs batches, id ranke.Id) string {
+	t.Helper()
+	return fieldOf(t, findClaim(t, bs, id), "name")
 }
 
 // contributorOf returns the id of the contributor claim a claim is attributed to.

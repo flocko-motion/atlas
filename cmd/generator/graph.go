@@ -78,8 +78,12 @@ type signer struct {
 // attest derives an identity from a name and has the root vouch for it: the claim declares
 // the new key and the root signs it, which is what makes the root an authority over it
 // (§5.7). The identity then signs its own claims, so a reader can tell whose they are.
-func (g *grower) attest(ctx context.Context, name string) (*signer, error) {
-	_, priv, err := identity(name)
+//
+// The key claim cites the actor it belongs to, which is how the operational side reaches the
+// semantic one: a contributor is a key, an entity is a person or a machine, and they never
+// share a node — so a claim asserting the connection is the only thing that links them.
+func (g *grower) attest(ctx context.Context, name string, of made) (*signer, error) {
+	priv, err := identityKey(name)
 	if err != nil {
 		return nil, err
 	}
@@ -87,13 +91,22 @@ func (g *grower) attest(ctx context.Context, name string) (*signer, error) {
 	if err != nil {
 		return nil, fmt.Errorf("encode public key for %q: %w", name, err)
 	}
+	edge, err := ranke.NewEdge(ranke.EdgeConfig{
+		Reference:  of.claim.ID(),
+		Referenced: of.claim,
+		Type:       edgeIdentity,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("edge to %s: %w", of.claim.ID(), err)
+	}
 	// Signed by the root, whose key the builder takes from the contributor it is attributed
-	// to; the root is an initial node, so a claim citing only it sits at height 1.
+	// to. Height climbs past the actor it cites, the root being an initial node at 0.
 	claim, err := ranke.NewClaim(ranke.NodeTypeContributor, g.self).
 		WithInlineContent(pub).
 		WithEncoding(ranke.EncodingOctetStream).
 		WithCreatedAt(g.at).
-		WithHeight(1).
+		WithHeight(of.height + 1).
+		WithEdges(edge).
 		Sign()
 	if err != nil {
 		return nil, fmt.Errorf("sign contributor claim for %q: %w", name, err)
@@ -105,11 +118,12 @@ func (g *grower) attest(ctx context.Context, name string) (*signer, error) {
 	if err != nil {
 		return nil, fmt.Errorf("bind contributor %q: %w", name, err)
 	}
-	return &signer{name: name, claim: claim, height: 1, as: as}, nil
+	return &signer{name: name, claim: claim, height: of.height + 1, as: as}, nil
 }
 
-// root is the grower's own identity as a signer, so one helper writes claims for either.
-func (g *grower) root() *signer {
+// rootSigner is the grower's own identity as a signer, so one helper writes claims for
+// either the root or an attested actor.
+func (g *grower) rootSigner() *signer {
 	return &signer{name: "root", claim: g.selfClaim, height: 0, as: g.self}
 }
 
@@ -134,7 +148,15 @@ func asInputs(refs ...made) []cite {
 // The edge types the release scenario uses beyond the input edge every derivation carries.
 // A relation edge states its direction (§4.7); these all run from the claim outward.
 const (
-	edgeInput     = "derivation/input"
+	edgeInput = "derivation/input"
+	// A key claim cites the actor it belongs to: provenance, since the key exists because
+	// that actor does.
+	edgeIdentity = "derivation/identity"
+	// What a scan found, and who decided. Neither is an input: a scan does not derive from
+	// the vulnerability it reports, and a decision does not derive from the person who made
+	// it. Reification is for n:n relations between entities (foundation paper §Relations);
+	// a claim naming one entity says so with an edge, and `to` marks the entity as the
+	// object of what the claim states.
 	edgeMentions  = "relation/mentions"
 	edgeDecidedBy = "relation/decided_by"
 )
@@ -223,11 +245,20 @@ func newGrower(ctx context.Context, as string) (*grower, error) {
 	}, nil
 }
 
-// identity derives a contributor from a name, so a fixture is reproducible. The key
-// comes from a public string and is worth nothing: never an application's.
-func identity(as string) (ranke.Claim, ed25519.PrivateKey, error) {
+// identityKey derives a fixture signing key from a name, so the same name always signs as
+// the same identity. The key comes from a public string and is worth nothing: never an
+// application's.
+func identityKey(as string) (ed25519.PrivateKey, error) {
 	seed := sha256.Sum256([]byte(identityDomain + as))
-	priv := ed25519.NewKeyFromSeed(seed[:])
+	return ed25519.NewKeyFromSeed(seed[:]), nil
+}
+
+// identity derives a root contributor claim from a name: its own key, self-attested.
+func identity(as string) (ranke.Claim, ed25519.PrivateKey, error) {
+	priv, err := identityKey(as)
+	if err != nil {
+		return nil, nil, err
+	}
 	pub, err := ranke.EncodePublicKey(priv.Public())
 	if err != nil {
 		return nil, nil, fmt.Errorf("encode public key: %w", err)
@@ -383,7 +414,7 @@ func (g *grower) claim(typ, text string, refs ...made) (made, error) {
 // generic shapes need nothing else, so they say it this short way.
 func (g *grower) claimOn(branch, typ, text string, refs ...made) (made, error) {
 	return g.write(spec{
-		by:      g.root(),
+		by:      g.rootSigner(),
 		branch:  branch,
 		typ:     typ,
 		content: []byte(text),
