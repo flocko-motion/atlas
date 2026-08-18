@@ -24,6 +24,12 @@ REDOCLY     := @redocly/cli@2.44.1
 SWAGGER_TS  := swagger-typescript-api@13.12.6
 WIDDERSHINS := widdershins@4.0.1
 RANKE_GO_MOD ?= github.com/flocko-motion/ranke-go
+# The library's other half. frontend/ keeps its own report, but nothing invokes it, so a
+# stale pin sat unseen for eleven days while the two halves disagreed about the wire format.
+# The pin is read straight out of package.json rather than delegated to that target, which
+# would drag node_modules into `verify` and wire frontend/ into a build it stays out of.
+RANKE_TS_PKG ?= @flocko-motion/ranke
+FRONTEND_PKG := frontend/package.json
 RANKE_GO_VERSION ?= latest
 # ask = prompt before raising the go directive; keep = leave it; or a version.
 GO_VERSION ?= ask
@@ -182,12 +188,22 @@ verify: generate ## Regenerate from the spec, then build, vet, test, gofmt-check
 		elif command -v sindri >/dev/null 2>&1; then sindri lint; \
 		else echo ">> lint: neither brokkr nor sindri on PATH; skipping" >&2; fi
 	@$(MAKE) -s ranke-go-version
+	@$(MAKE) -s ranke-ts-version
 
 upgrade: ## Upgrade all deps, tools and ranke-go to latest, tidy, then verify; asks before raising the go directive (GO_VERSION=keep|1.26.5, RANKE_GO_VERSION=vX.Y.Z)
 	@GO_VERSION=$(GO_VERSION) \
 		RANKE_GO_MOD=$(RANKE_GO_MOD) \
 		RANKE_GO_VERSION=$(RANKE_GO_VERSION) \
 		./scripts/upgrade.sh
+
+ranke-ts-version: ## Recommend a ranke-ts bump if a newer release exists
+	-@[ -f $(FRONTEND_PKG) ] && { \
+		cur=$$(sed -n 's|.*"$(RANKE_TS_PKG)": *"[^0-9]*\([^"]*\)".*|\1|p' $(FRONTEND_PKG)); \
+		latest=$$(npm view $(RANKE_TS_PKG) version 2>/dev/null); \
+		if [ -n "$$cur" ] && [ -n "$$latest" ] && [ "$$cur" != "$$latest" ]; then \
+			echo ">> ranke-ts: on $$cur, latest is $$latest — bump: make -C frontend upgrade"; \
+		fi; \
+	} || true
 
 ranke-go-version: ## Recommend a ranke-go bump if a newer release exists
 	-@grep -q "$(RANKE_GO_MOD)" go.mod 2>/dev/null && { \

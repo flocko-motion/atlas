@@ -5,9 +5,8 @@
  * limits:  acts on whichever instance is showing (-> render/instances); the arithmetic of the
  *          bound is bounds' and hold's (-> render/bounds, render/hold)
  *
- * A reader zooms one axis at a time, which the camera cannot do: it takes both at once and
- * magnifies the claims along with the space between them. So both zooms are stretches of the
- * layout, and the camera is left to say where the picture is.
+ * A reader zooms one axis at a time, which the camera cannot: it takes both and magnifies the
+ * claims with the space between them. So both zooms are stretches, and the camera says where.
  */
 
 import type Sigma from 'sigma';
@@ -27,9 +26,7 @@ import {
 } from './instances.ts';
 
 /**
- * graphXAt converts a position on the canvas to the graph x under it. The ruler samples
- * screen space and asks what time is there, so panning and zooming need no arithmetic of
- * their own — the camera has already done it.
+ * graphXAt converts a canvas position to the graph x under it, so the ruler needs no arithmetic.
  */
 export function graphXAt(viewportX: number): number | null {
   return showing()?.viewportToGraph({ x: viewportX, y: 0 }).x ?? null;
@@ -52,11 +49,8 @@ function stretchNow(): Stretch {
 }
 
 /**
- * applyBound gives both cameras the ceiling, so neither can be zoomed out past the picture.
- *
- * It goes in as a setting rather than onto the camera, because every settings update reinstalls
- * the camera's limits from the settings — so a ceiling written to the field is wiped by the next
- * unrelated toggle, while one held here is restored by it and applied to the live state.
+ * applyBound gives both cameras the ceiling. As a setting, not onto the camera: every settings
+ * update reinstalls the limits from settings, wiping a ceiling written to the field.
  */
 export function applyBound(): void {
   const limit = ceiling(showing(), canvasWidth(), stretchNow());
@@ -74,9 +68,8 @@ export function holdCamera(): void {
 }
 
 /**
- * correctDrift moves the camera by a distance the picture has drifted on the canvas. A viewport
- * distance means nothing to the camera, so it goes through the same transform the renderer draws
- * with.
+ * correctDrift moves the camera by a distance the picture drifted, through the transform the
+ * renderer draws with — a viewport distance means nothing to the camera.
  */
 function correctDrift(instance: Sigma, dx: number, dy: number): void {
   const origin = instance.viewportToFramedGraph({ x: 0, y: 0 });
@@ -87,9 +80,7 @@ function correctDrift(instance: Sigma, dx: number, dy: number): void {
 }
 
 /**
- * anchorAt pans so that a graph position lands under a given point on the canvas. Zooming moves
- * everything away from the cursor, and what a reader means by zooming is that the thing they are
- * pointing at stays put — so the camera makes up the difference.
+ * anchorAt pans so a graph position stays under a point on the canvas — what zooming means.
  */
 export function anchorAt(viewportX: number, graphX: number): void {
   const instance = showing();
@@ -109,21 +100,16 @@ export function anchorYAt(viewportY: number, graphY: number): void {
 }
 
 /**
- * cameraNow makes a projection read the camera as it is rather than as the last frame drew it.
- * Two corrections in one frame is the ordinary case — a stretch and a hold, or a fit and the
- * load's second pass — and without this the first is measured again and applied twice.
+ * cameraNow reads the camera as it is, not as the last frame drew it. Two corrections in one
+ * frame is ordinary, and without this the first is measured again and applied twice.
  */
 function cameraNow(instance: Sigma) {
   return { cameraState: instance.getCamera().getState() };
 }
 
 /**
- * compressionFloor is the least stretch on offer: the one that still leaves the bound's share of
- * the canvas on graph. The camera reaches the same bound by its own route, so both read the drawn
- * axis rather than each keeping a limit of its own.
- *
- * It bounds an x-zoom alone. A y-zoom compresses the axis by exactly what the camera magnifies,
- * so the drawn axis comes out the width it went in at and this floor has nothing to say about it.
+ * compressionFloor is the least x stretch leaving the bound's share of the canvas on graph. A
+ * y-zoom leaves the drawn axis the width it went in at, so this has nothing to say about it.
  */
 function compressionFloor(stretch: number): number {
   const width = axisWidth();
@@ -135,13 +121,9 @@ function compressionFloor(stretch: number): number {
 }
 
 /**
- * The two zooms a reader has on a timeline: one axis apiece, each leaving the other exactly as it
- * was, and each keeping what is under the pointer under it.
- *
- * Both are stretches of the layout rather than moves of the camera. The camera magnifies the
- * claims along with the space between them and it takes both axes at once, so a camera zoom deep
- * enough to fill the height with a shallow band of strata draws that band as one solid mass. A
- * stretch spreads the claims out at the size they are, which is what a reader asked for.
+ * The two zooms a reader has: one axis apiece, each leaving the other as it was and keeping what
+ * is under the pointer. Both stretch the layout — a camera zoom deep enough to fill the height
+ * with a shallow band of strata would draw it as one solid mass.
  */
 export function zoomX(factor: number, viewportX: number): void {
   // A stretch multiplies graph x, so where the content lands is arithmetic.
@@ -150,16 +132,14 @@ export function zoomX(factor: number, viewportX: number): void {
   if (applied === 1) return;
   repaint();
   if (under !== null) anchorAt(viewportX, under * applied);
-  // The stretch moved the picture without moving the camera, so the camera's own share of the
-  // bound has just shifted under it.
+  // The stretch moved the picture, not the camera, so the camera's share of the bound shifted.
   applyBound();
   holdCamera();
 }
 
 export function zoomY(factor: number, viewportY: number): void {
   const under = graphYAt(viewportY);
-  // No floor of the axis's kind: a band of strata shorter than the canvas is an ordinary picture,
-  // where an archive drawn narrower than the canvas is a picture stranded in empty space.
+  // No floor here: a band of strata shorter than the canvas is ordinary, not stranded in space.
   const { applied } = stretchY(factor, shownGraph() ?? undefined);
   if (applied === 1) return;
   repaint();
@@ -168,11 +148,8 @@ export function zoomY(factor: number, viewportY: number): void {
 }
 
 /**
- * fitHeight brings the strata to the full height of the viewport and centres them there. It is
- * the y-zoom above taken to a measured target: time is untouched, and the camera with it.
- *
- * A layout with no pinned extent has no strata to fit, so there the whole graph is framed, which
- * is the nearest thing to the question.
+ * fitHeight brings the strata to the full height and centres them — the y-zoom at a measured
+ * target, so time is untouched. With no pinned extent there are no strata, so the graph is framed.
  */
 export function fitHeight(): void {
   const instance = showing();
@@ -217,9 +194,8 @@ export function resetCamera(then?: () => void): void {
 }
 
 /**
- * panIntoView brings a claim onto the canvas, and leaves the picture where it is when the claim is
- * already on it. A claim reached from a list is what the reader is now looking at, so it is
- * centred — but the zoom is theirs, and only the position moves.
+ * panIntoView brings a claim onto the canvas, leaving the picture alone when it is already there.
+ * A claim reached from a list is centred, but the zoom is the reader's and only position moves.
  */
 export function panIntoView(node: string): void {
   const instance = showing();
@@ -246,9 +222,8 @@ export function panIntoView(node: string): void {
 }
 
 /**
- * geometry is what the bound is measured from, in the units it is measured in: the pinned extent
- * in graph coordinates, where it lands on the canvas, and how big the canvas is. Null off the
- * timeline, where nothing is pinned.
+ * geometry is what the bound is measured from, in its own units: the pinned extent, where it
+ * lands on the canvas, and the canvas size. Null off the timeline, where nothing is pinned.
  */
 export function geometry(): {
   stretch: Stretch;
@@ -285,11 +260,8 @@ export interface Box {
 }
 
 /**
- * zoomToBox makes a marked rectangle fill the viewport. The camera does it — a box is a request
- * about what to look at, not about what the axes mean, so nothing is laid out again.
- *
- * The ratio takes whichever side needs more room, so the whole box is shown rather than the
- * larger part of it.
+ * zoomToBox makes a marked rectangle fill the viewport, by camera: a box asks what to look at,
+ * not what the axes mean. The ratio takes whichever side needs more room, so the whole box shows.
  */
 export function zoomToBox(box: Box): void {
   const instance = showing();
