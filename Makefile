@@ -130,15 +130,19 @@ SEED_URL   ?= http://localhost:8080
 CONTRIBUTIONS ?= 20
 CLAIMS        ?= 10
 
-# SEED picks a shape: example (a handful of claims over three branches), chain (as many
-# contributions as CONTRIBUTIONS × CLAIMS asks for), or big — a chain sized past the explorer's
-# lens threshold, so the timeline's stretching is exercised on a graph that needs it.
+# SEED picks a shape: example (a handful of claims over three branches), release (the release
+# process the slides draw — four signing identities, two packages meeting at one artifact),
+# chain (as many contributions as CONTRIBUTIONS × CLAIMS asks for), or big — a chain sized past
+# the explorer's lens threshold, so the timeline's stretching is exercised on a graph that
+# needs it.
 BIG_CONTRIBUTIONS ?= 1200
 BIG_CLAIMS        ?= 20
+RELEASES          ?= 3
 
 SEED_ARGS = $(strip $(if $(filter big,$(SEED)), \
 	chain --contributions $(BIG_CONTRIBUTIONS) --claims $(BIG_CLAIMS), \
-	$(if $(filter chain,$(SEED)),chain --contributions $(CONTRIBUTIONS) --claims $(CLAIMS),example)))
+	$(if $(filter chain,$(SEED)),chain --contributions $(CONTRIBUTIONS) --claims $(CLAIMS), \
+	$(if $(filter release,$(SEED)),release --releases $(RELEASES),example))))
 
 # The signing key is minted per run and never written down: this stack keeps
 # nothing between launches, so a throwaway identity is the honest default. The
@@ -147,7 +151,7 @@ SEED_ARGS = $(strip $(if $(filter big,$(SEED)), \
 # Seeding runs as a client, which is what a contributor is — so the generator goes into
 # the background with --wait, contributes as soon as /health answers, and exits, while
 # the server keeps the foreground and ctrl-c.
-dev: build ## Run a dev server from DEV_CONFIG (SEED=example|chain|big to seed it once it answers)
+dev: build ## Run a dev server from DEV_CONFIG (SEED=example|release|chain|big to seed it once it answers)
 	@command -v openssl >/dev/null 2>&1 || { echo "ERROR: dev needs openssl to mint a throwaway signing key"; exit 1; }
 	@addr=$$(grep -o '"addr"[[:space:]]*:[[:space:]]*"[^"]*"' $(DEV_CONFIG) | head -1 | sed -E 's/.*"([^"]*)"$$/\1/'); \
 		url="http://localhost$${addr:-:8080}"; \
@@ -160,7 +164,7 @@ dev: build ## Run a dev server from DEV_CONFIG (SEED=example|chain|big to seed i
 
 # Seeding a server that is already up. An in-memory stack dies with its process, so
 # against the default config this only reaches an instance started by `make dev`.
-seed: build ## Seed a running server over its REST API (SEED_URL, SEED=example|chain|big)
+seed: build ## Seed a running server over its REST API (SEED_URL, SEED=example|release|chain|big)
 	@$(GEN) $(SEED_ARGS) $(SEED_URL) --wait 5s
 
 smoke: build ## Launch against the minimal example, seed it over the API, read it back, shut down

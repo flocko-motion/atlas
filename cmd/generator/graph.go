@@ -56,12 +56,165 @@ var epoch = time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 const clockStep = time.Minute
 
 // grower signs claims for one identity, remembering them so later claims can cite them.
+// A shape needing several signing identities derives them with attest.
 type grower struct {
 	self      ranke.Contributor
 	selfClaim ranke.Claim
 	rnd       *rand.Rand
 	at        time.Time
 	made      []made
+}
+
+// signer is an identity claims are attributed to: the contributor claim naming its key, the
+// height that claim sits at, and the Contributor that signs with it. The root grower is one;
+// attest derives the others.
+type signer struct {
+	name   string
+	claim  ranke.Claim
+	height uint64
+	as     ranke.Contributor
+}
+
+// attest derives an identity from a name and has the root vouch for it: the claim declares
+// the new key and the root signs it, which is what makes the root an authority over it
+// (§5.7). The identity then signs its own claims, so a reader can tell whose they are.
+//
+// The key claim cites the actor it belongs to, which is how the operational side reaches the
+// semantic one: a contributor is a key, an entity is a person or a machine, and they never
+// share a node — so a claim asserting the connection is the only thing that links them.
+func (g *grower) attest(ctx context.Context, name string, of made) (*signer, error) {
+	priv, err := identityKey(name)
+	if err != nil {
+		return nil, err
+	}
+	pub, err := ranke.EncodePublicKey(priv.Public())
+	if err != nil {
+		return nil, fmt.Errorf("encode public key for %q: %w", name, err)
+	}
+	edge, err := ranke.NewEdge(ranke.EdgeConfig{
+		Reference:  of.claim.ID(),
+		Referenced: of.claim,
+		Type:       edgeIdentity,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("edge to %s: %w", of.claim.ID(), err)
+	}
+	// Signed by the root, whose key the builder takes from the contributor it is attributed
+	// to. Height climbs past the actor it cites, the root being an initial node at 0.
+	claim, err := ranke.NewClaim(ranke.NodeTypeContributor, g.self).
+		WithInlineContent(pub).
+		WithEncoding(ranke.EncodingOctetStream).
+		WithCreatedAt(g.at).
+		WithHeight(of.height + 1).
+		WithEdges(edge).
+		Sign()
+	if err != nil {
+		return nil, fmt.Errorf("sign contributor claim for %q: %w", name, err)
+	}
+	g.at = g.at.Add(clockStep)
+	// The pubkey is inline, so resolving it needs no Universe; the key it is checked
+	// against is the one this identity will sign with.
+	as, err := claim.AsContributor(ctx, nil, priv)
+	if err != nil {
+		return nil, fmt.Errorf("bind contributor %q: %w", name, err)
+	}
+	return &signer{name: name, claim: claim, height: of.height + 1, as: as}, nil
+}
+
+// rootSigner is the grower's own identity as a signer, so one helper writes claims for
+// either the root or an attested actor.
+func (g *grower) rootSigner() *signer {
+	return &signer{name: "root", claim: g.selfClaim, height: 0, as: g.self}
+}
+
+// cite is one edge a claim carries: what it reaches, and how. The type is the edge's own —
+// a claim names its inputs, mentions an entity it did not produce, and says who decided,
+// and those are three different relations rather than three inputs.
+type cite struct {
+	to  made
+	typ string
+	dir ranke.RelationDirection
+}
+
+// asInputs turns claims into the derivation/input edges that carry provenance (§3.5).
+func asInputs(refs ...made) []cite {
+	out := make([]cite, 0, len(refs))
+	for _, ref := range refs {
+		out = append(out, cite{to: ref, typ: edgeInput})
+	}
+	return out
+}
+
+// The edge types the release scenario uses beyond the input edge every derivation carries.
+// A relation edge states its direction (§4.7); these all run from the claim outward.
+const (
+	edgeInput = "derivation/input"
+	// A key claim cites the actor it belongs to: provenance, since the key exists because
+	// that actor does.
+	edgeIdentity = "derivation/identity"
+	// What a scan found, and who decided. Neither is an input: a scan does not derive from
+	// the vulnerability it reports, and a decision does not derive from the person who made
+	// it. Reification is for n:n relations between entities (foundation paper §Relations);
+	// a claim naming one entity says so with an edge, and `to` marks the entity as the
+	// object of what the claim states.
+	edgeMentions  = "relation/mentions"
+	edgeDecidedBy = "relation/decided_by"
+)
+
+// spec is one claim to sign: who it is attributed to, where it lands, what it says, and
+// what it reaches. Fields carry what a reader filters on, which content cannot.
+type spec struct {
+	by       *signer
+	branch   string
+	typ      string
+	content  []byte
+	encoding string
+	fields   map[string]string
+	cites    []cite
+}
+
+// write signs one claim from a spec and remembers it. Height is explicit because a claim
+// citing others must declare it (§4.1), and it counts the contributor edge too: a claim
+// signed by an attested identity sits above that identity's own claim.
+func (g *grower) write(s spec) (made, error) {
+	edges := make([]ranke.Edge, 0, len(s.cites))
+	height := s.by.height
+	for _, c := range s.cites {
+		edge, err := ranke.NewEdge(ranke.EdgeConfig{
+			Reference:         c.to.claim.ID(),
+			Referenced:        c.to.claim,
+			Type:              c.typ,
+			RelationDirection: c.dir,
+		})
+		if err != nil {
+			return made{}, fmt.Errorf("edge to %s: %w", c.to.claim.ID(), err)
+		}
+		edges = append(edges, edge)
+		height = max(height, c.to.height)
+	}
+	height++
+
+	encoding := s.encoding
+	if encoding == "" {
+		encoding = "text/plain"
+	}
+	b := ranke.NewClaim(s.typ, s.by.as).
+		WithInlineContent(s.content).
+		WithEncoding(encoding).
+		WithCreatedAt(g.at).
+		WithHeight(height).
+		WithEdges(edges...)
+	for key, value := range s.fields {
+		b = b.WithField(key, value)
+	}
+	claim, err := b.Sign()
+	if err != nil {
+		return made{}, fmt.Errorf("sign %s: %w", s.typ, err)
+	}
+	g.at = g.at.Add(clockStep)
+	m := made{claim: claim, height: height, branch: s.branch}
+	g.made = append(g.made, m)
+	return m, nil
 }
 
 // made pairs a signed claim with the height a claim citing it must climb past, and the
@@ -92,11 +245,20 @@ func newGrower(ctx context.Context, as string) (*grower, error) {
 	}, nil
 }
 
-// identity derives a contributor from a name, so a fixture is reproducible. The key
-// comes from a public string and is worth nothing: never an application's.
-func identity(as string) (ranke.Claim, ed25519.PrivateKey, error) {
+// identityKey derives a fixture signing key from a name, so the same name always signs as
+// the same identity. The key comes from a public string and is worth nothing: never an
+// application's.
+func identityKey(as string) (ed25519.PrivateKey, error) {
 	seed := sha256.Sum256([]byte(identityDomain + as))
-	priv := ed25519.NewKeyFromSeed(seed[:])
+	return ed25519.NewKeyFromSeed(seed[:]), nil
+}
+
+// identity derives a root contributor claim from a name: its own key, self-attested.
+func identity(as string) (ranke.Claim, ed25519.PrivateKey, error) {
+	priv, err := identityKey(as)
+	if err != nil {
+		return nil, nil, err
+	}
 	pub, err := ranke.EncodePublicKey(priv.Public())
 	if err != nil {
 		return nil, nil, fmt.Errorf("encode public key: %w", err)
@@ -248,32 +410,14 @@ func (g *grower) claim(typ, text string, refs ...made) (made, error) {
 	return g.claimOn("", typ, text, refs...)
 }
 
-// claimOn signs a claim and records the branch that holds it.
+// claimOn signs a claim the grower's own identity attributes, citing refs as inputs — the
+// generic shapes need nothing else, so they say it this short way.
 func (g *grower) claimOn(branch, typ, text string, refs ...made) (made, error) {
-	edges := make([]ranke.Edge, 0, len(refs))
-	var height uint64
-	for _, ref := range refs {
-		edge, err := ranke.NewEdge(ranke.EdgeConfig{Reference: ref.claim.ID(), Type: "derivation/input"})
-		if err != nil {
-			return made{}, fmt.Errorf("edge to %s: %w", ref.claim.ID(), err)
-		}
-		edges = append(edges, edge)
-		height = max(height, ref.height)
-	}
-	height++
-
-	claim, err := ranke.NewClaim(typ, g.self).
-		WithInlineContent([]byte(text)).
-		WithEncoding("text/plain").
-		WithCreatedAt(g.at).
-		WithHeight(height).
-		WithEdges(edges...).
-		Sign()
-	if err != nil {
-		return made{}, fmt.Errorf("sign %s: %w", typ, err)
-	}
-	g.at = g.at.Add(clockStep)
-	m := made{claim: claim, height: height, branch: branch}
-	g.made = append(g.made, m)
-	return m, nil
+	return g.write(spec{
+		by:      g.rootSigner(),
+		branch:  branch,
+		typ:     typ,
+		content: []byte(text),
+		cites:   asInputs(refs...),
+	})
 }

@@ -78,6 +78,41 @@ if ! printf '%s' "$body" | grep -q '"type":"entity/person"'; then
 fi
 echo ">> seeded claims read back OK"
 
+# The release shape writes what `example` cannot: claims several attested identities signed,
+# and logs long enough to fetch. One release keeps this quick — the point is the paths, not
+# the size. What a slide draws is only presentable if a server accepts it.
+echo ">> seeding the release scenario"
+"$GEN" release --releases 1 "$URL" >/dev/null
+
+echo ">> POST /query finds a claim an attested identity signed"
+release="$(curl -s -m 10 -X POST "$URL/query" \
+	-H 'content-type: application/json' \
+	-d '{"select":{"branch":"main"},"output":{"detail":"claims","encoding":"json"},
+	     "where":{"field":"type","test":{"eq":"derivation/release"}}}')"
+# Two triage decisions meet here: the fan-in is what the scenario exists to show.
+if [ "$(printf '%s' "$release" | grep -o 'derivation/input' | wc -l)" -lt 2 ]; then
+	echo "smoke: the release claim cites fewer than two decisions: $release" >&2
+	exit 1
+fi
+echo ">> the release fans in from both packages OK"
+
+echo ">> GET a build log through the content route"
+log_id="$(curl -s -m 10 -X POST "$URL/query" \
+	-H 'content-type: application/json' \
+	-d '{"select":{"branch":"main"},"output":{"detail":"claims","encoding":"json"},
+	     "where":{"field":"type","test":{"eq":"source/build_log"}},"limit":{"results":1}}' \
+	| grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)"
+if [ -z "$log_id" ]; then
+	echo "smoke: no build log came back from /query" >&2
+	exit 1
+fi
+bytes="$(curl -s -m 10 "$URL/branches/main/claims/$log_id/content" | wc -c)"
+if [ "$bytes" -lt 1024 ]; then
+	echo "smoke: the content route served $bytes bytes, want a log worth capping" >&2
+	exit 1
+fi
+echo ">> content route served $bytes bytes OK"
+
 # The boundary check runs ahead of core: a query naming no scope is a 400 whatever the
 # engine behind it does.
 code="$(curl -s -o /dev/null -m 5 -w '%{http_code}' -X POST "$URL/query" \
