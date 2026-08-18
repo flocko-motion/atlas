@@ -5,10 +5,8 @@
  * limits:  acts on the camera it is handed; which instance is showing is the renderer's
  *          (-> render/renderer), and the arithmetic is bounds' (-> render/bounds)
  *
- * The picture moves under two independent instruments, and a limit on either one is a limit the
- * other walks past — which is how selecting a branch used to land at an x-zoom the wheel could
- * neither reach nor undo. Everything here works from the drawn graph instead, so zooming out too
- * far and panning off the edge are one violation with one correction.
+ * A limit on the stretch or on the camera alone is one the other walks past, so everything here
+ * works from the drawn graph: zooming out too far and panning off the edge are one violation.
  */
 
 import type Sigma from 'sigma';
@@ -39,17 +37,15 @@ export interface Stretch {
 
 /**
  * drawnGraph is where the graph sits on the canvas, in viewport pixels. Both axes carry their
- * stretch, because stretching one moves the picture while the camera stands still — which is the
- * whole reason a bound on the camera alone was never the bound.
+ * stretch, which moves the picture while the camera stands still.
  */
 function drawnGraph(
   showing: Sigma,
   stretch: Stretch,
 ): { x: number; y: number; width: number; height: number } | null {
   if (!pinned) return null;
-  // Measured against the camera as it is now. Sigma's cached projection is the one the last
-  // frame was drawn with, so a correction applied since would be measured a second time and
-  // applied twice — which is what put a freshly loaded graph half off the bottom of the canvas.
+  // Against the camera as it is now: Sigma's cached projection is last frame's, so a correction
+  // applied since would be measured again and applied twice.
   const now = { cameraState: showing.getCamera().getState() };
   const near = showing.graphToViewport({ x: pinned.x0 * stretch.x, y: pinned.y0 * stretch.y }, now);
   const far = showing.graphToViewport({ x: pinned.x1 * stretch.x, y: pinned.y1 * stretch.y }, now);
@@ -62,9 +58,8 @@ function drawnGraph(
 }
 
 /**
- * ceiling is the largest ratio that still leaves the bound's share of the viewport on graph. It
- * is handed to Sigma's own camera, which checks it on every state it accepts, so the wheel, an
- * animation and a plain setState all stop in the same place with no caller remembering to ask.
+ * ceiling is the largest ratio that still leaves the bound's share of the viewport on graph.
+ * Sigma's camera checks it on every state it accepts, so every instrument stops in one place.
  */
 export function ceiling(showing: Sigma | null, canvas: number, stretch: Stretch): number | null {
   if (!showing || canvas <= 0) return null;
@@ -74,9 +69,7 @@ export function ceiling(showing: Sigma | null, canvas: number, stretch: Stretch)
 }
 
 /**
- * fitStretch is the y stretch at which the strata come to the full height of the viewport. Like
- * the ceiling it is read off the drawn picture, so it answers for wherever the camera happens to
- * be, and it is a fit rather than a bound: the whole height, not a share of it.
+ * fitStretch is the y stretch bringing the strata to the full height — a fit, not a share of it.
  */
 export function fitStretch(showing: Sigma | null, height: number, stretch: Stretch): number | null {
   if (!showing || height <= 0) return null;
@@ -86,9 +79,7 @@ export function fitStretch(showing: Sigma | null, height: number, stretch: Stret
 }
 
 /**
- * offCentreY is how far the drawn strata sit below the middle of the canvas. A fit answers how
- * tall they are and says nothing about where, and a picture that fills the height off-centre is
- * not the view a reader was asking for.
+ * offCentreY is how far the drawn strata sit below the middle, which a fit says nothing about.
  */
 export function offCentreY(showing: Sigma | null, height: number, stretch: Stretch): number | null {
   if (!showing || height <= 0) return null;
@@ -98,9 +89,7 @@ export function offCentreY(showing: Sigma | null, height: number, stretch: Stret
 }
 
 /**
- * drawnRect is where the pinned extent sits on the canvas, for a readout. The bound is measured
- * from exactly this, so a picture that sits wrong can be reported as numbers rather than as an
- * impression of it.
+ * drawnRect exposes that same measurement, so a picture sitting wrong is reported as numbers.
  */
 export function drawnRect(
   showing: Sigma | null,
@@ -110,12 +99,8 @@ export function drawnRect(
 }
 
 /**
- * holdTo puts the picture back inside the bound. Only the pan is done here: the ratio is the
- * camera's own ceiling, which it checks on every state it accepts.
- *
- * Sigma has a pan boundary of its own (`cameraPanBoundaries`), but it measures against the graph
- * Sigma knows about, and a stretch multiplies node x while the pinned extent stays unstretched —
- * so the bound it would keep is not the one the reader can see.
+ * holdTo puts the picture back inside the bound — the pan only, the ratio being the camera's own
+ * ceiling. Sigma's `cameraPanBoundaries` measures the graph it knows, which a stretch has moved.
  */
 export function holdTo(showing: Sigma | null, width: number, height: number, stretch: Stretch): void {
   if (!showing || !pinned || holding || width <= 0 || height <= 0) return;
@@ -129,8 +114,7 @@ export function holdTo(showing: Sigma | null, width: number, height: number, str
     const dy = hold(rect.y, rect.height, height);
     if (dx === 0 && dy === 0) return;
 
-    // A viewport distance means nothing to the camera, so it is converted through the same
-    // transform the renderer draws with — and moving the graph one way moves the camera the other.
+    // Converted through the transform the renderer draws with; the camera moves the other way.
     const origin = showing.viewportToFramedGraph({ x: 0, y: 0 });
     const moved = showing.viewportToFramedGraph({ x: dx, y: dy });
     const now = camera.getState();
