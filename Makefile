@@ -248,7 +248,7 @@ check-rql-schema: ## Fail if the vendored RQL schema differs from the ranke-grap
 GEN_ARTIFACTS := $(OPENAPI_GEN) $(API_OUT)/openapi.gen.go $(API_OUT)/openapi.gen.ts \
                  $(API_OUT)/openapi.html $(API_OUT)/openapi.md $(EXPLORER_CLIENT)
 
-check-generated: ## Fail if `make generate` would change anything (spec edited without regenerating)
+check-generated: ## Fail if `make generate` would change anything (spec edited without regenerating); auto-commits the rebuild
 	@sums=$$(mktemp); \
 	md5sum $(GEN_ARTIFACTS) > "$$sums" 2>/dev/null || true; \
 	$(MAKE) --no-print-directory generate; \
@@ -257,8 +257,10 @@ check-generated: ## Fail if `make generate` would change anything (spec edited w
 	else \
 		rm -f "$$sums"; echo ""; \
 		echo "   the artifacts were stale — the spec changed without a regenerate."; \
-		echo "   They are rebuilt now; review and commit:"; \
-		git status --short -- $(API_OUT) docs/openapi | sed 's/^/     /'; \
+		echo "   Committing the rebuild (only these paths, nothing else in the tree):"; \
+		git status --short -- $(GEN_ARTIFACTS) | sed 's/^/     /'; \
+		git commit --quiet -m "chore: regenerate stale OpenAPI artifacts" -- $(GEN_ARTIFACTS); \
+		echo "   committed — re-run to confirm the tree is now current."; \
 		exit 1; \
 	fi
 
