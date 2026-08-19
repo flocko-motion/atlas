@@ -44,29 +44,43 @@ export function timeAxis(): TimeScale | null {
   return axis;
 }
 
+/**
+ * timeDenseExtent is the archive's dense time range, in the same unstretched x-units as
+ * `timelineExtent` — what the first look should frame, narrower than the bound a reader can
+ * still zoom out past (-> render/camera.ts fitDenseTime).
+ */
+export function timeDenseExtent(): { x0: number; x1: number } | null {
+  return axis?.denseExtent ?? null;
+}
+
 /** stretchOf reads both stretches off a view, which is how every layout is asked for. */
 export function stretchOf(view: ViewState): Stretch {
   return { x: view.xStretch, y: view.yStretch };
 }
 
-/** timelineContext reads the instants and classes off the graph, and builds the axis. */
-export function timelineContext(
-  visible?: readonly string[],
-  stretch: Stretch = { x: 1, y: 1 },
-): TimelineContext {
+/** timelineContext reads the instants off the graph and builds the axis. */
+export function timelineContext(stretch: Stretch = { x: 1, y: 1 }): TimelineContext {
   const g = graph();
   const createdAt = (node: string) => Number(g.getNodeAttribute(node, 'createdAt') ?? 0);
   const instants: number[] = [];
   g.forEachNode((node) => instants.push(createdAt(node)));
   axis = timeScale(instants);
+  // The full axis, not the dense range: this is the bound a reader can zoom out to, and a
+  // remote outlier must stay reachable by it. Where the *first* look lands is a separate,
+  // narrower question (-> fitDenseTime in render/camera.ts, denseExtent below).
   restExtent = { x0: 0, x1: Math.max(axis.width, 1), y0: 0, y1: TIMELINE_HEIGHT };
   return {
     toX: (at) => (axis as TimeScale).toX(at) * stretch.x,
     createdAt,
     classOf: (node) => String(g.getNodeAttribute(node, 'cls') ?? ''),
-    visible,
+    subOf: (node) => subtypeOf(String(g.getNodeAttribute(node, 'claimType') ?? '')),
     yStretch: stretch.y,
   };
+}
+
+/** subtypeOf reads the subtype half of a stored "class/sub" claim type. */
+function subtypeOf(claimType: string): string {
+  return claimType.split('/')[1] ?? '';
 }
 
 /** The edges of the archive in time, for jumping to either end. */
@@ -158,7 +172,7 @@ function stretchAxis(
   const g = target ?? graph();
   if (!axis) return { stretch: stretched, applied };
   // The other axis is laid out from what it already holds, so one stretch never disturbs it.
-  layOut(g, view.classes, { ...stretchOf(view), [axisName]: stretched });
+  layOut(g, { ...stretchOf(view), [axisName]: stretched });
   // A lens is a copy, so stretching it leaves the union at the old scale while the view reports
   // the new one — and every measurement of the picture is taken against what the view reports.
   unsettled = g !== graph();
@@ -166,14 +180,14 @@ function stretchAxis(
 }
 
 /** layOut puts the drawn graph on the axis at these stretches. */
-function layOut(g: DirectedGraph, classes: readonly string[], stretch: Stretch): void {
+function layOut(g: DirectedGraph, stretch: Stretch): void {
   const scale = axis;
   if (!scale) return;
   assignTimeline(g, {
     toX: (at) => scale.toX(at) * stretch.x,
     createdAt: (node) => Number(g.getNodeAttribute(node, 'createdAt') ?? 0),
     classOf: (node) => String(g.getNodeAttribute(node, 'cls') ?? ''),
-    visible: classes,
+    subOf: (node) => subtypeOf(String(g.getNodeAttribute(node, 'claimType') ?? '')),
     yStretch: stretch.y,
   });
 }
@@ -191,6 +205,6 @@ export function settleUnion(): boolean {
   unsettled = false;
   const view = active();
   if (!view || view.layout !== 'timeline') return false;
-  layOut(graph(), view.classes, stretchOf(view));
+  layOut(graph(), stretchOf(view));
   return true;
 }

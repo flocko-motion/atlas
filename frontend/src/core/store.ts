@@ -138,11 +138,15 @@ export interface HistoryState {
   at: number;
 }
 
-/** The debounced hover preview: label and type, and nothing heavier. */
+/** The debounced hover preview: type and a content prefix, and nothing heavier. */
 export interface HoverPreview {
   id: string;
-  label: string;
   claimType: string;
+  /** A prefix of the claim's content, where it is text and already read — else empty. */
+  content: string;
+  /** Pointer position within the canvas host, in pixels — where the tooltip floats. */
+  x: number;
+  y: number;
 }
 
 export interface ExplorerState {

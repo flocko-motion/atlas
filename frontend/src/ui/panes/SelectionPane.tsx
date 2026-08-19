@@ -13,12 +13,13 @@
 
 import { useEffect } from 'react';
 import { shortId } from '../../core/claims.ts';
-import { CONTENT_LIMIT, claimDetail, fetchContent } from '../../core/session.ts';
+import { claimDetail, fetchContent } from '../../core/session.ts';
+import { CONTENT_LIMIT } from '../../core/data/source.ts';
 import type { Reference } from '../../core/session.ts';
 import { useExplorer } from '../../core/store.ts';
 import { revealClaim } from '../../render/renderer.ts';
-import { Empty, KeyValue, PaneTitle } from '../components/Field.tsx';
-import { asText, formatBytes, hexDump, inlineLabel, isTextual } from '../format.ts';
+import { Empty, ExtensionFields, KeyValue, PaneTitle } from '../components/Field.tsx';
+import { asText, contentSummary, formatBytes, hexDump, inlineLabel, isTextual } from '../format.ts';
 
 /**
  * ContentBlock shows the claim's bytes, read as text where the encoding says they are text
@@ -59,7 +60,6 @@ function contentBody(content: NonNullable<ReturnType<typeof useExplorer.getState
       return (
         <>
           <p className="note content-about">
-            {formatBytes(data.length)} · {content.encoding || 'no encoding declared'}
             {text ? '' : ' — shown as bytes, the encoding naming no way to read them'}
           </p>
           <pre className={`content-body${text ? '' : ' is-hex'}`}>
@@ -145,11 +145,25 @@ export function SelectionPane() {
           ['type', detail.claimType || '—'],
           ['label', detail.label ? inlineLabel(detail.label) : '—'],
           ['contribution', detail.contribution.toLocaleString('en-US')],
-          ['created', new Date(detail.createdAt).toISOString().replace('T', ' ').slice(0, 19)],
+          ['height', detail.height?.toLocaleString('en-US') ?? '—'],
+          // As the claim states it, precision and all — never reformatted.
+          [
+            'created',
+            detail.createdAtIso || new Date(detail.createdAt).toISOString(),
+          ],
+          ['content', contentSummary(detail.contentKind, detail.contentSize, detail.encoding)],
+          ...(detail.contentHash
+            ? ([['content hash', <code className="claim-id">{detail.contentHash}</code>]] as [
+                string,
+                React.ReactNode,
+              ][])
+            : []),
           ['degree', detail.degree.toLocaleString('en-US')],
           ['cited by', detail.citedBy.toLocaleString('en-US')],
         ]}
       />
+
+      <ExtensionFields fields={detail.fields} />
 
       <ContentBlock />
 

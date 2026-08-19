@@ -1,12 +1,12 @@
 /**
  * package: render / labels
  * type:    adapter
- * job:     draw a node's caption, which is two lines — what the claim is, then what it says
- * limits:  canvas drawing only; what the lines say is core's (-> core/claims)
+ * job:     draw a node's caption on the canvas
+ * limits:  canvas drawing only; what the caption says is core's (-> core/claims); the hover
+ *          tooltip is a DOM overlay, not canvas (-> ui/shell/App)
  *
- * Sigma draws one line and stops at the first newline, so a caption that names the claim and
- * quotes its content would run both together — "note 42" reading as one phrase rather than as a
- * kind and a thing. Splitting them is the whole reason this exists.
+ * Kept general over any number of lines a caption may carry, though a caption is one line today —
+ * Sigma itself only draws one and stops at the first newline.
  */
 
 import type { Settings } from 'sigma/settings';
@@ -14,6 +14,17 @@ import type { NodeDisplayData, PartialButFor } from 'sigma/types';
 
 /** Room between the baselines of two lines, on top of the font size. */
 const LINE_GAP = 2;
+
+/**
+ * How wide a caption may draw, in multiples of the label grid cell Sigma picked it in
+ * (`settings.labelGridCellSize`). Sigma's grid governs *which* nodes get a label, never how much
+ * room the text takes once drawn — a caption is free to run past its own cell into whatever is
+ * beside it. Tying the cap to that same cell size keeps the two in step: widen the grid and
+ * captions may run a little longer with it, without a second constant to retune by hand.
+ */
+const MAX_LABEL_WIDTH_CELLS = 1.4;
+
+const ELLIPSIS = '…';
 
 type LabelData = PartialButFor<NodeDisplayData, 'x' | 'y' | 'size' | 'label' | 'color'>;
 
@@ -33,6 +44,24 @@ function face(context: CanvasRenderingContext2D, settings: Settings): number {
 }
 
 /**
+ * fitToWidth trims text to maxWidth in the context's current font, marking a cut with an
+ * ellipsis — a longest-prefix binary search rather than a character count, since the two
+ * captions most likely to collide (long identifiers, "vulnerability_scan" beside
+ * "release_candidate") are exactly the ones a fixed character cap under- or over-trims.
+ */
+function fitToWidth(context: CanvasRenderingContext2D, text: string, maxWidth: number): string {
+  if (context.measureText(text).width <= maxWidth) return text;
+  let lo = 0;
+  let hi = text.length;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    if (context.measureText(text.slice(0, mid) + ELLIPSIS).width <= maxWidth) lo = mid;
+    else hi = mid - 1;
+  }
+  return lo === 0 ? ELLIPSIS : text.slice(0, lo) + ELLIPSIS;
+}
+
+/**
  * drawNodeLabel writes the caption beside its node. A block of lines is centred on the baseline
  * Sigma would have used for one, so adding a second line does not shift the first off the claim
  * it belongs to.
@@ -49,50 +78,8 @@ export function drawNodeLabel(context: CanvasRenderingContext2D, data: LabelData
 
   const step = size + LINE_GAP;
   const first = data.y + size / 3 - ((rows.length - 1) * step) / 2;
-  rows.forEach((row, i) => context.fillText(row, data.x + data.size + 3, first + i * step));
-}
-
-/**
- * drawNodeHover puts the caption on a plate, so a claim under the pointer is readable over
- * whatever it happens to be drawn on top of. The plate is the widest line by however many there
- * are, which is the only thing Sigma's own could not do.
- */
-export function drawNodeHover(context: CanvasRenderingContext2D, data: LabelData, settings: Settings): void {
-  const rows = lines(data.label);
-  const size = face(context, settings);
-
-  context.fillStyle = '#FFF';
-  context.shadowOffsetX = 0;
-  context.shadowOffsetY = 0;
-  context.shadowBlur = 8;
-  context.shadowColor = '#000';
-
-  const PADDING = 2;
-  if (rows.length > 0) {
-    const step = size + LINE_GAP;
-    const width = Math.round(Math.max(...rows.map((row) => context.measureText(row).width)) + 5);
-    const height = Math.round(rows.length * step - LINE_GAP + 2 * PADDING);
-    const radius = Math.max(data.size, height / 2) + PADDING;
-    const angle = Math.asin(height / 2 / radius);
-    const xDelta = Math.sqrt(Math.abs(radius ** 2 - (height / 2) ** 2));
-
-    context.beginPath();
-    context.moveTo(data.x + xDelta, data.y + height / 2);
-    context.lineTo(data.x + radius + width, data.y + height / 2);
-    context.lineTo(data.x + radius + width, data.y - height / 2);
-    context.lineTo(data.x + xDelta, data.y - height / 2);
-    context.arc(data.x, data.y, radius, angle, -angle);
-    context.closePath();
-    context.fill();
-  } else {
-    context.beginPath();
-    context.arc(data.x, data.y, data.size + PADDING, 0, Math.PI * 2);
-    context.closePath();
-    context.fill();
-  }
-
-  context.shadowOffsetX = 0;
-  context.shadowOffsetY = 0;
-  context.shadowBlur = 0;
-  drawNodeLabel(context, data, settings);
+  const maxWidth = settings.labelGridCellSize * MAX_LABEL_WIDTH_CELLS;
+  rows.forEach((row, i) =>
+    context.fillText(fitToWidth(context, row, maxWidth), data.x + data.size + 3, first + i * step),
+  );
 }

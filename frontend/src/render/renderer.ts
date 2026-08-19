@@ -10,8 +10,11 @@
  */
 
 import Sigma from 'sigma';
+import { createEdgeArrowProgram } from 'sigma/rendering';
 import type { Settings } from 'sigma/settings';
 import type { DirectedGraph } from 'graphology';
+import { contentOf } from '../core/content.ts';
+import { brighten } from '../core/graph/build.ts';
 import { graph } from '../core/graph/universe.ts';
 import { inScope } from '../core/session.ts';
 import { useExplorer, activeView } from '../core/store.ts';
@@ -29,11 +32,43 @@ import {
   shownGraph,
   unionOf,
 } from './instances.ts';
-import { drawNodeHover, drawNodeLabel } from './labels.ts';
+import { drawNodeLabel } from './labels.ts';
 import { pin } from './hold.ts';
 
 /** How long the pointer must rest before the preview updates. */
 const HOVER_DEBOUNCE_MS = 120;
+
+/** How much of a claim's content the hover tooltip quotes. */
+const PREVIEW_CONTENT_CHARS = 200;
+
+/**
+ * contentSnippet is the hover tooltip's second line: a prefix of a claim's content, where it is
+ * both text and already read. It never fetches — a pointer sweeping over a thousand nodes must
+ * not start a request per node — so a claim whose bytes have not been read this session, or
+ * whose encoding is not text, quotes nothing.
+ */
+function contentSnippet(id: string): string {
+  const encoding = graph().getNodeAttribute(id, 'encoding') as string | undefined;
+  const textual =
+    !!encoding &&
+    (encoding.startsWith('text/') ||
+      encoding === 'application/json' ||
+      encoding === 'application/xml' ||
+      encoding.endsWith('+json') ||
+      encoding.endsWith('+xml'));
+  if (!textual) return '';
+  const bytes = contentOf(id);
+  if (!bytes) return '';
+  const text = new TextDecoder('utf-8', { fatal: false }).decode(bytes).trim();
+  if (text.length === 0) return '';
+  return text.length > PREVIEW_CONTENT_CHARS ? `${text.slice(0, PREVIEW_CONTENT_CHARS)}…` : text;
+}
+
+// Sigma's stock arrowhead scales off edge thickness (`lengthToThicknessRatio` /
+// `widenessToThicknessRatio`, defaults 2.5 / 2) — against this app's thin edges the result is a
+// sliver, hard to see which way an edge points. Built once at module scope, like the Sigma
+// instance itself: a WebGL program is not something to rebuild per render.
+const BIG_ARROW_PROGRAM = createEdgeArrowProgram({ lengthToThicknessRatio: 5, widenessToThicknessRatio: 4 });
 
 let fpsHandle = 0;
 let frames = 0;
@@ -99,20 +134,34 @@ function sigmaSettings(): Partial<Settings> {
     // Arrows: every edge points from a claim to what it cites, and a graph of provenance
     // without direction drawn is not readable.
     defaultEdgeType: 'arrow',
-    renderEdgeLabels: false,
+    // Every edge's own label text is blank except the selected claim's (-> edgeReducer), so
+    // turning this on does not draw a caption on every edge — Sigma's own default drawer
+    // already no-ops on a blank label (rendering/programs/edge-label.js), which is what makes
+    // this safe to leave on rather than a setting to flip per selection.
+    renderEdgeLabels: true,
     // Edges are selectable, so the detail pane can answer about one.
     enableEdgeEvents: true,
     allowInvalidContainer: true,
     // Sigma's default label colour is black, which on this theme is black on black.
     labelColor: { color: '#e6e8ee' },
-    // A caption is two lines, which Sigma's own drawer runs together (-> render/labels).
+    // Fallback only — every edge carries its own class/subtype colour from the graph
+    // (-> core/graph/build.ts colorFor); this is what an edge without one would show.
+    defaultEdgeColor: '#4a4f5c',
+    // The stock arrowhead, scaled up (-> BIG_ARROW_PROGRAM) so direction reads at a glance.
+    edgeProgramClasses: { arrow: BIG_ARROW_PROGRAM },
     defaultDrawNodeLabel: drawNodeLabel,
-    defaultDrawNodeHover: drawNodeHover,
+    // No plate on hover: Sigma's own default draws one, light and hard to read on a dark
+    // canvas, and the highlight below (bigger, raised z-index) already marks the node — the
+    // hover tooltip is a DOM overlay instead (-> ui/shell/App HoverPreviewChip).
+    defaultDrawNodeHover: () => {},
     // The label budget, and the cap itself: at most `labelDensity` labels per
-    // `labelGridCellSize` px of viewport, nothing below the size threshold.
-    labelRenderedSizeThreshold: 8,
-    labelDensity: 1,
-    labelGridCellSize: 120,
+    // `labelGridCellSize` px of viewport, nothing below the size threshold. Sigma picks the
+    // `labelDensity` winners in a cell by size alone, with no separation check between them —
+    // so a cell density above 2 lets same-cell winners land close enough to collide once rows
+    // compress (a low `yStretch` in the timeline layout); 2 keeps most of the gain without that.
+    labelRenderedSizeThreshold: 3,
+    labelDensity: 2,
+    labelGridCellSize: 80,
     nodeReducer: (node, data) => {
       const view = activeView(useExplorer.getState());
       if (!view) return data;
@@ -120,9 +169,22 @@ function sigmaSettings(): Partial<Settings> {
       if (!visible) return { ...data, hidden: true };
       if (counting) admittedNodes++;
       const { selected, hovered } = useExplorer.getState().selection;
-      if (node === selected) return { ...data, highlighted: true, zIndex: 2 };
-      if (node === hovered) return { ...data, highlighted: true, zIndex: 1 };
-      return data;
+      let out = data;
+      // A selected claim's caption is the one the reader asked for; every other caption steps
+      // aside for it rather than compete for the same small patch of canvas — cheap because the
+      // label-density budget already bounds how many were showing to begin with (-> renderer.ts
+      // labelBearingNodes), not by how large the loaded graph is.
+      if (selected && node !== selected) out = { ...out, label: '' };
+      const own = String(out.color ?? '#999999');
+      if (node === selected) {
+        // forceLabel bypasses Sigma's own size/density gate, so the selected claim's caption
+        // shows even where it would not have earned one on its own.
+        return { ...out, color: brighten(own, NODE_SELECTED_BRIGHTEN), highlighted: true, forceLabel: true, zIndex: 2 };
+      }
+      if (node === hovered) {
+        return { ...out, color: brighten(own, NODE_HOVERED_BRIGHTEN), highlighted: true, zIndex: 1 };
+      }
+      return out;
     },
     edgeReducer: (edge, data) => {
       const view = activeView(useExplorer.getState());
@@ -138,34 +200,40 @@ function sigmaSettings(): Partial<Settings> {
       if (counting) admittedEdges++;
 
       const { selected, selectedEdge } = useExplorer.getState().selection;
+      const own = String(data.color ?? '#4a4f5c');
+      // A caption on every edge at once is unreadable, so an edge names itself only once a
+      // claim is selected and only where it touches that claim — the few edges a reader is
+      // actually asking about, not the whole picture.
+      const label = selected && (source === selected || target === selected)
+        ? String(data.claimType ?? '').split('/')[1] ?? ''
+        : '';
       // A claim is a node and its outgoing edges, so the edges of a selected claim are
-      // selected with it.
+      // selected with it — brightened rather than recoloured, so the highlight still says
+      // what class and subtype the edge is, not just that it is highlighted.
       if (edge === selectedEdge || source === selected) {
-        return { ...data, color: EDGE_SELECTED, size: 2, zIndex: 2 };
+        return { ...data, color: brighten(own, EDGE_OWN_BRIGHTEN), size: 2, zIndex: 2, label };
       }
       // An edge pointing *at* the selection belongs to somebody else — a citation, which the
-      // claim could not know when it was written. A colour of its own, so the two directions
-      // are told apart on the canvas as they are in the pane.
+      // claim could not know when it was written. A lighter brighten than an own edge's, so the
+      // two directions are still told apart on the canvas as they are in the pane.
       if (target === selected) {
-        return { ...data, color: EDGE_CITATION, size: 2, zIndex: 2 };
+        return { ...data, color: brighten(own, EDGE_CITATION_BRIGHTEN), size: 2, zIndex: 2, label };
       }
-      // contribution/* is the structural spine — the head and branch-table chain. It is the
-      // bulk of the edges and the least of the meaning, so it recedes.
-      if (String(data.claimType ?? '').startsWith('contribution/')) {
-        return { ...data, color: EDGE_DIM };
-      }
-      return data;
+      // Otherwise the edge's own class/subtype colour stands as built (-> build.ts colorFor):
+      // contribution/* is already the darkest, greyest family, so the structural spine recedes
+      // without a special case here.
+      return { ...data, label };
     },
   };
 }
 
-/**
- * Edge colours: bookkeeping recedes, a selected claim's own edges come forward, and what cites it
- * comes forward in the other direction — the relation hue from the class palette (Okabe–Ito).
- */
-const EDGE_DIM = '#3a4050';
-const EDGE_SELECTED = '#5eb0ff';
-const EDGE_CITATION = '#cc79a7';
+/** How far a highlighted edge's own colour is brightened (-> core/graph/build.ts brighten). */
+const EDGE_OWN_BRIGHTEN = 0.55;
+const EDGE_CITATION_BRIGHTEN = 0.3;
+
+/** How far a highlighted node's own colour is brightened. */
+const NODE_SELECTED_BRIGHTEN = 0.5;
+const NODE_HOVERED_BRIGHTEN = 0.3;
 
 /**
  * applyViewSettings pushes a view's render flags into Sigma — settings, not reducer
@@ -227,14 +295,49 @@ export function highlight(nodes: string[]): void {
 }
 
 /**
+ * labelBearingNodes are the nodes Sigma is currently drawing a caption for. A change of
+ * selection blanks every caption but the selected claim's own (-> nodeReducer), which only
+ * takes effect where the reducer actually re-runs — so a selection change's partial refresh
+ * must include this set, on top of the claim itself. Cheap regardless of how large the loaded
+ * graph is: the label-density budget already bounds how many captions are ever on screen at
+ * once, so this set never grows past that budget.
+ */
+function labelBearingNodes(): string[] {
+  const instance = showing();
+  return instance ? [...instance.getNodeDisplayedLabels()] : [];
+}
+
+/**
+ * edgeOwner is the node whose repaint clears a stale edge's highlight — an edge belongs to the
+ * claim it points from, so repainting that claim's edges is what re-runs the edge's own
+ * reducer. Every selection-changing call site below must pass its *previous* `selectedEdge`
+ * through this before the state change: node and edge selection are mutually exclusive at the
+ * store (selecting one clears the other), so a caller that only ever tracks the previous
+ * *node* leaves a just-deselected edge's brightened colour cached with nothing left to repaint
+ * it away — which is exactly what selecting a second edge without first deselecting the first
+ * used to do. Null wherever there was no previous edge, or it is no longer drawn at all (a
+ * scope change dropped it), neither of which needs clearing.
+ */
+function edgeOwner(edgeKey: string | null): string | null {
+  const drawn = showing()?.getGraph();
+  return edgeKey && drawn?.hasEdge(edgeKey) ? drawn.source(edgeKey) : null;
+}
+
+/**
  * revealClaim selects a claim named somewhere other than the canvas — a row in a pane — and brings
  * it into view. Selecting alone would repaint nothing and leave the reader looking at a picture
  * that has silently changed what it is about.
  */
 export function revealClaim(id: string): void {
-  const previous = useExplorer.getState().selection.selected;
+  const previousNode = useExplorer.getState().selection.selected;
+  const previousEdgeOwner = edgeOwner(useExplorer.getState().selection.selectedEdge);
   useExplorer.getState().select(id);
-  highlight([id, ...(previous ? [previous] : [])]);
+  highlight([
+    id,
+    ...(previousNode ? [previousNode] : []),
+    ...(previousEdgeOwner ? [previousEdgeOwner] : []),
+    ...labelBearingNodes(),
+  ]);
   panIntoView(id);
 }
 
@@ -243,10 +346,17 @@ export function revealClaim(id: string): void {
  * Walking it adds nothing to it, which is what makes forward mean anything.
  */
 export function walkHistory(delta: -1 | 1): void {
-  const before = useExplorer.getState().selection.selected;
+  const beforeNode = useExplorer.getState().selection.selected;
+  const beforeEdgeOwner = edgeOwner(useExplorer.getState().selection.selectedEdge);
   useExplorer.getState().stepHistory(delta);
   const now = useExplorer.getState().selection.selected;
-  highlight([now, before].filter((id): id is string => id !== null));
+  // A history step can land on an edge visit as easily as a node one, so the edge it lands on
+  // needs its own repaint too — not just the edge it steps away from.
+  const nowEdgeOwner = edgeOwner(useExplorer.getState().selection.selectedEdge);
+  highlight([
+    ...[now, beforeNode, beforeEdgeOwner, nowEdgeOwner].filter((id): id is string => id !== null),
+    ...labelBearingNodes(),
+  ]);
   if (now) panIntoView(now);
 }
 
@@ -264,43 +374,65 @@ function bindEvents(instance: Sigma): void {
   });
 
   instance.on('clickNode', ({ node }) => {
-    const previous = useExplorer.getState().selection.selected;
+    const previousNode = useExplorer.getState().selection.selected;
+    const previousEdgeOwner = edgeOwner(useExplorer.getState().selection.selectedEdge);
     useExplorer.getState().select(node);
     // Clicking a claim is asking about it, so the pane that answers comes forward.
     useExplorer.getState().setSidePane('info');
-    highlight([node, ...(previous ? [previous] : [])]);
+    highlight([
+      node,
+      ...(previousNode ? [previousNode] : []),
+      ...(previousEdgeOwner ? [previousEdgeOwner] : []),
+      ...labelBearingNodes(),
+    ]);
   });
 
   instance.on('clickEdge', ({ edge }) => {
-    const previous = useExplorer.getState().selection.selected;
+    const previousNode = useExplorer.getState().selection.selected;
+    const previousEdgeOwner = edgeOwner(useExplorer.getState().selection.selectedEdge);
     const drawn = instance.getGraph();
     useExplorer.getState().selectEdge(edge);
     useExplorer.getState().setSidePane('info');
-    // The edge's own claim is the one that owns it, so repainting from there covers both.
-    highlight([drawn.source(edge), ...(previous ? [previous] : [])]);
+    // The edge's own claim is the one that owns it, so repainting from there covers both — and
+    // the previously selected edge's owner must repaint too, or its highlight survives with
+    // nothing left to clear it (-> edgeOwner).
+    highlight([
+      drawn.source(edge),
+      ...(previousNode ? [previousNode] : []),
+      ...(previousEdgeOwner ? [previousEdgeOwner] : []),
+    ]);
   });
 
   instance.on('clickStage', () => {
-    const previous = useExplorer.getState().selection.selected;
+    const previousNode = useExplorer.getState().selection.selected;
+    const previousEdgeOwner = edgeOwner(useExplorer.getState().selection.selectedEdge);
     useExplorer.getState().select(null);
-    if (previous) highlight([previous]);
+    // Only a previously-selected claim or edge leaves anything to clear — clicking empty
+    // canvas with nothing selected repaints nothing.
+    const toClear = [...(previousNode ? [previousNode] : []), ...(previousEdgeOwner ? [previousEdgeOwner] : [])];
+    if (toClear.length > 0) highlight([...toClear, ...labelBearingNodes()]);
   });
 
   // Hover drives only a partial repaint: the highlight is immediate (two nodes), the
   // preview debounced so a sweeping pointer cannot outrun the reader.
-  instance.on('enterNode', ({ node }) => {
+  instance.on('enterNode', ({ node, event }) => {
     const previous = useExplorer.getState().selection.hovered;
     useExplorer.getState().hover(node);
     highlight([node, ...(previous ? [previous] : [])]);
     window.clearTimeout(hoverTimer);
+    // event.x/y are already relative to the canvas host, which is what the floating
+    // tooltip is positioned against — no further conversion needed.
+    const { x, y } = event;
     hoverTimer = window.setTimeout(() => {
       if (useExplorer.getState().selection.hovered !== node) return;
       const g = graph();
       if (!g.hasNode(node)) return;
       useExplorer.getState().setPreview({
         id: node,
-        label: String(g.getNodeAttribute(node, 'label') ?? ''),
         claimType: String(g.getNodeAttribute(node, 'claimType') ?? ''),
+        content: contentSnippet(node),
+        x,
+        y,
       });
     }, HOVER_DEBOUNCE_MS);
   });

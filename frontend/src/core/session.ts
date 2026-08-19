@@ -10,7 +10,7 @@
 
 import { activeConnection, useConnections } from './connections.ts';
 import { useQuery } from './query.ts';
-import { sourceFor } from './data/source.ts';
+import { CONTENT_LIMIT, sourceFor } from './data/source.ts';
 import { mergeClaimsProgressively, graph, totalContributions } from './graph/universe.ts';
 import { membersOf, setMembers } from './graph/members.ts';
 import { contentOf, rememberContent } from './content.ts';
@@ -186,7 +186,7 @@ export async function load(req: LoadRequest = {}): Promise<void> {
   const layoutMs = await apply(g, layout, {
     depth: shape.depth,
     contribution: contributionOf(g),
-    timeline: layout === 'timeline' ? timelineContext(view.classes, stretchOf(view)) : undefined,
+    timeline: layout === 'timeline' ? timelineContext(stretchOf(view)) : undefined,
   });
   log(`layout      ${layoutMs.toFixed(0)} ms · ${layout}`);
 
@@ -434,15 +434,12 @@ export async function relayout(layout: LayoutName): Promise<void> {
   const ms = await apply(g, layout, {
     depth,
     contribution: contributionOf(g),
-    timeline: layout === 'timeline' ? timelineContext(active.classes, stretchOf(active)) : undefined,
+    timeline: layout === 'timeline' ? timelineContext(stretchOf(active)) : undefined,
   });
   log(`layout      ${ms.toFixed(0)} ms · ${layout}`);
   onLoaded?.('fit');
   useExplorer.getState().patchStatus({ busy: null, progress: null });
 }
-
-/** The most content to fetch: beyond it the size is reported and the bytes stay put. */
-export const CONTENT_LIMIT = 4096;
 
 /**
  * fetchContent reads the selected claim's bytes, deciding from the declared size whether to
@@ -557,6 +554,9 @@ export function edgeDetail(key: string) {
     edgeType: String(attrs.claimType ?? ''),
     contentSize: attrs.contentSize as number | undefined,
     encoding: attrs.encoding as string | undefined,
+    contentKind: String(attrs.contentKind ?? 'none'),
+    contentHash: String(attrs.contentHash ?? ''),
+    fields: (attrs.fields ?? {}) as Readonly<Record<string, string>>,
     direction: Number(attrs.direction ?? 0),
     from,
     fromLabel: label(from),
@@ -611,8 +611,13 @@ export function claimDetail(id: string) {
     claimType: String(attrs.claimType ?? ''),
     contribution: Number(attrs.contribution ?? 0),
     createdAt: Number(attrs.createdAt ?? 0),
+    createdAtIso: String(attrs.createdAtIso ?? ''),
+    height: attrs.height as number | undefined,
     contentSize: attrs.contentSize as number | undefined,
     encoding: attrs.encoding as string | undefined,
+    contentKind: String(attrs.contentKind ?? 'none'),
+    contentHash: String(attrs.contentHash ?? ''),
+    fields: (attrs.fields ?? {}) as Readonly<Record<string, string>>,
     label: String(attrs.label ?? ''),
     degree: g.degree(id),
     references,

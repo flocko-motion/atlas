@@ -21,6 +21,13 @@ import type { Connection, MockParams, ProbeResult } from '../connections.ts';
 import { Api } from './openapi.gen.ts';
 import type { Error as ApiError, HttpResponse, Query as ApiQuery } from './openapi.gen.ts';
 
+/**
+ * The most content to carry per claim, on the wire and on demand alike: a bulk read inlines
+ * a body up to this size, and selection fetches one only up to it. One threshold, so what
+ * the bulk read withholds is exactly what the detail pane reports as too large.
+ */
+export const CONTENT_LIMIT = 4096;
+
 /** What a read returns: claims, and what the source can say about them. */
 export interface ClaimPage {
   claims: DrawnClaim[];
@@ -245,9 +252,10 @@ export class RestSource implements DataSource {
 
   /**
    * fetch reads claims: `detail: claims` carries each with its edges, `form: original` skips
-   * diff resolution, `limit.results` caps it. No `content`, so none is inlined (R-QCONTENT) —
-   * captions fall back to type and id, and a cap's worth per claim over 100k is a trade to
-   * make against a real archive. A projection to draw, not the verifiable shaping (R-QCANON).
+   * diff resolution, `limit.results` caps it. Content rides along up to CONTENT_LIMIT per
+   * claim, `overflow: omit` keeping each body whole or absent (R-QCONTENT); a larger claim
+   * arrives size-only, its bytes waiting on the content route until it is selected. A
+   * projection to draw, not the verifiable shaping (R-QCANON).
    */
   async fetch(request: FetchRequest): Promise<ClaimPage> {
     if (!request.scope) {
@@ -260,7 +268,12 @@ export class RestSource implements DataSource {
     const response = await this.query(
       {
         select: { branch: request.scope.name, head: request.scope.head },
-        output: { detail: 'claims', form: 'original', encoding: 'json' },
+        output: {
+          detail: 'claims',
+          form: 'original',
+          encoding: 'json',
+          content: { max: CONTENT_LIMIT, overflow: 'omit' },
+        },
         limit: { results: request.limit },
       },
       `reading ${request.scope.name}`,

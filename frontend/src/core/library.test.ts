@@ -17,6 +17,7 @@ import { DirectedGraph } from 'graphology';
 
 import { addClaims } from './graph/build.ts';
 import { claimsFromBody } from './data/source.ts';
+import { contentOf, forgetContent } from './content.ts';
 import { generate } from './mock/generate.ts';
 
 /** oneRecord is a query's answer holding a single claim, framed as RFC 7464 asks. */
@@ -60,6 +61,32 @@ test('a decoded claim and a generated claim are one type on one path', async () 
     Object.keys(graph.getNodeAttributes(fromGenerator[0].claim.id)).sort(),
     'the two sources produce differently shaped nodes',
   );
+});
+
+// A capped read may serve a prefix of a body (R-QCONTENT), which kind and bytes alone look
+// no different from whole content. Only whole content enters the cache — a cached prefix
+// would be served as the content wherever the id is next looked up — while the declared
+// size stays on the node, so the detail pane still knows what exists.
+test('partial inline content is not cached; whole content is', async () => {
+  forgetContent();
+  const record = (id: string, size: number) =>
+    `\u001e${JSON.stringify({
+      id,
+      type: 'source/note',
+      created_at: '2024-03-04T05:06:07.000000000Z',
+      height: 0,
+      content: 'aGk=', // "hi", 2 bytes of however many `size` declares
+      content_size: size,
+      encoding: 'text/plain',
+    })}\n`;
+  const body = record('bciqwhole', 2) + record('bciqcut', 10);
+  const claims = await claimsFromBody({ body: null, text: async () => body } as unknown as Response);
+
+  const graph = new DirectedGraph({ allowSelfLoops: false });
+  addClaims(graph, claims);
+  assert.deepEqual(contentOf('bciqwhole'), new Uint8Array([104, 105]));
+  assert.equal(contentOf('bciqcut'), null, 'a prefix was cached as the content');
+  assert.equal(graph.getNodeAttribute('bciqcut', 'contentSize'), 10, 'the declared size was lost');
 });
 
 // 7.3 — the edge filter is the library's matcher, so it follows the contract's glob rules

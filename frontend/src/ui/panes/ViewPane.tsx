@@ -63,8 +63,12 @@ export function ViewPane() {
         <>
           <h2>strata</h2>
           <p className="note">
-            The bands the timeline draws, top of the picture first. Dropping one is a view
-            predicate, so it costs a re-index rather than another read —
+            The classes the timeline draws, top of the picture first. Dropping one is a view
+            predicate, so it costs a re-index rather than another read or a relayout — every
+            band keeps the height and position it would have with every class shown, so
+            toggling one never moves anyone else's claims.
+            <code> entity/*</code> and <code>relation/*</code> share a band, the semantic
+            layer, each in its own colour.
             <code> contribution/*</code> is the structural layer, worth hiding when reading
             content and worth having when analysing the archive itself.
           </p>
@@ -75,10 +79,7 @@ export function ViewPane() {
               checked={view.classes.length === 0 || view.classes.includes(stratum)}
               onChange={() => {
                 patchView(view.id, { classes: toggledStrata(view.classes, stratum) });
-                // The timeline shares its height between the bands that are shown, so hiding
-                // one gives its room to the rest — which is a new layout, not a re-filter.
-                if (view.layout === 'timeline') void relayout(view.layout);
-                else refreshSelection();
+                refreshSelection();
               }}
             />
           ))}

@@ -12,8 +12,8 @@ import { shortId } from '../../core/claims.ts';
 import { edgeDetail } from '../../core/session.ts';
 import { useExplorer } from '../../core/store.ts';
 import { revealClaim, walkHistory } from '../../render/renderer.ts';
-import { Empty, KeyValue, PaneTitle } from '../components/Field.tsx';
-import { formatBytes, inlineLabel } from '../format.ts';
+import { Empty, ExtensionFields, KeyValue, PaneTitle } from '../components/Field.tsx';
+import { contentSummary, inlineLabel } from '../format.ts';
 import { GraphPane } from './GraphPane.tsx';
 import { SelectionPane } from './SelectionPane.tsx';
 
@@ -91,15 +91,22 @@ function EdgeInfo({ edgeKey }: { edgeKey: string }) {
       <KeyValue
         rows={[
           ['type', detail.edgeType || '—'],
-          // An edge carries content of its own, exactly as a claim does — the size and encoding
-          // it declares, whether or not a read carried the bytes.
-          ['content', formatBytes(detail.contentSize)],
-          ['encoding', detail.encoding || '—'],
+          // An edge carries content of its own, exactly as a claim does — the declaration
+          // travels whether or not a read carried the bytes.
+          ['content', contentSummary(detail.contentKind, detail.contentSize, detail.encoding)],
+          ...(detail.contentHash
+            ? ([['content hash', <code className="claim-id">{detail.contentHash}</code>]] as [
+                string,
+                React.ReactNode,
+              ][])
+            : []),
           ...(detail.direction === 0
             ? []
             : ([['direction', detail.direction > 0 ? 'from (+1)' : 'to (−1)']] as [string, string][])),
         ]}
       />
+
+      <ExtensionFields fields={detail.fields} />
 
       <h2>cites from</h2>
       <EdgeEnd

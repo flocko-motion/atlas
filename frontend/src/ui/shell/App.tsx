@@ -33,6 +33,7 @@ import {
   unpinExtent,
 } from '../../render/renderer.ts';
 import {
+  fitDenseTime,
   fitHeight,
   graphXAt,
   holdCamera,
@@ -70,9 +71,13 @@ function HoverPreviewChip() {
   const preview = useExplorer((s) => s.preview);
   if (!preview) return null;
   return (
-    <div className="hover-preview" role="status">
-      <span className="hover-preview-type">{preview.claimType}</span>
-      <span className="hover-preview-label">{preview.label}</span>
+    <div
+      className="hover-preview"
+      role="status"
+      style={{ left: preview.x + 14, top: preview.y + 14 }}
+    >
+      <div className="hover-preview-type">{preview.claimType}</div>
+      {preview.content ? <div className="hover-preview-content">{preview.content}</div> : null}
     </div>
   );
 }
@@ -286,8 +291,13 @@ export function App() {
       refreshSelection();
       // The graph a reader has just asked for is framed to the strata, which is the picture the
       // fit-height tool gives — asking for a branch and being shown a band of dots in the middle
-      // of an empty canvas is a reader doing the renderer's work.
-      if (framing === 'fit') fitHeight();
+      // of an empty canvas is a reader doing the renderer's work. Time then narrows further, to
+      // the archive's dense range rather than the full bound — a lone remote outlier is still
+      // reachable by zooming out, just not what the first look opens on (-> fitDenseTime).
+      if (framing === 'fit') {
+        fitHeight();
+        if (view?.layout === 'timeline') fitDenseTime();
+      }
       // A load is the other way the picture moves without a gesture, and it was the one that
       // used to land outside what the wheel could reach.
       else holdCamera();

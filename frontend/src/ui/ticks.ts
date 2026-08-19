@@ -1,25 +1,26 @@
 /**
  * package: ui / ticks
  * type:    logic
- * job:     choose which dates to label on the time ruler, and at what unit
- * limits:  placement and wording; the axis and its inverse are core's (-> core/layout/timescale)
+ * job:     word the ruler's precomputed tick positions, and decide how many of them a given
+ *          zoom actually shows
+ * limits:  formatting and render-time selection; which instants are candidates at all, and at
+ *          what granularity, is core's (-> core/layout/timescale TickPosition, tickPositions)
  *
- * Labels sit on calendar boundaries rather than at even distances, because a reader looks
- * for "the start of 2024", not "40% of the way along". The unit is chosen by how much room
- * the boundaries actually get: the finest that fits, so a coarser unit wins whenever a finer
- * one would crowd.
- *
- * Two things make this awkward, and both are handled by measuring rather than assuming. The
- * axis compresses silences, so boundaries are not evenly spaced even at one unit — hence the
- * thinning pass. And the camera zooms, so the same archive wants years at one moment and
- * milliseconds at another — hence taking the screen positions as input.
- *
- * Year boundaries are always kept and marked, whatever unit was chosen: a year is the
- * coarsest thing a reader orients by, and losing it to a thinning pass would be the one
- * omission that matters.
+ * The heavy work — walking every claim once to decide which instants are worth a label and how
+ * finely to word each — happens once, at axis build time, in core/layout/timescale.ts: a
+ * candidate every so often as the axis is walked left to right, so the total is a small
+ * constant regardless of how many claims fed it, each tagged with the coarsest unit that still
+ * distinguishes it from its predecessor, so a burst of nearby claims earns fine detail (seconds)
+ * and a claim after a long silence settles for whatever its actual distance says (a year). This
+ * module only turns the few candidates that fall in view into text and thins them for the
+ * current zoom's on-screen spacing — a bounded, per-frame spacing check, not a recomputation of
+ * the whole candidate set.
  */
 
-export type TimeUnit = 'year' | 'month' | 'day' | 'hour' | 'minute' | 'second' | 'ms';
+import type { TickPosition, TimeUnit } from '../core/layout/timescale.ts';
+import { UNITS } from '../core/layout/timescale.ts';
+
+export type { TimeUnit };
 
 export interface TimeTick {
   /** Where to draw it, in the same units `xOf` returned. */
@@ -38,160 +39,125 @@ export interface TickRequest {
   xOf: (instant: number) => number;
   /** Least distance between two labels before they are considered crowded. */
   minGap: number;
+  /** The axis's precomputed candidates, sorted ascending by `at` (-> core/layout/timescale). */
+  positions: readonly TickPosition[];
 }
 
-/** Rough size of each unit, for deciding how many boundaries a span would produce. */
-const UNIT_MS: Record<TimeUnit, number> = {
-  year: 365.25 * 86_400_000,
-  month: 30.44 * 86_400_000,
-  day: 86_400_000,
-  hour: 3_600_000,
-  minute: 60_000,
-  second: 1_000,
-  ms: 1,
-};
-
-/** Coarsest first, which is the order the choice is made in. */
-const UNITS: TimeUnit[] = ['year', 'month', 'day', 'hour', 'minute', 'second', 'ms'];
-
-/** More boundaries than this are never worth generating to find out they do not fit. */
-const MAX_CANDIDATES = 4000;
-
 /**
- * timeTicks picks the labels for the visible span: the finest unit whose boundaries are not
- * crowded, thinned where the axis compresses them together, with every year boundary kept.
+ * timeTicks picks which of the axis's precomputed candidates the current zoom has room to show.
+ * The candidates within [from, to] are found by binary search, then all of them run through
+ * the same spacing competition (-> select) a reader would get from raw calendar boundaries —
+ * cheap here in a way it never was there, because the build-time thinning in
+ * core/layout/timescale.ts already bounds how many candidates exist at all (a small constant
+ * regardless of how many claims fed the axis), so there is no large set left to stride or
+ * sample around: running every visible candidate through the real check is the simple choice
+ * once that count is already small, and it is exact for any distribution of density across the
+ * visible range rather than an approximation of one.
  */
 export function timeTicks(req: TickRequest): TimeTick[] {
-  const { from, to } = req;
+  const { from, to, positions, minGap, xOf } = req;
   if (!Number.isFinite(from) || !Number.isFinite(to) || to < from) return [];
+  if (positions.length === 0) return endpointTicks(req);
 
-  const chosen = finestUnitThatFits(req);
-  let ticks = thin(boundaries(from, to, chosen).map((at) => tickAt(at, chosen, req.xOf)), req.minGap);
+  const lo = lowerBoundAt(positions, from);
+  const hi = upperBoundAt(positions, to);
+  if (hi <= lo) return endpointTicks(req);
 
-  // A span can contain no boundary of any unit that fits — a few minutes inside one hour, or a
-  // whole archive that starts and ends mid-day. Labelling the ends of what is visible is then
-  // the only thing to say, and saying nothing is what left a large archive with no ruler at all
-  // until it was zoomed right in.
-  if (ticks.length === 0) {
-    ticks = endpointTicks(req);
+  const candidates: TimeTick[] = [];
+  for (let i = lo; i < hi; i++) candidates.push(toTick(positions[i], xOf));
+  return select(candidates, minGap);
+}
+
+/** toTick words one precomputed position for the ruler at its precomputed granularity. */
+function toTick(p: TickPosition, xOf: (instant: number) => number): TimeTick {
+  return { x: xOf(p.at), label: wordFor(p.at, p.unit), unit: p.unit, major: p.unit === 'year' };
+}
+
+/** lowerBoundAt is the first index whose `at` is not less than the given instant. */
+function lowerBoundAt(positions: readonly TickPosition[], at: number): number {
+  let lo = 0;
+  let hi = positions.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (positions[mid].at < at) lo = mid + 1;
+    else hi = mid;
   }
+  return lo;
+}
 
-  // Years are never dropped, and they carry the year rather than the unit's own wording.
-  if (chosen !== 'year') {
-    const years = boundaries(from, to, 'year').map((at) => tickAt(at, 'year', req.xOf));
-    return merge(ticks, years, req.minGap);
+/** upperBoundAt is the first index whose `at` is greater than the given instant. */
+function upperBoundAt(positions: readonly TickPosition[], at: number): number {
+  let lo = 0;
+  let hi = positions.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (positions[mid].at <= at) lo = mid + 1;
+    else hi = mid;
   }
-  return ticks;
+  return lo;
 }
 
 /**
- * endpointTicks labels the ends of the visible span, for when no calendar boundary lies inside
- * it. The unit follows the span, so the two labels differ from each other.
+ * endpointTicks labels the ends of the visible span, for when it holds no precomputed
+ * candidate at all — zoomed into a stretch before the first claim, after the last, or between
+ * two candidates with nothing of its own. The unit follows the span, so the two labels differ.
  */
 function endpointTicks(req: TickRequest): TimeTick[] {
   const span = req.to - req.from;
   const unit: TimeUnit =
     span < 2_000 ? 'ms' : span < 2 * 60_000 ? 'second' : span < 2 * 3_600_000 ? 'minute' : 'hour';
   const ends = span === 0 ? [req.from] : [req.from, req.to];
-  return thin(
+  return select(
     ends.map((at) => ({ x: req.xOf(at), label: wordFor(at, unit), unit, major: false })),
     req.minGap,
   );
 }
 
-/** tickAt makes one tick, worded for its unit. */
-function tickAt(at: number, unit: TimeUnit, xOf: (instant: number) => number): TimeTick {
-  return { x: xOf(at), label: wordFor(at, unit), unit, major: unit === 'year' };
+/**
+ * Rough px per character at the ruler's own font — tabular-nums, so every digit is the same
+ * width (-> ui/style.css .time-ruler). An estimate rather than a measurement: this module
+ * places and words ticks and knows no DOM or canvas to measure a rendered string with, and an
+ * estimate is enough to decide *whether two labels fit*, which is all a spacing decision needs.
+ */
+const CHAR_PX = 6;
+const LABEL_PADDING_PX = 6;
+
+/**
+ * halfWidth is roughly half a label's rendered width. A tick is drawn centred on its position
+ * (`.time-tick { transform: translateX(-50%) }`), so this much clearance on each side is what
+ * keeps its text off a neighbour's — a flat minGap alone said nothing about how wide the label
+ * actually drawn there was.
+ */
+function halfWidth(label: string): number {
+  return (label.length * CHAR_PX + LABEL_PADDING_PX) / 2;
 }
 
 /**
- * finestUnitThatFits walks coarse to fine and takes the last unit whose boundaries still
- * clear minGap on the median. The median rather than the minimum, because one compressed
- * silence should not force the whole ruler up a unit — the thinning pass handles that.
+ * requiredGap is the least distance two ticks may sit at without their (centred) text
+ * overlapping: their combined half-widths, or the caller's own minGap, whichever asks for more
+ * room — a floor under short labels, not a ceiling over long ones.
  */
-function finestUnitThatFits(req: TickRequest): TimeUnit {
-  // Only a unit that actually yields a boundary can be chosen; one that yields none would give
-  // an empty ruler, which is worse than a coarse one.
-  let best: TimeUnit | null = null;
-  for (const unit of UNITS) {
-    const estimate = (req.to - req.from) / UNIT_MS[unit];
-    if (estimate > MAX_CANDIDATES) continue;
-    const xs = boundaries(req.from, req.to, unit).map(req.xOf);
-    if (xs.length === 0) continue;
-    if (xs.length === 1) {
-      best = unit;
-      continue;
-    }
-    if (medianGap(xs) < req.minGap) break;
-    best = unit;
-  }
-  return best ?? 'ms';
+function requiredGap(a: TimeTick, b: TimeTick, minGap: number): number {
+  return Math.max(minGap, halfWidth(a.label) + halfWidth(b.label));
 }
 
-/** medianGap is the middle distance between consecutive positions. */
-function medianGap(xs: number[]): number {
-  const gaps: number[] = [];
-  for (let i = 1; i < xs.length; i++) gaps.push(Math.abs(xs[i] - xs[i - 1]));
-  gaps.sort((a, b) => a - b);
-  return gaps[gaps.length >> 1] ?? Number.POSITIVE_INFINITY;
-}
-
-/** thin drops a tick that would sit too close to the one before it. */
-function thin(ticks: TimeTick[], minGap: number): TimeTick[] {
+/**
+ * select runs every candidate through one spacing competition, the same shape as the graph's
+ * own node-label budget (-> render/labels.ts): ranked coarsest unit first — a year always
+ * outranks a month, a month a day, and so on down `UNITS` — so a coarse tick never loses its
+ * place to a finer one that merely happened to land nearby, then by position ascending as the
+ * tie-breaker within a tier, which is what reading order already is and needs no further one.
+ * A candidate is kept only once it clears every tick already kept, not merely the one before
+ * it, since two units can interleave in position and a list processed in position order alone
+ * would let one crowd the other regardless of rank.
+ */
+function select(candidates: TimeTick[], minGap: number): TimeTick[] {
+  const ranked = [...candidates].sort((a, b) => UNITS.indexOf(a.unit) - UNITS.indexOf(b.unit) || a.x - b.x);
   const kept: TimeTick[] = [];
-  for (const tick of ticks) {
-    const last = kept[kept.length - 1];
-    if (last && Math.abs(tick.x - last.x) < minGap) continue;
-    kept.push(tick);
+  for (const tick of ranked) {
+    if (kept.every((k) => Math.abs(k.x - tick.x) >= requiredGap(k, tick, minGap))) kept.push(tick);
   }
-  return kept;
-}
-
-/** merge keeps every year and drops whatever crowds one, since a year outranks a month. */
-function merge(ticks: TimeTick[], years: TimeTick[], minGap: number): TimeTick[] {
-  const kept = ticks.filter((t) => !years.some((y) => Math.abs(y.x - t.x) < minGap));
-  return [...kept, ...years].sort((a, b) => a.x - b.x);
-}
-
-/**
- * boundaries enumerates the starts of a unit within a span, from the first at or after
- * `from`. Calendar units step by the calendar, so months and years stay true across their
- * uneven lengths.
- */
-export function boundaries(from: number, to: number, unit: TimeUnit): number[] {
-  const out: number[] = [];
-  if (to < from) return out;
-
-  if (unit === 'year' || unit === 'month') {
-    const start = new Date(from);
-    let year = start.getUTCFullYear();
-    let month = unit === 'year' ? 0 : start.getUTCMonth();
-    if (Date.UTC(year, month, 1) < from) {
-      if (unit === 'year') year++;
-      else if (++month > 11) {
-        month = 0;
-        year++;
-      }
-    }
-    for (let at = Date.UTC(year, month, 1); at <= to; ) {
-      out.push(at);
-      if (out.length > MAX_CANDIDATES) break;
-      if (unit === 'year') year++;
-      else if (++month > 11) {
-        month = 0;
-        year++;
-      }
-      at = Date.UTC(year, month, 1);
-    }
-    return out;
-  }
-
-  const size = UNIT_MS[unit];
-  for (let at = Math.ceil(from / size) * size; at <= to; at += size) {
-    out.push(at);
-    if (out.length > MAX_CANDIDATES) break;
-  }
-  return out;
+  return kept.sort((a, b) => a.x - b.x);
 }
 
 /**

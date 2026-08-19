@@ -87,5 +87,6 @@ function readTicks(): TimeTick[] {
     to: axis.atX(Math.max(left, right)),
     xOf: (instant) => viewportXAt(axis.toX(instant)) ?? 0,
     minGap: MIN_GAP_PX,
+    positions: axis.tickPositions,
   }).filter((tick) => tick.x >= 0 && tick.x <= width);
 }

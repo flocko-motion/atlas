@@ -11,7 +11,7 @@
 
 import type Sigma from 'sigma';
 import { graph } from '../core/graph/universe.ts';
-import { axisWidth, stretchX, stretchY } from '../core/timeline.ts';
+import { axisWidth, stretchX, stretchY, timeDenseExtent } from '../core/timeline.ts';
 import type { Stretch } from '../core/timeline.ts';
 import { activeView, useExplorer } from '../core/store.ts';
 import { stretchFloor } from './bounds.ts';
@@ -167,6 +167,44 @@ export function fitHeight(): void {
   // Measured again after the stretch: where the strata ended up is what centring is about.
   const drift = offCentreY(instance, height, stretchNow());
   if (drift !== null && Math.abs(drift) >= 0.5) correctDrift(instance, 0, drift);
+  holdCamera();
+}
+
+/**
+ * fitDenseTime stretches and centres time on the archive's dense range (-> core/timeline
+ * timeDenseExtent) — where a first look lands, rather than the full axis fitHeight's box would
+ * otherwise show in full. The bound stays the full axis regardless (-> core/timeline
+ * restExtent): a remote outlier a stretch has pushed off screen is reached by zooming out
+ * exactly as it always was, the same wheel gesture and the same ceiling — only where the
+ * *first* look lands changes, the way panIntoView moves the camera without touching the bound.
+ *
+ * Skips outright where there is nothing to trim: an archive without a lone remote outlier has
+ * `denseExtent` equal to the full axis, and stretching to fill it with itself would be a
+ * no-op anyway.
+ */
+export function fitDenseTime(): void {
+  const instance = showing();
+  const width = canvasWidth();
+  const dense = timeDenseExtent();
+  const full = axisWidth();
+  if (!instance || width <= 0 || !dense || full === null || full <= 0) return;
+  const denseWidth = dense.x1 - dense.x0;
+  if (!(denseWidth > 0) || denseWidth >= full) return;
+
+  const stretch = stretchNow().x;
+  const now = cameraNow(instance);
+  const left = instance.graphToViewport({ x: dense.x0 * stretch, y: 0 }, now).x;
+  const right = instance.graphToViewport({ x: dense.x1 * stretch, y: 0 }, now).x;
+  const drawnPx = Math.abs(right - left);
+  if (!(drawnPx > 0)) return;
+  const factor = width / drawnPx;
+  if (!(factor > 1)) return;
+
+  const { applied } = stretchX(factor, shownGraph() ?? undefined, compressionFloor(stretch));
+  if (applied === 1) return;
+  repaint();
+  panTo(((dense.x0 + dense.x1) / 2) * stretch * applied);
+  applyBound();
   holdCamera();
 }
 

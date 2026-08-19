@@ -12,7 +12,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { DirectedGraph } from 'graphology';
 
-import { MockSource, RestSource } from './data/source.ts';
+import { CONTENT_LIMIT, MockSource, RestSource } from './data/source.ts';
 import type { DataSource } from './data/source.ts';
 import { forgetMembers, membersOf, setMembers } from './graph/members.ts';
 import { ARCHIVE_SCOPE, scopeOptions } from './scope.ts';
@@ -185,6 +185,30 @@ test('the picker prompts, then offers the archive and each branch by name', asyn
 test('no branch name is assumed before discovery', () => {
   assert.equal(DEFAULT_QUERY.branch, null, 'the query still defaults to a guessed branch');
   assert.equal(viewWith(null).scope, null, 'a fresh view starts confined to something');
+});
+
+// The bulk read asks for content up to the explorer's own threshold — the same number the
+// detail pane fetches under — and for whole bodies only, so no caption or cache ever holds
+// a prefix. Without the ask, every claim arrives size-only and reads as having no content.
+test('a claims read asks for content up to the cap, whole bodies only', async () => {
+  const sent: string[] = [];
+  const original = globalThis.fetch;
+  globalThis.fetch = (async (_input: string | URL | Request, init?: RequestInit) => {
+    sent.push(String(init?.body ?? ''));
+    return new Response('');
+  }) as typeof globalThis.fetch;
+  try {
+    const head = 'bciqdlnrhbcnkalcqxrpxpmroin6iu5w6dgfjqoemvxlvvhtwepbe6ma';
+    const page = await new RestSource(restConnection, '').fetch({
+      limit: 10,
+      scope: { name: 'main', head },
+    });
+    assert.equal(page.claims.length, 0);
+  } finally {
+    globalThis.fetch = original;
+  }
+  const query = JSON.parse(sent[0]);
+  assert.deepEqual(query.output.content, { max: CONTENT_LIMIT, overflow: 'omit' });
 });
 
 /**

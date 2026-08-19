@@ -9,7 +9,6 @@
  * than a claim, and so sits beside the type rather than inside a copy of it.
  */
 
-import { contentEncoding, inlineBytes } from '@flocko-motion/ranke';
 import type { Claim } from '@flocko-motion/ranke';
 
 /** DrawnClaim is one claim as a view holds it — the shape both sources answer in. */
@@ -25,7 +24,7 @@ export interface DrawnClaim {
    * generator standing in for one has to answer a scoped read, and stamping it costs nothing.
    */
   branch: string;
-  /** The caption a node carries. Derived from content where there is text to read. */
+  /** The caption a node carries: the claim's subtype. */
   label: string;
 }
 
@@ -36,20 +35,14 @@ export interface DrawnClaim {
 export const contributionUnknown = 0;
 
 /**
- * labelOf captions a claim in two lines: what it is, then what it says. A claim with nothing to
- * say gets the first line alone — a canvas of hashes says only that the claims differ, which the
- * dots already say. The subtype alone, since the class is the colour of the dot beside it.
- *
- * Content can be missing three ways — left external, declared past the read's cap, or not text —
- * so this asks for the bytes rather than for the size.
+ * labelOf captions a claim by its subtype alone — a canvas of hashes says only that the claims
+ * differ, which the dots already say. The class is left out, since it is the colour of the dot
+ * beside it. The claim's content belongs to the detail pane, not the canvas: quoting it in the
+ * caption once put a claim's bytes on a thousand-node view at once, which is more than a graph
+ * is for.
  */
 export function labelOf(claim: Claim): string {
-  const bytes = inlineBytes(claim.content);
-  const text =
-    bytes && contentEncoding(claim.content).startsWith('text/')
-      ? new TextDecoder().decode(bytes).trim().slice(0, 80)
-      : '';
-  return text.length > 0 ? `${claim.typeSub}\n${text}` : claim.typeSub;
+  return claim.typeSub;
 }
 
 /** shortId names a claim by the end of its id: every id here shares the prefix. */

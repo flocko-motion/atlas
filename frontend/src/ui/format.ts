@@ -37,6 +37,19 @@ export function formatBytes(size: number | undefined): string {
 }
 
 /**
+ * contentSummary is a record's content declaration on one line: size, media type, and whether
+ * the bytes are inline in the record or external in the Universe.
+ */
+export function contentSummary(
+  kind: string,
+  size: number | undefined,
+  encoding: string | undefined,
+): string {
+  if (kind === 'none') return 'none';
+  return `${formatBytes(size ?? 0)} · ${encoding || 'no encoding declared'} · ${kind}`;
+}
+
+/**
  * inlineLabel writes a caption on one line. A caption is drawn on the canvas as two — what the
  * claim is, then what it says — and a pane row has neither the room nor the reason for that.
  */

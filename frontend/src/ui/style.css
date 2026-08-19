@@ -346,17 +346,23 @@ select, input[type='text'], input[type='password'], input[type='url'] {
 .header-dataset .btn { flex: 0 0 auto; padding: 0.25rem 0.7rem; }
 
 /* --- hover preview --- */
+/* Floats beside the pointer, positioned by the `left`/`top` the renderer reports (-> render/
+   renderer.ts enterNode) — a DOM overlay rather than the canvas, so it stays legible and
+   themeable without fighting Sigma's own drawing. */
 .hover-preview {
-  position: absolute; left: 0.75rem; bottom: 0.75rem;
-  display: flex; align-items: baseline; gap: 0.5rem;
-  max-width: 60%;
+  position: absolute;
+  display: grid; gap: 0.2rem;
+  max-width: min(60%, 24rem);
   padding: 0.3rem 0.6rem;
-  background: rgb(0 0 0 / 70%);
-  border: 1px solid var(--line); border-radius: 0.35rem;
+  background: color-mix(in srgb, var(--panel) 65%, transparent);
+  backdrop-filter: blur(4px);
+  border: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
+  border-radius: 0.35rem;
+  box-shadow: 0 2px 10px rgb(0 0 0 / 35%);
   pointer-events: none;
 }
 .hover-preview-type { color: var(--dim); font-size: 11px; }
-.hover-preview-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hover-preview-content { white-space: pre-wrap; word-break: break-word; }
 .attribution { color: var(--dim); }
 
 /* --- loading overlay --- */
