@@ -5,12 +5,111 @@
   "platform": "linux/x64",
   "cpu": "AMD Ryzen 7 PRO 5850U with Radeon Graphics",
   "cores": 16,
-  "heapLimitMB": 4192,
+  "heapLimitMB": 1996,
   "seed": 24301,
   "fa2ProbeIterations": 6,
   "gcExposed": true,
   "claimsPerContribution": 10,
   "results": [
+    {
+      "requested": 1000,
+      "claims": 1002,
+      "byClass": {
+        "contribution": 114,
+        "source": 186,
+        "derivation": 399,
+        "entity": 181,
+        "relation": 122
+      },
+      "contributions": 55,
+      "depth": {
+        "height": 61,
+        "meanDepth": 6.892215568862276,
+        "p95Depth": 27,
+        "layers": 62,
+        "widestLayer": 186,
+        "aspect": 0.3279569892473118,
+        "computeMs": 2.0452030000001287
+      },
+      "layeredMs": 1.8066049999999905,
+      "history": {
+        "rows": 55,
+        "widestRow": 246,
+        "meanRow": 18.21818181818182,
+        "aspect": 0.22357723577235772
+      },
+      "historyMs": 1.018940000000157,
+      "generateMs": 148.17662199999995,
+      "heapClaimsMB": 1.6381378173828125,
+      "payloadMB": 1.146322250366211,
+      "payloadParseMs": 4.9435940000000755,
+      "payloadStringifyMs": 5.267710999999963,
+      "buildLeanMs": 14.081175999999914,
+      "buildFullMs": 14.92196100000001,
+      "heapLeanMB": 1.2771759033203125,
+      "heapFullMB": 1.3698043823242188,
+      "mergedEdges": 0,
+      "layout": {
+        "randomMs": 0.9983009999998558,
+        "circularMs": 0.29454200000009223,
+        "circlepackMs": 11.347402999999986
+      },
+      "profiles": [
+        {
+          "profile": "all-edges",
+          "edges": 3787,
+          "degree": {
+            "max": 262,
+            "mean": 7.558882235528942,
+            "p50": 5,
+            "p99": 19,
+            "hubs": 6
+          },
+          "fa2BarnesHut": {
+            "setupMs": 20.791492800000107,
+            "msPerIter": 6.725861199999963,
+            "est200Ms": 1365.9637327999926,
+            "est500Ms": 3383.7220927999815
+          },
+          "fa2Plain": {
+            "setupMs": 12.114958749999914,
+            "msPerIter": 5.462278250000054,
+            "est200Ms": 1104.5706087500107,
+            "est500Ms": 2743.254083750027
+          },
+          "fa2FromCirclepack": {
+            "setupMs": 0.6254971999999723,
+            "msPerIter": 4.5615217999999915,
+            "est200Ms": 912.9298571999982,
+            "est500Ms": 2281.386397199996
+          }
+        },
+        {
+          "profile": "no-contributor-edges",
+          "edges": 2789,
+          "degree": {
+            "max": 247,
+            "mean": 5.56686626746507,
+            "p50": 4,
+            "p99": 16,
+            "hubs": 2
+          },
+          "fa2BarnesHut": {
+            "setupMs": 1.9320283999998082,
+            "msPerIter": 5.142658600000004,
+            "est200Ms": 1030.4637484000007,
+            "est500Ms": 2573.2613284000017
+          },
+          "fa2Plain": {
+            "setupMs": 0.15142399999996314,
+            "msPerIter": 8.273343000000011,
+            "est200Ms": 1654.8200240000021,
+            "est500Ms": 4136.8229240000055
+          },
+          "fa2FromCirclepack": null
+        }
+      ]
+    },
     {
       "requested": 10000,
       "claims": 10002,
@@ -23,89 +122,178 @@
       },
       "contributions": 709,
       "depth": {
-        "height": 714,
-        "meanDepth": 43.11867626474705,
-        "p95Depth": 350,
-        "layers": 715,
+        "height": 715,
+        "meanDepth": 42.2633473305339,
+        "p95Depth": 344,
+        "layers": 716,
         "widestLayer": 1763,
-        "aspect": 0.40499149177538285,
-        "computeMs": 23.141111999999794
+        "aspect": 0.4055587067498582,
+        "computeMs": 23.537576000000172
       },
-      "layeredMs": 17.081772,
+      "layeredMs": 6.130097000000205,
       "history": {
         "rows": 709,
-        "widestRow": 296,
+        "widestRow": 286,
         "meanRow": 14.10719322990127,
-        "aspect": 2.39527027027027
+        "aspect": 2.479020979020979
       },
-      "historyMs": 6.8064620000000104,
-      "generateMs": 59.74455400000011,
-      "heapClaimsMB": 9.806900024414062,
-      "payloadMB": 5.687978744506836,
-      "payloadParseMs": 26.10299900000018,
-      "payloadStringifyMs": 68.3649089999999,
-      "buildLeanMs": 177.79547300000013,
-      "buildFullMs": 257.7242610000003,
-      "heapLeanMB": 15.652420043945312,
-      "heapFullMB": 16.22393798828125,
+      "historyMs": 7.2135880000000725,
+      "generateMs": 1279.251026,
+      "heapClaimsMB": 17.01666259765625,
+      "payloadMB": 11.414595603942871,
+      "payloadParseMs": 51.52245499999981,
+      "payloadStringifyMs": 86.71720600000026,
+      "buildLeanMs": 156.0227749999999,
+      "buildFullMs": 200.85786000000007,
+      "heapLeanMB": 13.487922668457031,
+      "heapFullMB": 14.248855590820312,
       "mergedEdges": 0,
       "layout": {
-        "randomMs": 8.116069000000152,
-        "circularMs": 2.7546290000000226,
-        "circlepackMs": 128.5320959999999
+        "randomMs": 1.5608149999998204,
+        "circularMs": 1.8135079999997288,
+        "circlepackMs": 99.16178500000024
       },
       "profiles": [
         {
           "profile": "all-edges",
-          "edges": 37549,
+          "edges": 37709,
           "degree": {
-            "max": 2549,
-            "mean": 7.508298340331933,
+            "max": 2537,
+            "mean": 7.540291941611677,
             "p50": 5,
             "p99": 17,
             "hubs": 20
           },
           "fa2BarnesHut": {
-            "setupMs": 27.246437199999946,
-            "msPerIter": 154.70073679999996,
-            "est200Ms": 30967.39379719999,
-            "est500Ms": 77377.61483719997
+            "setupMs": 48.847779799999984,
+            "msPerIter": 87.04449319999995,
+            "est200Ms": 17457.746419799987,
+            "est500Ms": 43571.09437979998
           },
           "fa2Plain": {
-            "setupMs": 23998.278252,
-            "msPerIter": -2954.0281990000003,
-            "est200Ms": -566807.361548,
-            "est500Ms": -1453015.8212480003
+            "setupMs": 0,
+            "msPerIter": 710.4560522499999,
+            "est200Ms": 142091.21044999998,
+            "est500Ms": 355228.0261249999
           },
           "fa2FromCirclepack": {
-            "setupMs": 26.743906600000628,
-            "msPerIter": 115.90110139999888,
-            "est200Ms": 23206.964186599776,
-            "est500Ms": 57977.29460659944
+            "setupMs": 7.260316399998558,
+            "msPerIter": 69.62616760000019,
+            "est200Ms": 13932.493836400037,
+            "est500Ms": 34820.34411640009
           }
         },
         {
           "profile": "no-contributor-edges",
-          "edges": 27551,
+          "edges": 27711,
           "degree": {
-            "max": 297,
-            "mean": 5.509098180363927,
+            "max": 287,
+            "mean": 5.541091781643671,
             "p50": 4,
             "p99": 16,
             "hubs": 16
           },
           "fa2BarnesHut": {
-            "setupMs": 26.127937000001836,
-            "msPerIter": 115.61516899999988,
-            "est200Ms": 23149.161736999977,
-            "est500Ms": 57833.712436999944
+            "setupMs": 14.60610699999998,
+            "msPerIter": 75.15445099999997,
+            "est200Ms": 15045.496306999992,
+            "est500Ms": 37591.831606999986
           },
           "fa2Plain": {
-            "setupMs": 37.12412249999397,
-            "msPerIter": 1119.9808975000014,
-            "est200Ms": 224033.30362250027,
-            "est500Ms": 560027.5728725006
+            "setupMs": 0,
+            "msPerIter": 705.9863367500002,
+            "est200Ms": 141197.26735000004,
+            "est500Ms": 352993.1683750001
           },
+          "fa2FromCirclepack": null
+        }
+      ]
+    },
+    {
+      "requested": 100000,
+      "claims": 100002,
+      "byClass": {
+        "contribution": 13632,
+        "source": 17710,
+        "derivation": 38865,
+        "entity": 17705,
+        "relation": 12090
+      },
+      "contributions": 6814,
+      "depth": {
+        "height": 6820,
+        "meanDepth": 346.8317733645327,
+        "p95Depth": 3177,
+        "layers": 6821,
+        "widestLayer": 17710,
+        "aspect": 0.38509316770186336,
+        "computeMs": 316.1985510000013
+      },
+      "layeredMs": 129.10269100000005,
+      "history": {
+        "rows": 6814,
+        "widestRow": 301,
+        "meanRow": 14.675961256237159,
+        "aspect": 22.637873754152825
+      },
+      "historyMs": 107.97183399999994,
+      "generateMs": 8845.977901,
+      "heapClaimsMB": 170.98377990722656,
+      "payloadMB": 114.34384536743164,
+      "payloadParseMs": 711.9790490000014,
+      "payloadStringifyMs": 603.8473749999976,
+      "buildLeanMs": 2127.9357119999986,
+      "buildFullMs": 2003.5540990000009,
+      "heapLeanMB": 122.74404907226562,
+      "heapFullMB": 130.33638763427734,
+      "mergedEdges": 0,
+      "layout": {
+        "randomMs": 19.736955000000307,
+        "circularMs": 14.766069000001153,
+        "circlepackMs": 3929.6556930000006
+      },
+      "profiles": [
+        {
+          "profile": "all-edges",
+          "edges": 377121,
+          "degree": {
+            "max": 25147,
+            "mean": 7.542269154616908,
+            "p50": 5,
+            "p99": 16,
+            "hubs": 173
+          },
+          "fa2BarnesHut": {
+            "setupMs": 73.05787399999826,
+            "msPerIter": 2029.944958,
+            "est200Ms": 406062.049474,
+            "est500Ms": 1015045.5368740001
+          },
+          "fa2Plain": null,
+          "fa2FromCirclepack": {
+            "setupMs": 0,
+            "msPerIter": 1492.8612523999996,
+            "est200Ms": 298572.25047999993,
+            "est500Ms": 746430.6261999998
+          }
+        },
+        {
+          "profile": "no-contributor-edges",
+          "edges": 277123,
+          "degree": {
+            "max": 373,
+            "mean": 5.542349153016939,
+            "p50": 4,
+            "p99": 15,
+            "hubs": 169
+          },
+          "fa2BarnesHut": {
+            "setupMs": 5.761391400001685,
+            "msPerIter": 1941.1643786,
+            "est200Ms": 388238.6371114,
+            "est500Ms": 970587.9506914
+          },
+          "fa2Plain": null,
           "fa2FromCirclepack": null
         }
       ]
@@ -117,142 +305,142 @@
       {
         "claimsPerContribution": 3,
         "claims": 100002,
-        "contributions": 28952,
-        "edges": 311783,
-        "bookkeepingShare": 0.5790684186316274,
+        "contributions": 28760,
+        "edges": 312399,
+        "bookkeepingShare": 0.5752284954300914,
         "depth": {
-          "height": 28954,
-          "meanDepth": 6166.969710605787,
-          "p95Depth": 23954,
-          "layers": 28955,
-          "widestLayer": 8633,
-          "aspect": 3.353874666975559,
-          "computeMs": 341.3746020000035
+          "height": 28762,
+          "meanDepth": 6097.315753684927,
+          "p95Depth": 23762,
+          "layers": 28763,
+          "widestLayer": 8712,
+          "aspect": 3.301423324150597,
+          "computeMs": 293.54443799999717
         },
         "history": {
-          "rows": 28952,
+          "rows": 28760,
           "widestRow": 39,
-          "meanRow": 3.4540618955512574,
-          "aspect": 742.3589743589744
+          "meanRow": 3.4771210013908207,
+          "aspect": 737.4358974358975
         },
-        "maxDegree": 25174,
-        "buildMs": 2470.461227,
-        "heapGraphMB": 192.69896697998047,
-        "layeredMs": 113.9361679999929,
-        "randomMs": 12.811218000002555,
-        "fa2MsPerIter": 2510.8508214000003
+        "maxDegree": 25217,
+        "buildMs": 1830.361763000008,
+        "heapGraphMB": 263.9724655151367,
+        "layeredMs": 87.75536300000385,
+        "randomMs": 10.451088000001619,
+        "fa2MsPerIter": 1627.3105107999988
       },
       {
         "claimsPerContribution": 10,
         "claims": 100002,
-        "contributions": 6937,
-        "edges": 376634,
-        "bookkeepingShare": 0.13877722445551088,
+        "contributions": 6814,
+        "edges": 377121,
+        "bookkeepingShare": 0.13631727365452692,
         "depth": {
-          "height": 6942,
-          "meanDepth": 360.2786944261115,
-          "p95Depth": 3288,
-          "layers": 6943,
-          "widestLayer": 17659,
-          "aspect": 0.3931139928648281,
-          "computeMs": 617.0819250000059
+          "height": 6820,
+          "meanDepth": 346.8317733645327,
+          "p95Depth": 3177,
+          "layers": 6821,
+          "widestLayer": 17710,
+          "aspect": 0.38509316770186336,
+          "computeMs": 445.30231900000945
         },
         "history": {
-          "rows": 6937,
-          "widestRow": 299,
-          "meanRow": 14.415741675075681,
-          "aspect": 23.20066889632107
+          "rows": 6814,
+          "widestRow": 301,
+          "meanRow": 14.675961256237159,
+          "aspect": 22.637873754152825
         },
-        "maxDegree": 25120,
-        "buildMs": 3320.2677750000003,
-        "heapGraphMB": 167.66546630859375,
-        "layeredMs": 132.41182600001048,
-        "randomMs": 17.297726999997394,
-        "fa2MsPerIter": 18248.713802000002
+        "maxDegree": 25147,
+        "buildMs": 2193.2990810000047,
+        "heapGraphMB": 209.5398178100586,
+        "layeredMs": 118.3539490000112,
+        "randomMs": 14.038703999991412,
+        "fa2MsPerIter": 1632.0452026000014
       },
       {
         "claimsPerContribution": 30,
         "claims": 100002,
-        "contributions": 2368,
-        "edges": 389743,
-        "bookkeepingShare": 0.04739905201895962,
+        "contributions": 2530,
+        "edges": 389702,
+        "bookkeepingShare": 0.050638987220255595,
         "depth": {
-          "height": 2376,
-          "meanDepth": 48.88187236255275,
-          "p95Depth": 29,
-          "layers": 2377,
-          "widestLayer": 19532,
-          "aspect": 0.12164652877329511,
-          "computeMs": 426.3574929999886
+          "height": 2539,
+          "meanDepth": 54.29370412591748,
+          "p95Depth": 36,
+          "layers": 2540,
+          "widestLayer": 19466,
+          "aspect": 0.13043254905989932,
+          "computeMs": 471.1687410000013
         },
         "history": {
-          "rows": 2368,
-          "widestRow": 1031,
-          "meanRow": 42.23057432432432,
-          "aspect": 2.296799224054316
+          "rows": 2530,
+          "widestRow": 995,
+          "meanRow": 39.52648221343873,
+          "aspect": 2.542713567839196
         },
-        "maxDegree": 25123,
-        "buildMs": 4057.6668819999904,
-        "heapGraphMB": 171.44083404541016,
-        "layeredMs": 136.98623000000953,
-        "randomMs": 32.79370400001062,
-        "fa2MsPerIter": 1924.015207199997
+        "maxDegree": 25108,
+        "buildMs": 2977.2769180000178,
+        "heapGraphMB": 208.4181671142578,
+        "layeredMs": 120.14675600000191,
+        "randomMs": 12.335114999994403,
+        "fa2MsPerIter": 1708.1591390000017
       },
       {
         "claimsPerContribution": 100,
         "claims": 100002,
-        "contributions": 731,
-        "edges": 394619,
-        "bookkeepingShare": 0.014659706805863882,
+        "contributions": 638,
+        "edges": 395253,
+        "bookkeepingShare": 0.012799744005119898,
         "depth": {
-          "height": 742,
-          "meanDepth": 10.883692326153477,
-          "p95Depth": 22,
-          "layers": 743,
-          "widestLayer": 20204,
-          "aspect": 0.03672540091071075,
-          "computeMs": 396.3919959999912
+          "height": 651,
+          "meanDepth": 10.259004819903602,
+          "p95Depth": 23,
+          "layers": 652,
+          "widestLayer": 20242,
+          "aspect": 0.03216085367058591,
+          "computeMs": 422.80998400002136
         },
         "history": {
-          "rows": 731,
-          "widestRow": 3630,
-          "meanRow": 136.8016415868673,
-          "aspect": 0.20137741046831956
+          "rows": 638,
+          "widestRow": 3515,
+          "meanRow": 156.74294670846396,
+          "aspect": 0.18150782361308676
         },
-        "maxDegree": 25213,
-        "buildMs": 3028.2701039999956,
-        "heapGraphMB": 172.35240936279297,
-        "layeredMs": 129.20848599998862,
-        "randomMs": 31.280845000001136,
-        "fa2MsPerIter": 1937.1939397999959
+        "maxDegree": 25074,
+        "buildMs": 2512.3936889999895,
+        "heapGraphMB": 208.5641098022461,
+        "layeredMs": 99.86659600000712,
+        "randomMs": 12.563461000012467,
+        "fa2MsPerIter": 1684.587639999995
       },
       {
         "claimsPerContribution": 1000,
         "claims": 100002,
-        "contributions": 39,
-        "edges": 396441,
-        "bookkeepingShare": 0.0008199836003279934,
+        "contributions": 44,
+        "edges": 396664,
+        "bookkeepingShare": 0.0009199816003679927,
         "depth": {
-          "height": 56,
-          "meanDepth": 6.927471450570988,
-          "p95Depth": 21,
-          "layers": 57,
-          "widestLayer": 20487,
-          "aspect": 0.0027334407185044176,
-          "computeMs": 391.89509700000053
+          "height": 65,
+          "meanDepth": 7.180436391272175,
+          "p95Depth": 22,
+          "layers": 66,
+          "widestLayer": 20486,
+          "aspect": 0.0031728985648735723,
+          "computeMs": 367.53788199997507
         },
         "history": {
-          "rows": 39,
-          "widestRow": 36952,
-          "meanRow": 2564.153846153846,
-          "aspect": 0.0010554232517861009
+          "rows": 44,
+          "widestRow": 35805,
+          "meanRow": 2272.7727272727275,
+          "aspect": 0.001228878648233487
         },
-        "maxDegree": 36953,
-        "buildMs": 2514.185519999999,
-        "heapGraphMB": 168.01700592041016,
-        "layeredMs": 126.85314700001618,
-        "randomMs": 37.00511600001482,
-        "fa2MsPerIter": 2020.9288552000012
+        "maxDegree": 35807,
+        "buildMs": 2664.443452000007,
+        "heapGraphMB": 207.76073455810547,
+        "layeredMs": 103.02991099999053,
+        "randomMs": 17.20943200000329,
+        "fa2MsPerIter": 1801.107027800003
       }
     ]
   }

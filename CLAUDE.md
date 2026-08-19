@@ -13,7 +13,11 @@ here — compose the library.
 ## Library: ranke-go (a versioned GitHub module)
 
 Depend on ranke-go as a normal module: `require github.com/flocko-motion/ranke-go vX.Y.Z`,
-bumped via semver. **NEVER** wire it as a sibling path, `go.work use`, or `replace` — and
+bumped via semver. **ranke-go and ranke-ts mirror each other**, so the two pins move together:
+`go.mod`'s ranke-go and `frontend/package.json`'s `@flocko-motion/ranke` implement one wire
+format, and bumping only one can leave the explorer computing ids no server agrees with — a
+failure with no build error. Their version numbers are independent, so there is nothing
+mechanical to catch it. **NEVER** wire it as a sibling path, `go.work use`, or `replace` — and
 never edit a sibling `ranke-go` checkout. It provides the data model (claims, Universe,
 BranchTableHead, Archive), verification, and the **Storage** + **Sequencer** adapters.
 
@@ -92,7 +96,9 @@ runtime grant mutation.
 `openapi/openapi.yaml` is the **single source of truth** for the REST API. `make generate`
 produces every artifact from it **into `openapi/`** (alongside the spec):
 - **Go** server interface + models → `openapi/openapi.gen.go` (oapi-codegen, strict net/http)
-- **TS/JS** client → `openapi/openapi.gen.ts` (swagger-typescript-api)
+- **TS/JS** client → `openapi/openapi.gen.ts` (swagger-typescript-api), copied to
+  `frontend/src/core/data/openapi.gen.ts` and committed there — the explorer reads an instance
+  through it and `frontend/` builds without this target
 - **HTML** reference → `openapi/openapi.html` (Redocly) · **Markdown** reference → `openapi/openapi.md` (widdershins)
 
 The two references are also symlinked under `docs/openapi/` (`openapi.html`, `openapi.md`) so
@@ -134,10 +140,11 @@ Classical single-module Go repo at the repo root (module `github.com/flocko-moti
 - `cmd/ranke-db/` — the server binary (`run <config>`, `verify <config>`; later `tui`/config edit)
 - `cmd/generator/` — a **client** that seeds a running instance over `POST /contribute`:
   it derives its own contributor identity, signs its own claims, and sends them as a
-  contribution stream. Shapes: `example` (4 claims) and `chain` (many contributions).
-  Seeding is never a server feature — a contributor is an application-held key.
-  `make dev SEED=example|chain` launches and seeds; `make seed SEED_URL=…` seeds a
-  running instance
+  contribution stream. Shapes: `example` (4 claims), `release` (the release process drawn in
+  `docs/use-case-release-process.png` — four attested signing identities, two packages meeting
+  at one release, logs worth reading) and `chain` (many contributions). Seeding is never a
+  server feature — a contributor is an application-held key. `make dev SEED=example|release|chain`
+  launches and seeds; `make seed SEED_URL=…` seeds a running instance
 - `internal/core/` (+ `internal/core/access/`) · `config/` · `adapters/<port>/` — the hexagon
   (each `adapters/<port>/<port>.go` holds the port contract + its `New` factory; the
   backends sit in subpackages)
@@ -147,7 +154,7 @@ Classical single-module Go repo at the repo root (module `github.com/flocko-moti
   graphology + Sigma v3 + zustand). Static bundle, no application server, no proxy, no
   database of its own; it talks straight to a ranke-db REST endpoint, holds several
   instances at once, and works with none at all against mock data. Its own
-  `package.json` and its own `Makefile`, not wired into the root one: `make -C frontend run`
+  `package.json` and its own `Makefile`, not wired into the root one: `make -C frontend dev`
   for the dev server, `make -C frontend` to build the distributable.
 
   Layering is strict and one-way: `core/` is **headless** (store, graph, layouts, mock
@@ -159,5 +166,6 @@ Classical single-module Go repo at the repo root (module `github.com/flocko-moti
 Status: mid-refactor on `refactor/hexagonal` — the pre-hexagonal server (tenants,
 multi-stack, and the schemaf-era explorer) is purged; the spec + `make generate`/`verify`
 pipeline is in place; `core`/adapters/`cmd` are being built. The explorer is rebuilt from
-scratch under `frontend/` (epic `td-976f37`) and carries no API wiring yet, though the REST
-contract it will bind to has merged (`rest-api`, from `add-rest-api`).
+scratch under `frontend/` (epic `td-976f37`) and reads a live instance through the client
+generated from the merged REST contract (`rest-api`, from `add-rest-api`) — a committed copy
+of `openapi.gen.ts` under `frontend/src/core/data/`, so `frontend/` stays buildable on its own.

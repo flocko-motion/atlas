@@ -74,6 +74,18 @@ function ConnectionRow({ connection }: { connection: Connection }) {
               placeholder="mock archive"
             />
           </Field>
+          <Field label="claims" hint="the archive's ceiling, ~0.12 ms each to build">
+            <Select
+              value={connection.mock.claims}
+              options={[1000, 10000, 100000, 300000].map((n) => ({
+                value: n,
+                label: n.toLocaleString('en-US'),
+              }))}
+              onChange={(claims) =>
+                updateConnection(connection.id, { mock: { ...connection.mock, claims } })
+              }
+            />
+          </Field>
           <Field label="claims per contribution" hint="sets the height">
             <Select
               value={connection.mock.claimsPerContribution}
@@ -99,7 +111,9 @@ function ConnectionRow({ connection }: { connection: Connection }) {
           <p className="note">
             Seed and granularity define <em>which archive this is</em>; how much of it you
             read is a query, set in the Query tab. A generated archive goes through the same
-            port as a real instance, so neither path is a special case.
+            port as a real instance, so neither path is a special case — and its claims are
+            built by the ADT library, so their ids are real content addresses. That is what
+            the ceiling costs: raising it makes the first read wait for the archive.
           </p>
           <div className="row">
             <Button variant="danger" onClick={() => removeConnection(connection.id)}>
@@ -220,10 +234,10 @@ export function ConnectionsPane() {
       </div>
 
       <p className="note">
-        Reading claims from a server is not wired yet — the REST query contract has
-        merged (<code>rest-api</code>), but the explorer imports no generated client from
-        it so far. Servers can be configured and health-checked today; mock archives are
-        fully readable.
+        A server is read through the client generated from <code>openapi.yaml</code>, so every
+        route and response type is the contract's. Content bytes come from a server only: a
+        generated archive declares its content addresses and sizes, and has no bytes behind
+        them.
       </p>
     </div>
   );

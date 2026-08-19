@@ -17,6 +17,7 @@ import { activeView, useExplorer } from '../../core/store.ts';
 import { clear } from '../../core/graph/universe.ts';
 import { applyViewSettings, refreshSelection } from '../../render/renderer.ts';
 import { Button, Field, KeyValue, Select, Toggle } from '../components/Field.tsx';
+import { formatZoom } from '../format.ts';
 
 const LAYOUT_OPTIONS = (Object.keys(LAYOUT_LABELS) as LayoutName[]).map((value) => ({
   value,
@@ -62,8 +63,12 @@ export function ViewPane() {
         <>
           <h2>strata</h2>
           <p className="note">
-            The bands the timeline draws, top of the picture first. Dropping one is a view
-            predicate, so it costs a re-index rather than another read —
+            The classes the timeline draws, top of the picture first. Dropping one is a view
+            predicate, so it costs a re-index rather than another read or a relayout — every
+            band keeps the height and position it would have with every class shown, so
+            toggling one never moves anyone else's claims.
+            <code> entity/*</code> and <code>relation/*</code> share a band, the semantic
+            layer, each in its own colour.
             <code> contribution/*</code> is the structural layer, worth hiding when reading
             content and worth having when analysing the archive itself.
           </p>
@@ -74,10 +79,7 @@ export function ViewPane() {
               checked={view.classes.length === 0 || view.classes.includes(stratum)}
               onChange={() => {
                 patchView(view.id, { classes: toggledStrata(view.classes, stratum) });
-                // The timeline shares its height between the bands that are shown, so hiding
-                // one gives its room to the rest — which is a new layout, not a re-filter.
-                if (view.layout === 'timeline') void relayout(view.layout);
-                else refreshSelection();
+                refreshSelection();
               }}
             />
           ))}
@@ -87,15 +89,15 @@ export function ViewPane() {
               <h2>zooming</h2>
               <KeyValue
                 rows={[
-                  ['wheel', 'zoom, as everywhere'],
-                  ['shift + wheel', `stretch or compress time · ×${view.xStretch < 1 ? view.xStretch.toFixed(2) : view.xStretch.toFixed(0)}`],
+                  ['wheel', `zoom time · ×${formatZoom(view.xStretch)}`],
+                  ['shift + wheel', `zoom the strata · ×${formatZoom(view.yStretch)}`],
                   ['shift + drag', 'mark a region and zoom into it'],
                 ]}
               />
               <p className="note">
-                Time is the axis, so stretching it spreads the claims out without magnifying
-                them, keeping whatever is under the pointer where it is. Compressing time after
-                a zoom leaves the height alone, which is a vertical stretch in all but name.
+                Each axis zooms on its own, about whatever is under the pointer: the claims are
+                spread further apart rather than magnified, so a zoom on one axis leaves the other
+                at the scale it had.
               </p>
             </>
           ) : null}

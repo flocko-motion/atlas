@@ -2,3 +2,6 @@
 # neither the file-header nor the comment-density rules can be satisfied in place.
 openapi/openapi.gen.go
 openapi/openapi.gen.ts
+# The same client, copied into the explorer by `make generate` so `frontend/` builds
+# without the root target. It lives under a linted tree where the original does not.
+frontend/src/core/data/openapi.gen.ts

@@ -10,7 +10,7 @@
  */
 
 import { DirectedGraph } from 'graphology';
-import type { MockClaim } from '../mock/model.ts';
+import type { DrawnClaim } from '../claims.ts';
 import { CLASS_COLOR, CLASS_SIZE, addClaims, addClaimsProgressively } from './build.ts';
 import type { ProgressReport } from './build.ts';
 
@@ -43,7 +43,7 @@ export function totalContributions(): number {
  * mergeClaims folds a page of claims into the union — what a query response does,
  * whether it came from a generator or a server.
  */
-export function mergeClaims(claims: MockClaim[], contributionCount: number): MergeResult {
+export function mergeClaims(claims: DrawnClaim[], contributionCount: number): MergeResult {
   const result = addClaims(universe, claims);
   contributions = Math.max(contributions, contributionCount);
   return result;
@@ -54,7 +54,7 @@ export function mergeClaims(claims: MockClaim[], contributionCount: number): Mer
  * large page reports progress instead of freezing the tab.
  */
 export async function mergeClaimsProgressively(
-  claims: MockClaim[],
+  claims: DrawnClaim[],
   contributionCount: number,
   onProgress?: (report: ProgressReport) => void,
 ): Promise<MergeResult> {

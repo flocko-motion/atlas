@@ -126,7 +126,33 @@ export function KeyValue({ rows }: { rows: [string, React.ReactNode][] }) {
   );
 }
 
+/** ExtensionFields lists a record's own extension fields, and nothing when it carries none. */
+export function ExtensionFields({ fields }: { fields: Readonly<Record<string, string>> }) {
+  const names = Object.keys(fields);
+  if (names.length === 0) return null;
+  return (
+    <>
+      <h2>fields</h2>
+      <KeyValue rows={names.map((name) => [name, fields[name]] as [string, React.ReactNode])} />
+    </>
+  );
+}
+
 /** Empty is the placeholder a pane shows before it has anything to say. */
 export function Empty({ children }: { children: React.ReactNode }) {
   return <p className="empty">{children}</p>;
+}
+
+/**
+ * PaneTitle names what a pane is answering about. The Info pane answers about three different
+ * kinds of thing and swaps between them on a click, so the rows below it are only readable once
+ * the reader knows which kind is in front of them.
+ */
+export function PaneTitle({ children, hint }: { children: React.ReactNode; hint?: string }) {
+  return (
+    <h1 className="pane-title">
+      {children}
+      {hint ? <span className="pane-title-hint">{hint}</span> : null}
+    </h1>
+  );
 }

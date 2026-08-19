@@ -10,17 +10,66 @@
  */
 
 import Sigma from 'sigma';
+import { createEdgeArrowProgram } from 'sigma/rendering';
 import type { Settings } from 'sigma/settings';
 import type { DirectedGraph } from 'graphology';
+import { contentOf } from '../core/content.ts';
+import { brighten } from '../core/graph/build.ts';
 import { graph } from '../core/graph/universe.ts';
 import { inScope } from '../core/session.ts';
 import { useExplorer, activeView } from '../core/store.ts';
 import type { ViewState } from '../core/store.ts';
+import { applyBound, holdCamera, panIntoView, zoomToBox } from './camera.ts';
+import type { Box } from './camera.ts';
+import {
+  hostOf,
+  lensOf,
+  lensShowing,
+  setHost,
+  setLens,
+  setUnion,
+  showing,
+  shownGraph,
+  unionOf,
+} from './instances.ts';
+import { drawNodeLabel } from './labels.ts';
+import { pin } from './hold.ts';
 
 /** How long the pointer must rest before the preview updates. */
 const HOVER_DEBOUNCE_MS = 120;
 
-let sigma: Sigma | null = null;
+/** How much of a claim's content the hover tooltip quotes. */
+const PREVIEW_CONTENT_CHARS = 200;
+
+/**
+ * contentSnippet is the hover tooltip's second line: a prefix of a claim's content, where it is
+ * both text and already read. It never fetches — a pointer sweeping over a thousand nodes must
+ * not start a request per node — so a claim whose bytes have not been read this session, or
+ * whose encoding is not text, quotes nothing.
+ */
+function contentSnippet(id: string): string {
+  const encoding = graph().getNodeAttribute(id, 'encoding') as string | undefined;
+  const textual =
+    !!encoding &&
+    (encoding.startsWith('text/') ||
+      encoding === 'application/json' ||
+      encoding === 'application/xml' ||
+      encoding.endsWith('+json') ||
+      encoding.endsWith('+xml'));
+  if (!textual) return '';
+  const bytes = contentOf(id);
+  if (!bytes) return '';
+  const text = new TextDecoder('utf-8', { fatal: false }).decode(bytes).trim();
+  if (text.length === 0) return '';
+  return text.length > PREVIEW_CONTENT_CHARS ? `${text.slice(0, PREVIEW_CONTENT_CHARS)}…` : text;
+}
+
+// Sigma's stock arrowhead scales off edge thickness (`lengthToThicknessRatio` /
+// `widenessToThicknessRatio`, defaults 2.5 / 2) — against this app's thin edges the result is a
+// sliver, hard to see which way an edge points. Built once at module scope, like the Sigma
+// instance itself: a WebGL program is not something to rebuild per render.
+const BIG_ARROW_PROGRAM = createEdgeArrowProgram({ lengthToThicknessRatio: 5, widenessToThicknessRatio: 4 });
+
 let fpsHandle = 0;
 let frames = 0;
 let lastSample = 0;
@@ -34,7 +83,7 @@ let hoverTimer = 0;
 
 /** current returns the live Sigma instance, if the canvas has been mounted. */
 export function current(): Sigma | null {
-  return sigma;
+  return unionOf();
 }
 
 /** rendererName reports the GPU behind the canvas — software or real. */
@@ -63,15 +112,17 @@ function admits(view: ViewState, node: string, contribution: number, cls: string
  * with the same container are ignored so a re-render cannot disturb the renderer.
  */
 export function mount(container: HTMLElement): Sigma {
-  if (sigma && sigma.getContainer() === container) return sigma;
-  sigma?.kill();
+  const held = unionOf();
+  if (held && held.getContainer() === container) return held;
+  held?.kill();
 
   const store = useExplorer.getState();
-  sigma = new Sigma(graph(), container, sigmaSettings());
+  const instance = new Sigma(graph(), container, sigmaSettings());
+  setUnion(instance);
   applyViewSettings(activeView(store));
-  bindEvents(sigma);
+  bindEvents(instance);
   store.patchStatus({ renderer: rendererName() });
-  return sigma;
+  return instance;
 }
 
 /**
@@ -83,17 +134,34 @@ function sigmaSettings(): Partial<Settings> {
     // Arrows: every edge points from a claim to what it cites, and a graph of provenance
     // without direction drawn is not readable.
     defaultEdgeType: 'arrow',
-    renderEdgeLabels: false,
+    // Every edge's own label text is blank except the selected claim's (-> edgeReducer), so
+    // turning this on does not draw a caption on every edge — Sigma's own default drawer
+    // already no-ops on a blank label (rendering/programs/edge-label.js), which is what makes
+    // this safe to leave on rather than a setting to flip per selection.
+    renderEdgeLabels: true,
     // Edges are selectable, so the detail pane can answer about one.
     enableEdgeEvents: true,
     allowInvalidContainer: true,
     // Sigma's default label colour is black, which on this theme is black on black.
     labelColor: { color: '#e6e8ee' },
+    // Fallback only — every edge carries its own class/subtype colour from the graph
+    // (-> core/graph/build.ts colorFor); this is what an edge without one would show.
+    defaultEdgeColor: '#4a4f5c',
+    // The stock arrowhead, scaled up (-> BIG_ARROW_PROGRAM) so direction reads at a glance.
+    edgeProgramClasses: { arrow: BIG_ARROW_PROGRAM },
+    defaultDrawNodeLabel: drawNodeLabel,
+    // No plate on hover: Sigma's own default draws one, light and hard to read on a dark
+    // canvas, and the highlight below (bigger, raised z-index) already marks the node — the
+    // hover tooltip is a DOM overlay instead (-> ui/shell/App HoverPreviewChip).
+    defaultDrawNodeHover: () => {},
     // The label budget, and the cap itself: at most `labelDensity` labels per
-    // `labelGridCellSize` px of viewport, nothing below the size threshold.
-    labelRenderedSizeThreshold: 8,
-    labelDensity: 1,
-    labelGridCellSize: 120,
+    // `labelGridCellSize` px of viewport, nothing below the size threshold. Sigma picks the
+    // `labelDensity` winners in a cell by size alone, with no separation check between them —
+    // so a cell density above 2 lets same-cell winners land close enough to collide once rows
+    // compress (a low `yStretch` in the timeline layout); 2 keeps most of the gain without that.
+    labelRenderedSizeThreshold: 3,
+    labelDensity: 2,
+    labelGridCellSize: 80,
     nodeReducer: (node, data) => {
       const view = activeView(useExplorer.getState());
       if (!view) return data;
@@ -101,9 +169,22 @@ function sigmaSettings(): Partial<Settings> {
       if (!visible) return { ...data, hidden: true };
       if (counting) admittedNodes++;
       const { selected, hovered } = useExplorer.getState().selection;
-      if (node === selected) return { ...data, highlighted: true, zIndex: 2 };
-      if (node === hovered) return { ...data, highlighted: true, zIndex: 1 };
-      return data;
+      let out = data;
+      // A selected claim's caption is the one the reader asked for; every other caption steps
+      // aside for it rather than compete for the same small patch of canvas — cheap because the
+      // label-density budget already bounds how many were showing to begin with (-> renderer.ts
+      // labelBearingNodes), not by how large the loaded graph is.
+      if (selected && node !== selected) out = { ...out, label: '' };
+      const own = String(out.color ?? '#999999');
+      if (node === selected) {
+        // forceLabel bypasses Sigma's own size/density gate, so the selected claim's caption
+        // shows even where it would not have earned one on its own.
+        return { ...out, color: brighten(own, NODE_SELECTED_BRIGHTEN), highlighted: true, forceLabel: true, zIndex: 2 };
+      }
+      if (node === hovered) {
+        return { ...out, color: brighten(own, NODE_HOVERED_BRIGHTEN), highlighted: true, zIndex: 1 };
+      }
+      return out;
     },
     edgeReducer: (edge, data) => {
       const view = activeView(useExplorer.getState());
@@ -119,30 +200,46 @@ function sigmaSettings(): Partial<Settings> {
       if (counting) admittedEdges++;
 
       const { selected, selectedEdge } = useExplorer.getState().selection;
+      const own = String(data.color ?? '#4a4f5c');
+      // A caption on every edge at once is unreadable, so an edge names itself only once a
+      // claim is selected and only where it touches that claim — the few edges a reader is
+      // actually asking about, not the whole picture.
+      const label = selected && (source === selected || target === selected)
+        ? String(data.claimType ?? '').split('/')[1] ?? ''
+        : '';
       // A claim is a node and its outgoing edges, so the edges of a selected claim are
-      // selected with it.
+      // selected with it — brightened rather than recoloured, so the highlight still says
+      // what class and subtype the edge is, not just that it is highlighted.
       if (edge === selectedEdge || source === selected) {
-        return { ...data, color: EDGE_SELECTED, size: 2, zIndex: 2 };
+        return { ...data, color: brighten(own, EDGE_OWN_BRIGHTEN), size: 2, zIndex: 2, label };
       }
-      // contribution/* is the structural spine — the head and branch-table chain. It is the
-      // bulk of the edges and the least of the meaning, so it recedes.
-      if (String(data.claimType ?? '').startsWith('contribution/')) {
-        return { ...data, color: EDGE_DIM };
+      // An edge pointing *at* the selection belongs to somebody else — a citation, which the
+      // claim could not know when it was written. A lighter brighten than an own edge's, so the
+      // two directions are still told apart on the canvas as they are in the pane.
+      if (target === selected) {
+        return { ...data, color: brighten(own, EDGE_CITATION_BRIGHTEN), size: 2, zIndex: 2, label };
       }
-      return data;
+      // Otherwise the edge's own class/subtype colour stands as built (-> build.ts colorFor):
+      // contribution/* is already the darkest, greyest family, so the structural spine recedes
+      // without a special case here.
+      return { ...data, label };
     },
   };
 }
 
-/** Edge colours: bookkeeping recedes, a selected claim's own edges come forward. */
-const EDGE_DIM = '#3a4050';
-const EDGE_SELECTED = '#5eb0ff';
+/** How far a highlighted edge's own colour is brightened (-> core/graph/build.ts brighten). */
+const EDGE_OWN_BRIGHTEN = 0.55;
+const EDGE_CITATION_BRIGHTEN = 0.3;
+
+/** How far a highlighted node's own colour is brightened. */
+const NODE_SELECTED_BRIGHTEN = 0.5;
+const NODE_HOVERED_BRIGHTEN = 0.3;
 
 /**
  * applyViewSettings pushes a view's render flags into Sigma — settings, not reducer
  * output, so they cost nothing to change (unlike `hidden`, which re-indexes).
  */
-export function applyViewSettings(view: ViewState | null, instance: Sigma | null = sigma): void {
+export function applyViewSettings(view: ViewState | null, instance: Sigma | null = unionOf()): void {
   if (!instance || !view) return;
   instance.setSetting('renderLabels', view.labels);
   instance.setSetting('hideLabelsOnMove', !view.labelsOnMove);
@@ -154,12 +251,13 @@ export function applyViewSettings(view: ViewState | null, instance: Sigma | null
  * a full upload, timed and published so a slow frame can be attributed.
  */
 export function refreshSelection(): void {
-  if (!sigma) return;
+  const instance = unionOf();
+  if (!instance) return;
   admittedNodes = 0;
   admittedEdges = 0;
   counting = true;
   const t0 = performance.now();
-  sigma.refresh();
+  instance.refresh();
   const lastRefreshMs = performance.now() - t0;
   counting = false;
   useExplorer.getState().patchStatus({
@@ -178,15 +276,17 @@ export function refreshSelection(): void {
  * most of what a claim says.
  */
 export function highlight(nodes: string[]): void {
-  const instance = lensShowing() ? lens : sigma;
+  const instance = showing();
   if (!instance) return;
   const drawn = instance.getGraph();
   const present = nodes.filter((n) => drawn.hasNode(n));
   if (present.length === 0) return;
 
+  // Both directions: a claim's own edges are drawn with it, and the edges citing it are drawn
+  // against it, so a change of selection has to repaint the edges on either side.
   const edges: string[] = [];
   for (const node of present) {
-    drawn.forEachOutEdge(node, (edge) => edges.push(edge));
+    drawn.forEachEdge(node, (edge) => edges.push(edge));
   }
   // No skipIndexation: the extent is pinned for the timeline, and skipping indexation makes
   // a partial refresh re-derive it from the nodes it was given — which moved the whole
@@ -194,48 +294,145 @@ export function highlight(nodes: string[]): void {
   instance.refresh({ partialGraph: { nodes: present, edges } });
 }
 
+/**
+ * labelBearingNodes are the nodes Sigma is currently drawing a caption for. A change of
+ * selection blanks every caption but the selected claim's own (-> nodeReducer), which only
+ * takes effect where the reducer actually re-runs — so a selection change's partial refresh
+ * must include this set, on top of the claim itself. Cheap regardless of how large the loaded
+ * graph is: the label-density budget already bounds how many captions are ever on screen at
+ * once, so this set never grows past that budget.
+ */
+function labelBearingNodes(): string[] {
+  const instance = showing();
+  return instance ? [...instance.getNodeDisplayedLabels()] : [];
+}
+
+/**
+ * edgeOwner is the node whose repaint clears a stale edge's highlight — an edge belongs to the
+ * claim it points from, so repainting that claim's edges is what re-runs the edge's own
+ * reducer. Every selection-changing call site below must pass its *previous* `selectedEdge`
+ * through this before the state change: node and edge selection are mutually exclusive at the
+ * store (selecting one clears the other), so a caller that only ever tracks the previous
+ * *node* leaves a just-deselected edge's brightened colour cached with nothing left to repaint
+ * it away — which is exactly what selecting a second edge without first deselecting the first
+ * used to do. Null wherever there was no previous edge, or it is no longer drawn at all (a
+ * scope change dropped it), neither of which needs clearing.
+ */
+function edgeOwner(edgeKey: string | null): string | null {
+  const drawn = showing()?.getGraph();
+  return edgeKey && drawn?.hasEdge(edgeKey) ? drawn.source(edgeKey) : null;
+}
+
+/**
+ * revealClaim selects a claim named somewhere other than the canvas — a row in a pane — and brings
+ * it into view. Selecting alone would repaint nothing and leave the reader looking at a picture
+ * that has silently changed what it is about.
+ */
+export function revealClaim(id: string): void {
+  const previousNode = useExplorer.getState().selection.selected;
+  const previousEdgeOwner = edgeOwner(useExplorer.getState().selection.selectedEdge);
+  useExplorer.getState().select(id);
+  highlight([
+    id,
+    ...(previousNode ? [previousNode] : []),
+    ...(previousEdgeOwner ? [previousEdgeOwner] : []),
+    ...labelBearingNodes(),
+  ]);
+  panIntoView(id);
+}
+
+/**
+ * walkHistory steps along the reader's own trail — back or forward — and shows where they land.
+ * Walking it adds nothing to it, which is what makes forward mean anything.
+ */
+export function walkHistory(delta: -1 | 1): void {
+  const beforeNode = useExplorer.getState().selection.selected;
+  const beforeEdgeOwner = edgeOwner(useExplorer.getState().selection.selectedEdge);
+  useExplorer.getState().stepHistory(delta);
+  const now = useExplorer.getState().selection.selected;
+  // A history step can land on an edge visit as easily as a node one, so the edge it lands on
+  // needs its own repaint too — not just the edge it steps away from.
+  const nowEdgeOwner = edgeOwner(useExplorer.getState().selection.selectedEdge);
+  highlight([
+    ...[now, beforeNode, beforeEdgeOwner, nowEdgeOwner].filter((id): id is string => id !== null),
+    ...labelBearingNodes(),
+  ]);
+  if (now) panIntoView(now);
+}
+
 /** bindEvents wires pointer interaction into core state, hover apart from selection. */
 function bindEvents(instance: Sigma): void {
   const store = useExplorer.getState();
 
+  // Every instrument ends at the camera, so holding it here is what makes the bound one bound
+  // rather than a limit per tool. Sigma reports a resize the same way, which is the case where
+  // nothing moved but the viewport the bound is measured against.
+  instance.getCamera().on('updated', holdCamera);
+  instance.on('resize', () => {
+    applyBound();
+    holdCamera();
+  });
+
   instance.on('clickNode', ({ node }) => {
-    const previous = useExplorer.getState().selection.selected;
+    const previousNode = useExplorer.getState().selection.selected;
+    const previousEdgeOwner = edgeOwner(useExplorer.getState().selection.selectedEdge);
     useExplorer.getState().select(node);
     // Clicking a claim is asking about it, so the pane that answers comes forward.
     useExplorer.getState().setSidePane('info');
-    highlight([node, ...(previous ? [previous] : [])]);
+    highlight([
+      node,
+      ...(previousNode ? [previousNode] : []),
+      ...(previousEdgeOwner ? [previousEdgeOwner] : []),
+      ...labelBearingNodes(),
+    ]);
   });
 
   instance.on('clickEdge', ({ edge }) => {
-    const previous = useExplorer.getState().selection.selected;
+    const previousNode = useExplorer.getState().selection.selected;
+    const previousEdgeOwner = edgeOwner(useExplorer.getState().selection.selectedEdge);
     const drawn = instance.getGraph();
     useExplorer.getState().selectEdge(edge);
     useExplorer.getState().setSidePane('info');
-    // The edge's own claim is the one that owns it, so repainting from there covers both.
-    highlight([drawn.source(edge), ...(previous ? [previous] : [])]);
+    // The edge's own claim is the one that owns it, so repainting from there covers both — and
+    // the previously selected edge's owner must repaint too, or its highlight survives with
+    // nothing left to clear it (-> edgeOwner).
+    highlight([
+      drawn.source(edge),
+      ...(previousNode ? [previousNode] : []),
+      ...(previousEdgeOwner ? [previousEdgeOwner] : []),
+    ]);
   });
 
   instance.on('clickStage', () => {
-    const previous = useExplorer.getState().selection.selected;
+    const previousNode = useExplorer.getState().selection.selected;
+    const previousEdgeOwner = edgeOwner(useExplorer.getState().selection.selectedEdge);
     useExplorer.getState().select(null);
-    if (previous) highlight([previous]);
+    // Only a previously-selected claim or edge leaves anything to clear — clicking empty
+    // canvas with nothing selected repaints nothing.
+    const toClear = [...(previousNode ? [previousNode] : []), ...(previousEdgeOwner ? [previousEdgeOwner] : [])];
+    if (toClear.length > 0) highlight([...toClear, ...labelBearingNodes()]);
   });
 
   // Hover drives only a partial repaint: the highlight is immediate (two nodes), the
   // preview debounced so a sweeping pointer cannot outrun the reader.
-  instance.on('enterNode', ({ node }) => {
+  instance.on('enterNode', ({ node, event }) => {
     const previous = useExplorer.getState().selection.hovered;
     useExplorer.getState().hover(node);
     highlight([node, ...(previous ? [previous] : [])]);
     window.clearTimeout(hoverTimer);
+    // event.x/y are already relative to the canvas host, which is what the floating
+    // tooltip is positioned against — no further conversion needed.
+    const { x, y } = event;
     hoverTimer = window.setTimeout(() => {
       if (useExplorer.getState().selection.hovered !== node) return;
       const g = graph();
       if (!g.hasNode(node)) return;
       useExplorer.getState().setPreview({
         id: node,
-        label: String(g.getNodeAttribute(node, 'label') ?? ''),
         claimType: String(g.getNodeAttribute(node, 'claimType') ?? ''),
+        content: contentSnippet(node),
+        x,
+        y,
       });
     }, HOVER_DEBOUNCE_MS);
   });
@@ -274,36 +471,17 @@ function bindEvents(instance: Sigma): void {
   fpsHandle = requestAnimationFrame(tick);
 }
 
-/**
- * graphXAt converts a position on the canvas to the graph x under it. The ruler samples
- * screen space and asks what time is there, so panning and zooming need no arithmetic of
- * their own — the camera has already done it.
- */
-export function graphXAt(viewportX: number): number | null {
-  if (!sigma) return null;
-  return sigma.viewportToGraph({ x: viewportX, y: 0 }).x;
-}
-
-/** viewportXAt converts a graph x to the position on the canvas it draws at. */
-export function viewportXAt(graphX: number): number | null {
-  if (!sigma) return null;
-  return sigma.graphToViewport({ x: graphX, y: 0 }).x;
-}
-
-/** canvasWidth is the drawn width, which the ruler samples across. */
-export function canvasWidth(): number {
-  return sigma?.getDimensions().width ?? 0;
-}
 
 /**
  * onPointer reports the pointer's canvas position, and null when it leaves. Taken from
  * Sigma's own captor rather than a DOM listener, so it agrees with what the renderer thinks
  * the pointer is doing.
  */
-export function onPointer(fn: (x: number | null) => void): () => void {
-  if (!sigma) return () => {};
-  const captor = sigma.getMouseCaptor();
-  const move = (e: { x: number }) => fn(e.x);
+export function onPointer(fn: (at: { x: number; y: number } | null) => void): () => void {
+  const instance = unionOf();
+  if (!instance) return () => {};
+  const captor = instance.getMouseCaptor();
+  const move = (e: { x: number; y: number }) => fn({ x: e.x, y: e.y });
   const leave = () => fn(null);
   captor.on('mousemove', move);
   captor.on('mouseleave', leave);
@@ -322,31 +500,35 @@ export function onPointer(fn: (x: number | null) => void): () => void {
 // Both instances are alive throughout. Swapping is a change of which canvas is visible, so
 // neither direction pays an upload and the switch has nothing to hide.
 
-let lens: Sigma | null = null;
-let lensHost: HTMLElement | null = null;
-
 /**
  * showLens draws this graph in place of the union. The lens is built and uploaded before the
  * swap, so no frame is ever shown empty, and it is handed the union's camera so the picture
  * does not move.
  */
 export function showLens(lensGraph: DirectedGraph): void {
-  if (!sigma || !lensHost) return;
-  const camera = sigma.getCamera().getState();
+  const union = unionOf();
+  const host = hostOf();
+  if (!union || !host) return;
+  const camera = union.getCamera().getState();
 
+  let lens = lensOf();
   if (lens) lens.setGraph(lensGraph);
   else {
-    lens = new Sigma(lensGraph, lensHost, sigmaSettings());
+    lens = new Sigma(lensGraph, host, sigmaSettings());
+    setLens(lens);
     bindEvents(lens);
   }
   // The lens must normalise against the same extent, or swapping would change the scale.
-  lens.setCustomBBox(sigma.getCustomBBox());
+  lens.setCustomBBox(union.getCustomBBox());
   lens.getCamera().setState(camera);
   applyViewSettings(activeView(useExplorer.getState()), lens);
   // Uploaded first, shown second.
   lens.refresh();
-  lensHost.style.visibility = 'visible';
-  sigma.getContainer().style.visibility = 'hidden';
+  host.style.visibility = 'visible';
+  union.getContainer().style.visibility = 'hidden';
+  // A new lens is built from the shared settings, which carry no ceiling of their own, so the
+  // instance the reader is about to drive is given one as it comes forward.
+  applyBound();
 }
 
 /**
@@ -354,40 +536,38 @@ export function showLens(lensGraph: DirectedGraph): void {
  * along, so this is a change of visibility and a camera handed back.
  */
 export function hideLens(): void {
-  if (!sigma || !lensHost || lensHost.style.visibility === 'hidden') return;
-  if (lens) sigma.getCamera().setState(lens.getCamera().getState());
-  lensHost.style.visibility = 'hidden';
-  sigma.getContainer().style.visibility = 'visible';
-}
-
-/** lensShowing reports which graph the reader is looking at. */
-export function lensShowing(): boolean {
-  return lensHost?.style.visibility === 'visible';
+  const union = unionOf();
+  const host = hostOf();
+  const lens = lensOf();
+  if (!union || !host || host.style.visibility === 'hidden') return;
+  if (lens) union.getCamera().setState(lens.getCamera().getState());
+  host.style.visibility = 'hidden';
+  union.getContainer().style.visibility = 'visible';
 }
 
 /** mountLens gives the lens its own canvas, hidden until it is wanted. */
 export function mountLens(container: HTMLElement): void {
-  lensHost = container;
+  setHost(container);
   container.style.visibility = 'hidden';
 }
 
 /**
  * onZoom sees the wheel before Sigma's captor does, and returning false hands it back.
  *
- * The plain wheel is left to the camera: zooming is continuous navigation and belongs on the
- * gesture every other tool uses for it. Stretching an axis is a deliberate, occasional change
- * of what the picture *is*, so it sits behind a modifier.
+ * The plain wheel is time: a timeline is read along its axis, and the gesture a reader reaches
+ * for first should act on the axis they came for. The strata are the occasional adjustment, so
+ * they sit behind the modifier.
  */
 export interface ZoomGesture {
   factor: number;
   viewportX: number;
   viewportY: number;
-  /** Shift stretches time; without it the wheel is the camera's own zoom. */
+  /** Shift zooms the strata; without it the wheel zooms time. */
   shift: boolean;
 }
 
 export function onZoom(fn: (gesture: ZoomGesture) => boolean): () => void {
-  const container = sigma?.getContainer();
+  const container = unionOf()?.getContainer();
   if (!container) return () => {};
   const wheel = (event: WheelEvent) => {
     // A notch up magnifies, a notch down shrinks; the exponent keeps it smooth on trackpads.
@@ -406,10 +586,10 @@ export function onZoom(fn: (gesture: ZoomGesture) => boolean): () => void {
   };
   // Capture, so it is seen before Sigma's own captor.
   container.addEventListener('wheel', wheel, { capture: true, passive: false });
-  lensHost?.addEventListener('wheel', wheel, { capture: true, passive: false });
+  hostOf()?.addEventListener('wheel', wheel, { capture: true, passive: false });
   return () => {
     container.removeEventListener('wheel', wheel, { capture: true });
-    lensHost?.removeEventListener('wheel', wheel, { capture: true });
+    hostOf()?.removeEventListener('wheel', wheel, { capture: true });
   };
 }
 
@@ -424,107 +604,30 @@ export function onZoom(fn: (gesture: ZoomGesture) => boolean): () => void {
  */
 export function pinExtent(x0: number, x1: number, y0: number, y1: number): void {
   const bbox = { x: [x0, x1] as [number, number], y: [y0, y1] as [number, number] };
-  sigma?.setCustomBBox(bbox);
-  lens?.setCustomBBox(bbox);
+  unionOf()?.setCustomBBox(bbox);
+  lensOf()?.setCustomBBox(bbox);
+  // Every measurement of the picture is read off the projection, and a new box is a new
+  // projection. The union is re-uploaded by the load that pinned it; a lens the reader happens to
+  // be looking at is not, so it is drawn again here rather than answering from the old box.
+  if (lensShowing()) lensOf()?.refresh();
+  pin({ x0, x1, y0, y1 });
+  applyBound();
 }
 
 /** unpinExtent hands normalisation back to the graph, for the layouts that want fitting. */
 export function unpinExtent(): void {
-  sigma?.setCustomBBox(null);
-  lens?.setCustomBBox(null);
-}
-
-/**
- * anchorAt pans so that a graph position lands under a given point on the canvas. Stretching
- * time moves everything away from the cursor, and what a reader means by zooming is that the
- * thing they are pointing at stays put — so the camera makes up the difference.
- */
-export function anchorAt(viewportX: number, graphX: number): void {
-  const instance = lensShowing() ? lens : sigma;
-  if (!instance) return;
-  const drifted = instance.graphToViewport({ x: graphX, y: 0 }).x - viewportX;
-  if (Math.abs(drifted) < 0.01) return;
-  // A viewport distance means nothing to the camera, so it is converted through the same
-  // transform the renderer draws with.
-  const origin = instance.viewportToFramedGraph({ x: 0, y: 0 });
-  const moved = instance.viewportToFramedGraph({ x: drifted, y: 0 });
-  const camera = instance.getCamera();
-  const state = camera.getState();
-  camera.setState({ ...state, x: state.x + (moved.x - origin.x) });
-}
-
-/** shownGraph is the graph the reader is looking at, which is what a stretch acts on. */
-export function shownGraph(): DirectedGraph | null {
-  const instance = lensShowing() ? lens : sigma;
-  return (instance?.getGraph() as DirectedGraph | undefined) ?? null;
-}
-
-/** repaint re-uploads whichever graph is showing, after its positions changed. */
-export function repaint(): void {
-  const instance = lensShowing() ? lens : sigma;
-  instance?.refresh();
+  unionOf()?.setCustomBBox(null);
+  lensOf()?.setCustomBBox(null);
+  pin(null);
+  applyBound();
 }
 
 /** onRender calls fn after each frame and returns the unsubscribe. */
 export function onRender(fn: () => void): () => void {
-  if (!sigma) return () => {};
-  const instance = sigma;
+  const instance = unionOf();
+  if (!instance) return () => {};
   instance.on('afterRender', fn);
   return () => instance.off('afterRender', fn);
-}
-
-/**
- * fitHeight makes the strata fill the viewport without touching the time axis.
- *
- * The extent is pinned to the unstretched layout, so a camera ratio of 1 shows exactly that —
- * full height, since y never leaves it. Whatever time is stretched to stays stretched, so this
- * recovers the vertical framing after zooming about.
- */
-export function fitHeight(): void {
-  const instance = lensShowing() ? lens : sigma;
-  if (!instance) return;
-  const camera = instance.getCamera();
-  camera.animate({ ...camera.getState(), y: 0.5, ratio: 1 }, { duration: 180 });
-}
-
-/**
- * axisSpanOnScreen is how wide the drawn axis currently is, in canvas pixels. What it bounds is
- * compression: an axis narrower than the viewport leaves the picture stranded in empty space, so
- * that is where compressing has to stop and the camera's own zoom takes over.
- */
-export function axisSpanOnScreen(axisWidth: number): number | null {
-  const instance = lensShowing() ? lens : sigma;
-  if (!instance) return null;
-  const left = instance.graphToViewport({ x: 0, y: 0 }).x;
-  const right = instance.graphToViewport({ x: axisWidth, y: 0 }).x;
-  return Math.abs(right - left);
-}
-
-/** resetCamera frames the pinned extent again: the whole picture, both axes. */
-export function resetCamera(): void {
-  const instance = lensShowing() ? lens : sigma;
-  instance?.getCamera().animate({ x: 0.5, y: 0.5, ratio: 1, angle: 0 }, { duration: 200 });
-}
-
-/** panTo centres a graph x, keeping the height as it is. */
-export function panTo(graphX: number): void {
-  const instance = lensShowing() ? lens : sigma;
-  if (!instance) return;
-  const framed = instance.graphToViewport({ x: graphX, y: 0 });
-  const { width } = instance.getDimensions();
-  const origin = instance.viewportToFramedGraph({ x: 0, y: 0 });
-  const moved = instance.viewportToFramedGraph({ x: framed.x - width / 2, y: 0 });
-  const camera = instance.getCamera();
-  const state = camera.getState();
-  camera.animate({ ...state, x: state.x + (moved.x - origin.x) }, { duration: 180 });
-}
-
-/** A rectangle being drawn, in canvas coordinates. */
-export interface Box {
-  x0: number;
-  y0: number;
-  x1: number;
-  y1: number;
 }
 
 /**
@@ -533,7 +636,7 @@ export interface Box {
  * pan the camera underneath it.
  */
 export function onBox(fn: (box: Box | null) => void): () => void {
-  const hosts = [sigma?.getContainer(), lensHost].filter((h): h is HTMLElement => !!h);
+  const hosts = [unionOf()?.getContainer(), hostOf()].filter((h): h is HTMLElement => !!h);
   if (hosts.length === 0) return () => {};
 
   let start: { x: number; y: number } | null = null;
@@ -584,40 +687,11 @@ export function onBox(fn: (box: Box | null) => void): () => void {
   };
 }
 
-/**
- * zoomToBox makes a marked rectangle fill the viewport. The camera does it — a box is a request
- * about what to look at, not about what the axes mean, so nothing is laid out again.
- *
- * The ratio takes whichever side needs more room, so the whole box is shown rather than the
- * larger part of it.
- */
-export function zoomToBox(box: Box): void {
-  const instance = lensShowing() ? lens : sigma;
-  if (!instance) return;
-  const { width, height } = instance.getDimensions();
-  if (width <= 0 || height <= 0) return;
-
-  const a = instance.viewportToFramedGraph({ x: Math.min(box.x0, box.x1), y: Math.min(box.y0, box.y1) });
-  const b = instance.viewportToFramedGraph({ x: Math.max(box.x0, box.x1), y: Math.max(box.y0, box.y1) });
-  const fraction = Math.max(
-    Math.abs(box.x1 - box.x0) / width,
-    Math.abs(box.y1 - box.y0) / height,
-  );
-  if (!(fraction > 0)) return;
-
-  const camera = instance.getCamera();
-  const state = camera.getState();
-  camera.animate(
-    { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, ratio: state.ratio * fraction },
-    { duration: 180 },
-  );
-}
-
 /** unmount tears the renderer down — only on page teardown, never on re-render. */
 export function unmount(): void {
   cancelAnimationFrame(fpsHandle);
-  lens?.kill();
-  lens = null;
-  sigma?.kill();
-  sigma = null;
+  lensOf()?.kill();
+  setLens(null);
+  unionOf()?.kill();
+  setUnion(null);
 }

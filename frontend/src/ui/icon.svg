@@ -1,0 +1,16 @@
+<!-- The smallest graph with real provenance: two sources, a derivation citing both, an entity
+     distilled from it. The one source for the tab icon and the top bar's mark. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <rect class="plate" width="32" height="32" rx="7" fill="#1a1d26"/>
+  <g stroke="#5eb0ff" stroke-width="1.7" stroke-linecap="round" opacity=".62">
+    <path d="M16 8.5v5.5"/>
+    <path d="M15 16.6 10 22.4"/>
+    <path d="M17 16.6 22 22.4"/>
+  </g>
+  <g fill="#5eb0ff">
+    <circle cx="16" cy="6.5" r="3.4"/>
+    <circle cx="16" cy="15.5" r="2.7" opacity=".88"/>
+    <circle cx="9" cy="24" r="2.4" opacity=".72"/>
+    <circle cx="23" cy="24" r="2.4" opacity=".72"/>
+  </g>
+</svg>

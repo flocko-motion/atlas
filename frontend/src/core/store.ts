@@ -29,10 +29,12 @@ export interface ViewState {
   classes: string[];
   layout: LayoutName;
   /**
-   * How far x is stretched, 1 being the layout's own scale. The timeline spreads y over the
-   * whole height already, so zooming stretches time and leaves the strata where they are.
+   * How far each axis is stretched, 1 being the layout's own scale. An axis apiece is what a
+   * reader zooms: the camera would take both at once and magnify the claims along with them,
+   * where a stretch spreads them out at the size they are.
    */
   xStretch: number;
+  yStretch: number;
   /** Draw edges at all. */
   edges: boolean;
   /** Draw edges while the camera is moving. */
@@ -120,11 +122,31 @@ export interface SelectionState {
   hovered: string | null;
 }
 
-/** The debounced hover preview: label and type, and nothing heavier. */
+/**
+ * A Visit is one thing the reader has looked at — a claim, an edge, or the graph itself, which is
+ * what an empty visit is. The pane answers about one at a time, so a trail through them is a
+ * trail through what the reader asked.
+ */
+export interface Visit {
+  node: string | null;
+  edge: string | null;
+}
+
+/** Where the reader has been, and where along it they currently stand. */
+export interface HistoryState {
+  visits: Visit[];
+  at: number;
+}
+
+/** The debounced hover preview: type and a content prefix, and nothing heavier. */
 export interface HoverPreview {
   id: string;
-  label: string;
   claimType: string;
+  /** A prefix of the claim's content, where it is text and already read — else empty. */
+  content: string;
+  /** Pointer position within the canvas host, in pixels — where the tooltip floats. */
+  x: number;
+  y: number;
 }
 
 export interface ExplorerState {
@@ -134,6 +156,7 @@ export interface ExplorerState {
   scopes: ScopesState;
   status: StatusState;
   selection: SelectionState;
+  history: HistoryState;
   /** Debounced, so sweeping the pointer cannot thrash the UI. */
   preview: HoverPreview | null;
   /** What the last action has to say — read by the canvas when it has nothing to draw. */
@@ -151,6 +174,8 @@ export interface ExplorerState {
   patchStatus: (patch: Partial<StatusState>) => void;
   select: (id: string | null) => void;
   selectEdge: (key: string | null) => void;
+  /** Walks the trail without adding to it: -1 is back, +1 is forward. */
+  stepHistory: (delta: number) => void;
   hover: (id: string | null) => void;
   setPreview: (preview: HoverPreview | null) => void;
   setNotice: (notice: Notice | null) => void;
@@ -169,6 +194,7 @@ export function defaultView(id: string, label: string): ViewState {
     // Time first: an archive is historical, so that is the axis a reader wants.
     layout: 'timeline',
     xStretch: 1,
+    yStretch: 1,
     edges: true,
     // Edges while the camera moves: what is being looked at is the shape, and hiding them
     // mid-gesture hides the thing.
@@ -180,6 +206,17 @@ export function defaultView(id: string, label: string): ViewState {
 }
 
 const MAX_LOG = 200;
+
+/**
+ * visited adds where the reader has just gone. Forward is where they were before they turned
+ * back, so stepping anywhere new replaces it — a trail forks at the point it is walked from.
+ */
+function visited(history: HistoryState, visit: Visit): HistoryState {
+  const here = history.visits[history.at];
+  if (here && here.node === visit.node && here.edge === visit.edge) return history;
+  const visits = [...history.visits.slice(0, history.at + 1), visit];
+  return { visits, at: visits.length - 1 };
+}
 
 export const useExplorer = create<ExplorerState>((set) => ({
   views: [],
@@ -201,6 +238,7 @@ export const useExplorer = create<ExplorerState>((set) => ({
     progress: null,
   },
   selection: { selected: null, selectedEdge: null, hovered: null },
+  history: { visits: [], at: -1 },
   preview: null,
   notice: null,
   content: null,
@@ -228,10 +266,28 @@ export const useExplorer = create<ExplorerState>((set) => ({
   patchStatus: (patch) => set((s) => ({ status: { ...s.status, ...patch } })),
 
   // Selecting one clears the other: the detail pane answers about one thing at a time.
-  select: (selected) => set((s) => ({ selection: { ...s.selection, selected, selectedEdge: null } })),
+  select: (selected) =>
+    set((s) => ({
+      selection: { ...s.selection, selected, selectedEdge: null },
+      history: visited(s.history, { node: selected, edge: null }),
+    })),
 
   selectEdge: (selectedEdge) =>
-    set((s) => ({ selection: { ...s.selection, selectedEdge, selected: null } })),
+    set((s) => ({
+      selection: { ...s.selection, selectedEdge, selected: null },
+      history: visited(s.history, { node: null, edge: selectedEdge }),
+    })),
+
+  stepHistory: (delta) =>
+    set((s) => {
+      const at = s.history.at + delta;
+      const visit = s.history.visits[at];
+      if (!visit) return {};
+      return {
+        history: { ...s.history, at },
+        selection: { ...s.selection, selected: visit.node, selectedEdge: visit.edge },
+      };
+    }),
 
   hover: (hovered) => set((s) => ({ selection: { ...s.selection, hovered } })),
 

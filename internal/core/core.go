@@ -15,6 +15,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/flocko-motion/rankedb/adapters/auth"
 	"github.com/flocko-motion/rankedb/adapters/sequencer"
@@ -98,6 +99,8 @@ type Core struct {
 	// runs is the verification-run registry — the identity and history the library's
 	// live handle has none of.
 	runs *registry
+	// devClockAdvance steers the launch's dev clock; nil unless started --dev.
+	devClockAdvance func(time.Time) time.Time
 }
 
 // New assembles the core from the ports config built.
@@ -126,6 +129,12 @@ func WithLayers(layers []StorageLayer) Option {
 // a start is refused as busy; the server never stops a run to make room.
 func WithMaxVerificationRuns(n int) Option {
 	return func(c *Core) { c.runs = newRegistry(n, nil) }
+}
+
+// WithDevClock wires POST /dev/clock to advance, the launch's steerable clock —
+// absent, the route answers ErrNotImplemented (§execute.go's devClockAdvance).
+func WithDevClock(advance func(time.Time) time.Time) Option {
+	return func(c *Core) { c.devClockAdvance = advance }
 }
 
 // Handle runs a request through authenticate → authorize → execute, enriching it in

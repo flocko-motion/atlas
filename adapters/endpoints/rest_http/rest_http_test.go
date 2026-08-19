@@ -106,7 +106,7 @@ func newServingStack(t *testing.T, grants []string) (http.Handler, ranke.Univers
 		t.Fatalf("signer.New: %v", err)
 	}
 	store := ranke.NewMemoryUniverse()
-	seq, err := sequencer.New(ctx, scope.Literal(map[string]string{"type": "dev"}), store, sig)
+	seq, err := sequencer.New(ctx, scope.Literal(map[string]string{"type": "dev"}), store, sig, nil)
 	if err != nil {
 		t.Fatalf("sequencer.New: %v", err)
 	}

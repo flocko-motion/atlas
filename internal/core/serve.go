@@ -66,7 +66,7 @@ func (s *queryStream) WriteTo(w io.Writer) (int64, error) {
 		return n, mapLibError(err)
 	}
 	if report := s.results.Report(); report != nil {
-		written, err := s.seq.writeJSON(w, report)
+		written, err := s.seq.writeValue(w, report)
 		n += written
 		if err != nil {
 			return n, err
@@ -91,13 +91,13 @@ func (s *queryStream) writeResult(w io.Writer, r ranke.QueryResult) (int64, erro
 		}
 		return n, nil
 	case ranke.KindClaimId:
-		return s.seq.writeJSON(w, r.ClaimId.String())
+		return s.seq.writeValue(w, r.ClaimId.String())
 	case ranke.KindPathId:
 		ids := make([]string, 0, len(r.PathId))
 		for _, id := range r.PathId {
 			ids = append(ids, id.String())
 		}
-		return s.seq.writeJSON(w, ids)
+		return s.seq.writeValue(w, ids)
 	default:
 		// The native kinds carry Go objects, which only an encoding could put on the
 		// wire — and that encoding is the engine's. dispatch pins an explicit encoding
@@ -143,11 +143,22 @@ func (f sequenceFraming) writeRecord(w io.Writer, payload []byte) (int64, error)
 	return n, nil
 }
 
-// writeJSON writes v as one JSON record. It serves the payloads that are not claim
-// bytes — an id, a route of ids, the execution report — none of which the engine
-// serialises and none of which an id is computed over.
-func (f sequenceFraming) writeJSON(w io.Writer, v any) (int64, error) {
-	payload, err := json.Marshal(v)
+// writeValue writes v as one record in the framing's OWN encoding. It serves the
+// payloads that are not claim bytes — an id, a route of ids, the execution report —
+// none of which the engine serialises and none of which an id is computed over.
+//
+// The encoding follows the framing rather than defaulting to JSON: a JSON record in a
+// CBOR sequence mis-decodes rather than failing, since a leading '"' is a valid CBOR
+// negative integer. §Output has both encodings carry the same information, which
+// means each carries it in its own form.
+func (f sequenceFraming) writeValue(w io.Writer, v any) (int64, error) {
+	marshal := json.Marshal
+	if f.mediaType == mediaCBORSeq {
+		// ranke-go's deterministic encoder, so one encoder serves every record in the
+		// sequence and a map's keys order the way a claim's do.
+		marshal = ranke.MarshalCBOR
+	}
+	payload, err := marshal(v)
 	if err != nil {
 		return 0, err
 	}

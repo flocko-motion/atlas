@@ -51,6 +51,7 @@ func rootCmd() *cobra.Command {
 // runCmd assembles the stack from a config and serves it.
 func runCmd() *cobra.Command {
 	var ageKey string
+	var dev bool
 	c := &cobra.Command{
 		Use:   "run [flags] <configfile>|-",
 		Short: "Assemble the adapter stack from a config and serve it",
@@ -65,7 +66,7 @@ func runCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			app, err := config.Run(cmd.Context(), cfg, src)
+			app, err := config.Run(cmd.Context(), cfg, src, dev)
 			if err != nil {
 				return err
 			}
@@ -76,6 +77,8 @@ func runCmd() *cobra.Command {
 		},
 	}
 	c.Flags().StringVar(&ageKey, "age-key", "", "age key source: prompt|stdin|env:VAR|file:path")
+	c.Flags().BoolVar(&dev, "dev", false,
+		"mount POST /dev/clock, steering the sequencer's clock instead of real time — requires sequencer.type \"dev\"; never for a real deployment")
 	return c
 }
 

@@ -10,12 +10,16 @@
  * and holding derived data in state is how stores start lying.
  */
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { scopeCounts, selectScope, shapeOf } from '../../core/session.ts';
 import { isArchive, shortHead } from '../../core/scope.ts';
 import type { Scope } from '../../core/scope.ts';
 import { useExplorer } from '../../core/store.ts';
-import { Button, Empty, KeyValue } from '../components/Field.tsx';
+import { timelineExtent } from '../../core/timeline.ts';
+import { geometry } from '../../render/camera.ts';
+import { onRender } from '../../render/renderer.ts';
+import { Button, Empty, KeyValue, PaneTitle } from '../components/Field.tsx';
+import { formatZoom } from '../format.ts';
 
 /**
  * ScopeInfo is where a head id belongs: the picker names a scope, and this says what that
@@ -86,6 +90,35 @@ function BranchTable({ scopes, selected }: { scopes: Scope[]; selected: Scope })
   );
 }
 
+/**
+ * Geometry says where the picture is, in the terms the bound is stated in: the extent the layout
+ * was given, the stretch each axis carries, and the rectangle those two land on the canvas. A
+ * picture that sits wrong is then a set of numbers rather than an impression of one.
+ */
+function Geometry() {
+  const [at, setAt] = useState(geometry);
+  useEffect(() => onRender(() => setAt(geometry())), []);
+  const extent = timelineExtent();
+  if (!at || !extent) return null;
+
+  const round = (v: number) => Math.round(v).toLocaleString('en-US');
+  return (
+    <>
+      <h2>geometry</h2>
+      <KeyValue
+        rows={[
+          ['extent x', `0 … ${round(extent.x1 * at.stretch.x)}`],
+          ['extent y', `0 … ${round(extent.y1 * at.stretch.y)}`],
+          ['stretch', `${formatZoom(at.stretch.x)} / ${formatZoom(at.stretch.y)}`],
+          ['drawn at', `${round(at.rect.x)}, ${round(at.rect.y)} px`],
+          ['drawn size', `${round(at.rect.width)} × ${round(at.rect.height)} px`],
+          ['canvas', `${round(at.canvas.width)} × ${round(at.canvas.height)} px`],
+        ]}
+      />
+    </>
+  );
+}
+
 export function GraphPane() {
   const status = useExplorer((s) => s.status);
   const [shape, setShape] = useState<ReturnType<typeof shapeOf> | null>(null);
@@ -101,6 +134,7 @@ export function GraphPane() {
 
   return (
     <div className="pane">
+      <PaneTitle hint="nothing selected">graph</PaneTitle>
       <ScopeInfo />
 
       <h2>loaded</h2>
@@ -112,6 +146,8 @@ export function GraphPane() {
           ['edges per node', (status.edges / (status.nodes || 1)).toFixed(2)],
         ]}
       />
+
+      <Geometry />
 
       <div className="row">
         <Button onClick={() => setShape(shapeOf())}>measure shape</Button>

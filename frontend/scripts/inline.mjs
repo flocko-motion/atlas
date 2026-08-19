@@ -18,6 +18,7 @@ const assets = join(dist, 'assets');
 const files = readdirSync(assets);
 const js = files.find((f) => f.endsWith('.js'));
 const css = files.find((f) => f.endsWith('.css'));
+const svg = files.find((f) => f.endsWith('.svg'));
 if (!js) throw new Error('no bundled js in dist/assets — run `vite build` first');
 
 let html = readFileSync(join(dist, 'index.html'), 'utf8');
@@ -29,6 +30,18 @@ html = html
   .replace(/<link[^>]*rel="stylesheet"[^>]*>/, '')
   .replace('</head>', `<style>\n${style}\n</style>\n</head>`)
   .replace('</body>', `<script>\n${script}\n</script>\n</body>`);
+
+// The icon is linked by URL, and `assetsInlineLimit` does not reach an asset referenced from
+// the HTML, so it arrives here as a file like the script and the style.
+if (svg) {
+  const uri = `data:image/svg+xml,${encodeURIComponent(readFileSync(join(assets, svg), 'utf8'))}`;
+  html = html.replace(/(<link[^>]*rel="icon"[^>]*href=")[^"]*(")/, (_, open, close) => open + uri + close);
+}
+
+// Self-contained is the whole point, and a leftover URL only shows as a missing file once the
+// page is opened from somewhere else.
+const dangling = html.match(/(?:src|href)="[^"]*\/assets\/[^"]*"/);
+if (dangling) throw new Error(`${dangling[0]} was left pointing at a file beside explorer.html`);
 
 // Written to the spike root, not dist/, and committed — like the repo's other
 // generated artifacts. It is the zero-setup way to look at the spike: no npm,

@@ -82,19 +82,16 @@ func (e OrderKeyDir) Valid() bool {
 
 // Defines values for OutputDetail.
 const (
-	Claims OutputDetail = "claims"
-	Graph  OutputDetail = "graph"
-	Id     OutputDetail = "id"
+	OutputDetailClaims OutputDetail = "claims"
+	OutputDetailId     OutputDetail = "id"
 )
 
 // Valid indicates whether the value is a known member of the OutputDetail enum.
 func (e OutputDetail) Valid() bool {
 	switch e {
-	case Claims:
+	case OutputDetailClaims:
 		return true
-	case Graph:
-		return true
-	case Id:
+	case OutputDetailId:
 		return true
 	default:
 		return false
@@ -157,9 +154,8 @@ func (e OutputShape) Valid() bool {
 
 // Defines values for OutputContentOverflow.
 const (
-	Cutoff    OutputContentOverflow = "cutoff"
-	Omit      OutputContentOverflow = "omit"
-	Reference OutputContentOverflow = "reference"
+	Cutoff OutputContentOverflow = "cutoff"
+	Omit   OutputContentOverflow = "omit"
 )
 
 // Valid indicates whether the value is a known member of the OutputContentOverflow enum.
@@ -168,8 +164,6 @@ func (e OutputContentOverflow) Valid() bool {
 	case Cutoff:
 		return true
 	case Omit:
-		return true
-	case Reference:
 		return true
 	default:
 		return false
@@ -315,17 +309,31 @@ type BranchList struct {
 	Branches []BranchEntry `json:"branches"`
 }
 
-// Comparison A test on one field. Exactly one operator is expected. `in` takes a set;
-// `glob` a shell-style wildcard; the rest a scalar.
+// Comparison One operator applied to one field. eq, ne, lt, le, gt and ge take a value, in a set, glob a shell-style wildcard. Exactly one is present.
 type Comparison struct {
-	Eq   interface{}    `json:"eq,omitempty"`
-	Ge   interface{}    `json:"ge,omitempty"`
-	Glob *string        `json:"glob,omitempty"`
-	Gt   interface{}    `json:"gt,omitempty"`
-	In   *[]interface{} `json:"in,omitempty"`
-	Le   interface{}    `json:"le,omitempty"`
-	Lt   interface{}    `json:"lt,omitempty"`
-	Ne   interface{}    `json:"ne,omitempty"`
+	// Eq A value a comparison tests against. How two values compare is the engine's, so the shape is unconstrained here.
+	Eq *Value `json:"eq,omitempty"`
+
+	// Ge A value a comparison tests against. How two values compare is the engine's, so the shape is unconstrained here.
+	Ge *Value `json:"ge,omitempty"`
+
+	// Glob Shell-style wildcard.
+	Glob *string `json:"glob,omitempty"`
+
+	// Gt A value a comparison tests against. How two values compare is the engine's, so the shape is unconstrained here.
+	Gt *Value `json:"gt,omitempty"`
+
+	// In Set membership.
+	In *[]Value `json:"in,omitempty"`
+
+	// Le A value a comparison tests against. How two values compare is the engine's, so the shape is unconstrained here.
+	Le *Value `json:"le,omitempty"`
+
+	// Lt A value a comparison tests against. How two values compare is the engine's, so the shape is unconstrained here.
+	Lt *Value `json:"lt,omitempty"`
+
+	// Ne A value a comparison tests against. How two values compare is the engine's, so the shape is unconstrained here.
+	Ne *Value `json:"ne,omitempty"`
 }
 
 // ContributionResult The outcome of a contribution — the new branch-table head and the appended claim ids.
@@ -336,6 +344,24 @@ type ContributionResult struct {
 	// Ids Content-addressed ids of the contributed claims, in order.
 	Ids []string `json:"ids"`
 }
+
+// DevClock The dev sequencer's clock after the request — the later of what was asked
+// and what it already held.
+type DevClock struct {
+	Time time.Time `json:"time"`
+}
+
+// DevClockAdvance Requests the dev sequencer's clock advance to (at least) this instant. A
+// request older than the clock's current position is accepted as a no-op —
+// the clock only ever moves forward, since a merge's witnessed time
+// regressing would break every guarantee built on it.
+type DevClockAdvance struct {
+	// Time The instant to advance to.
+	Time time.Time `json:"time"`
+}
+
+// Duration A duration as a decimal sequence with unit suffixes — ns, us, ms, s, m, h — e.g. 5s or 1m30s. The bare 0 means unbounded.
+type Duration = string
 
 // Error defines model for Error.
 type Error struct {
@@ -348,26 +374,16 @@ type Error struct {
 	Error string `json:"error"`
 }
 
-// Execution Where the query runs and how it reports on itself (paper 02 §Filtered Reads).
-// Queries are declarative; the planner lowers each to the most capable engine the
-// storage stack offers, so these controls affect execution and diagnostics only,
-// never the result set.
+// Execution Where the query runs and how it reports on itself. These controls reach execution and diagnostics, and never the result set.
 type Execution struct {
-	// Layer Pin execution to a named storage layer — any layer the stack composes —
-	// instead of letting the planner choose which layer answers. The engine then
-	// follows from that layer's capability (its native walk, or a Cypher/GQL
-	// engine if it has one).
+	// Layer Pins the query to one named storage or execution layer; absent, the backend chooses by capability.
 	Layer *string `json:"layer,omitempty"`
 
-	// Report Execution-report verbosity: info (high-level stages), debug (routing and
-	// lowering), or trace (per-claim detail). Absent, no report is produced; set,
-	// the sequence's **final item** is a QueryReport.
+	// Report Report verbosity: info gives high-level stages, debug routing and translation, trace per-claim detail. Set, and only then, the stream carries one final report record after the last element, typed distinctly from result claims (R-QREPORT).
 	Report *ExecutionReport `json:"report,omitempty"`
 }
 
-// ExecutionReport Execution-report verbosity: info (high-level stages), debug (routing and
-// lowering), or trace (per-claim detail). Absent, no report is produced; set,
-// the sequence's **final item** is a QueryReport.
+// ExecutionReport Report verbosity: info gives high-level stages, debug routing and translation, trace per-claim detail. Set, and only then, the stream carries one final report record after the last element, typed distinctly from result claims (R-QREPORT).
 type ExecutionReport string
 
 // Health defines model for Health.
@@ -381,204 +397,135 @@ type Health struct {
 	Status string `json:"status"`
 }
 
-// Limit Bounds the read; each field's `0` means unbounded.
+// Id A claim id: id(v) = Sign(H(S(v))) for a node, id(e) = H(S(e)) for an edge, carried as multibase base32 of the self-describing payload. The pattern fixes the multibase framing; whether the payload's multihash or multikey framing parses is the implementation's check.
+type Id = string
+
+// Limit Bounds the read. A read cut short by either bound is a complete answer to the query as bounded, not an error (R-QLIMIT).
 type Limit struct {
-	// Results Maximum number of claims returned; `0` = unbounded.
+	// Results Caps the claim count; 0 is unbounded.
 	Results *int `json:"results,omitempty"`
 
-	// Time Execution budget as a duration (e.g. `"5s"`); the query is cancelled when
-	// exceeded. Absent or `"0"` = no budget.
-	Time *string `json:"time,omitempty"`
+	// Time A duration as a decimal sequence with unit suffixes — ns, us, ms, s, m, h — e.g. 5s or 1m30s. The bare 0 means unbounded.
+	Time *Duration `json:"time,omitempty"`
 }
 
-// OrderKey One sort key. Keys apply in priority order, claims lacking a key's field sort
-// last, and the natural `(created_at, id)` order breaks any remaining ties — so
-// the sort always resolves to a total order and paging stays stable.
+// Order Sort keys applied in priority order. Claims lacking a key's field sort last, and the archive's natural (created_at, id) order breaks any remaining ties, so the sort always resolves to a total order (R-QSORT).
+type Order = []OrderKey
+
+// OrderKey defines model for OrderKey.
 type OrderKey struct {
-	// Compare How the values compare; absent = lexical.
+	// Compare How the values compare (R-QSORT).
 	Compare *OrderKeyCompare `json:"compare,omitempty"`
 
-	// Dir Sort direction; absent = asc.
+	// Dir Sort direction (R-QSORT).
 	Dir *OrderKeyDir `json:"dir,omitempty"`
 
-	// Field The field sorted on — any field a claim carries, or the derived `height`.
+	// Field The field sorted on — any field a claim carries, height included.
 	Field string `json:"field"`
 }
 
-// OrderKeyCompare How the values compare; absent = lexical.
+// OrderKeyCompare How the values compare (R-QSORT).
 type OrderKeyCompare string
 
-// OrderKeyDir Sort direction; absent = asc.
+// OrderKeyDir Sort direction (R-QSORT).
 type OrderKeyDir string
 
-// Output Shapes each result along orthogonal axes and fixes the per-claim
-// serialization. `detail: claims` + `form: original` + `encoding: cbor`
-// reproduces the canonical bytes a claim's id is computed over — the only
-// combination directly verifiable against that id.
+// Output Shapes each result along orthogonal axes. detail: claims with form: original and encoding: cbor reproduces the canonical serialization S(v) a claim's id is computed over, and is the only output form directly verifiable against that id (R-QCANON).
 type Output struct {
-	// Content Inline content per claim. Absent, no content is inlined and a claim carries
-	// only its `content_hash`.
+	// Content Inline content per claim. Absent, no content is inlined (R-QCONTENT).
 	Content *OutputContent `json:"content,omitempty"`
 
-	// Detail How each element is carried: id (identities only), graph (nodes joined by
-	// the edges between them), or claims (each node with **all** its outgoing
-	// edges — the default, and richer than graph).
+	// Detail What each element carries: id (the id alone) or claims (the claim in full). Under shape: path it applies to every claim in the route (R-QDETAIL).
 	Detail *OutputDetail `json:"detail,omitempty"`
 
-	// Encoding How each claim is serialised — json (text; content base64-encoded) or cbor
-	// (binary). The same information either way, and orthogonal to the other
-	// output fields; the response media type frames the sequence to match
-	// (`application/json-seq` / `application/cbor-seq`).
+	// Encoding json is text with content base64-encoded, cbor is binary; the same information either way (R-QENCODING).
 	Encoding *OutputEncoding `json:"encoding,omitempty"`
 
-	// Form Which field values each claim carries: original (as written — a
-	// diff-overlaid claim's delta, and the id-defining form) or materialized
-	// (with any `contribution/diff` chain resolved). A property of the values,
-	// so orthogonal to `detail` and `encoding`.
+	// Form Which field values a claim carries: original as written, a diff-overlaid claim's delta; materialized with any contribution/diff chain resolved over the predecessor it references, recursively to a base claim. A property of the values, hence orthogonal to detail and encoding (R-QFORM).
 	Form *OutputForm `json:"form,omitempty"`
 
-	// Shape single (each item is one reached endpoint — the default) or path (each item
-	// is the route to it, start-first).
+	// Shape single yields the reached endpoints, one element each; path yields routes, each running outward from the frontier claim its walk began at (R-QSHAPE).
 	Shape *OutputShape `json:"shape,omitempty"`
 }
 
-// OutputDetail How each element is carried: id (identities only), graph (nodes joined by
-// the edges between them), or claims (each node with **all** its outgoing
-// edges — the default, and richer than graph).
+// OutputDetail What each element carries: id (the id alone) or claims (the claim in full). Under shape: path it applies to every claim in the route (R-QDETAIL).
 type OutputDetail string
 
-// OutputEncoding How each claim is serialised — json (text; content base64-encoded) or cbor
-// (binary). The same information either way, and orthogonal to the other
-// output fields; the response media type frames the sequence to match
-// (`application/json-seq` / `application/cbor-seq`).
+// OutputEncoding json is text with content base64-encoded, cbor is binary; the same information either way (R-QENCODING).
 type OutputEncoding string
 
-// OutputForm Which field values each claim carries: original (as written — a
-// diff-overlaid claim's delta, and the id-defining form) or materialized
-// (with any `contribution/diff` chain resolved). A property of the values,
-// so orthogonal to `detail` and `encoding`.
+// OutputForm Which field values a claim carries: original as written, a diff-overlaid claim's delta; materialized with any contribution/diff chain resolved over the predecessor it references, recursively to a base claim. A property of the values, hence orthogonal to detail and encoding (R-QFORM).
 type OutputForm string
 
-// OutputShape single (each item is one reached endpoint — the default) or path (each item
-// is the route to it, start-first).
+// OutputShape single yields the reached endpoints, one element each; path yields routes, each running outward from the frontier claim its walk began at (R-QSHAPE).
 type OutputShape string
 
-// OutputContent Inline content per claim. Absent, no content is inlined and a claim carries
-// only its `content_hash`.
+// OutputContent Inline content per claim. Absent, no content is inlined (R-QCONTENT).
 type OutputContent struct {
-	// Max Cap in bytes on the content inlined per claim.
+	// Max Cap in bytes on the content inlined per claim; 0 inlines every claim's content in full.
 	Max int `json:"max"`
 
-	// Overflow What happens to content past the cap: cutoff (truncate), omit (drop it),
-	// or reference (a `content_hash` stub in its place — the bytes are then
-	// fetched from the claim's content route).
+	// Overflow What becomes of content past the cap: cutoff inlines the bytes up to it, omit inlines whole values only. Absent, omit. A claim keeps every field it carries either way (R-QCONTENT).
 	Overflow *OutputContentOverflow `json:"overflow,omitempty"`
 }
 
-// OutputContentOverflow What happens to content past the cap: cutoff (truncate), omit (drop it),
-// or reference (a `content_hash` stub in its place — the bytes are then
-// fetched from the claim's content route).
+// OutputContentOverflow What becomes of content past the cap: cutoff inlines the bytes up to it, omit inlines whole values only. Absent, omit. A claim keeps every field it carries either way (R-QCONTENT).
 type OutputContentOverflow string
 
-// PathStep One bounded walk: follow `edges` in direction `dir` for between `min` and `max`
-// hops, optionally constraining what it yields to `nodes` types. `edges` gates
-// every hop; `nodes` gates only the claims the step yields, never those it passes
-// through. Each step starts from the **set** of endpoints the previous step
-// produced — a frontier pipeline — and the no-repeat rule applies within a step
-// and resets at each step boundary.
+// PathStep One section of a path. edges bounds the walk: every hop must follow an edge whose type is listed. nodes bounds the answer: a step yields a claim only when its node's type is listed, whatever the nodes it crossed to reach it. min and max bound the hops. A min above a bounded max is refused by the implementation — a JSON Schema cannot compare two sibling values (R-QSTEPS).
 type PathStep struct {
-	// Dir provenance (outgoing, toward references — the default), uses (incoming,
-	// the claims that cite this one), or connections (either).
+	// Dir provenance follows references outward, uses runs to the claims that cite this one, connections either way. Absent, provenance.
 	Dir *PathStepDir `json:"dir,omitempty"`
 
-	// Edges Edge-class globs over `class/sub`; a leading `-` on an entry excludes that class.
-	Edges *[]string `json:"edges,omitempty"`
+	// Edges Edge types every hop must match.
+	Edges *[]TypeGlob `json:"edges,omitempty"`
 
-	// Max Most hops; `0` means unbounded for this step (a step of at most zero hops
-	// would move nothing). A `min` above a bounded `max` is rejected.
+	// Max Most hops. 0, or absent, leaves the step unbounded: a step of at most zero hops would move nothing, so that reading has no use.
 	Max *int `json:"max,omitempty"`
 
-	// Min Fewest hops; absent means 1, so a step moves at least one hop. `0` also
-	// yields the step's own starting set, carrying the frontier through
-	// alongside what lies beyond it.
+	// Min Fewest hops. Absent, 1 — a step moves at least one hop. 0 also yields the starting set, carrying the frontier through alongside what lies beyond it.
 	Min *int `json:"min,omitempty"`
 
-	// Nodes Node-class globs the step may yield; a leading `-` excludes a class.
-	Nodes *[]string `json:"nodes,omitempty"`
+	// Nodes Node types the step may yield.
+	Nodes *[]TypeGlob `json:"nodes,omitempty"`
 }
 
-// PathStepDir provenance (outgoing, toward references — the default), uses (incoming,
-// the claims that cite this one), or connections (either).
+// PathStepDir provenance follows references outward, uses runs to the claims that cite this one, connections either way. Absent, provenance.
 type PathStepDir string
 
-// Query A RankeQL read (§RankeQL), evaluated in a fixed logical order: `select`
-// generates the result set, `where` filters it, `order` sorts it, `limit`
-// truncates it, and `output` shapes and encodes each surviving claim. An engine
-// may reorder or lower those steps as long as the delivered result set is
-// identical.
+// Query A read, evaluated in a fixed logical order: select generates the result set, where filters it, order sorts it, limit truncates it, output shapes and encodes each surviving claim (R-QEVAL).
 type Query struct {
-	// Execution Where the query runs and how it reports on itself (paper 02 §Filtered Reads).
-	// Queries are declarative; the planner lowers each to the most capable engine the
-	// storage stack offers, so these controls affect execution and diagnostics only,
-	// never the result set.
+	// Execution Where the query runs and how it reports on itself. These controls reach execution and diagnostics, and never the result set.
 	Execution *Execution `json:"execution,omitempty"`
 
-	// Limit Bounds the read; each field's `0` means unbounded.
+	// Limit Bounds the read. A read cut short by either bound is a complete answer to the query as bounded, not an error (R-QLIMIT).
 	Limit *Limit `json:"limit,omitempty"`
 
-	// Order Sort keys in priority order; absent or empty leaves the natural
-	// `(created_at, id)` order.
-	Order *[]OrderKey `json:"order,omitempty"`
+	// Order Sort keys applied in priority order. Claims lacking a key's field sort last, and the archive's natural (created_at, id) order breaks any remaining ties, so the sort always resolves to a total order (R-QSORT).
+	Order *Order `json:"order,omitempty"`
 
-	// Output Shapes each result along orthogonal axes and fixes the per-claim
-	// serialization. `detail: claims` + `form: original` + `encoding: cbor`
-	// reproduces the canonical bytes a claim's id is computed over — the only
-	// combination directly verifiable against that id.
+	// Output Shapes each result along orthogonal axes. detail: claims with form: original and encoding: cbor reproduces the canonical serialization S(v) a claim's id is computed over, and is the only output form directly verifiable against that id (R-QCANON).
 	Output *Output `json:"output,omitempty"`
 
-	// Select A generator in four orthogonal parts: `branch` is the **scope**, `head` the
-	// **closure** read, `claim` where the walk **starts**, and `path` the
-	// **traversal**. Scope and start are independent because a walk runs both ways:
-	// a `uses` step reaches the claims that *cite* the current one, which lie above
-	// it, so it is the closure — not the start — that decides a reverse step's
-	// answer.
+	// Select A generator in four independent parts: branch is the scope, head the closure read, claim where the walk starts, path the traversal. Scope and start are independent because a walk runs both ways — a uses step reaches the claims that cite the current one, which lie above it, so the closure decides a reverse step's answer.
 	Select Select `json:"select"`
 
-	// Where A boolean tree. Each node is exactly one of the `and`/`or`/`not` combinators
-	// over sub-trees, or a **leaf** naming a `field` and its `test`. Within a
-	// `where`, `or` is boolean; across generators it unions whole result sets. A leaf
-	// may name any field a claim carries, including the derived `height` (the level a
-	// claim sits at above its sources, compared numerically).
+	// Where A boolean tree. Each node is exactly one of the and / or / not combinators over sub-trees, or a leaf naming a field and its test. Within a where, or is boolean; across generators it unions whole result sets. A leaf may name any field a claim carries, height included (V-HEIGHT).
 	Where *Where `json:"where,omitempty"`
 }
 
-// Select A generator in four orthogonal parts: `branch` is the **scope**, `head` the
-// **closure** read, `claim` where the walk **starts**, and `path` the
-// **traversal**. Scope and start are independent because a walk runs both ways:
-// a `uses` step reaches the claims that *cite* the current one, which lie above
-// it, so it is the closure — not the start — that decides a reverse step's
-// answer.
+// Select A generator in four independent parts: branch is the scope, head the closure read, claim where the walk starts, path the traversal. Scope and start are independent because a walk runs both ways — a uses step reaches the claims that cite the current one, which lie above it, so the closure decides a reverse step's answer.
 type Select struct {
-	// Branch The mandatory scope: a branch name (confines the query to that branch),
-	// `$archive` (the whole Ranke-Archive), or `$universe` (no confinement —
-	// privileged). An empty value is not allowed.
+	// Branch The mandatory scope, and every scope names a graph: a branch name confines to that branch, $archive to the whole Ranke-Archive, $universe applies no confinement and is privileged. An empty value is refused (R-QSCOPE).
 	Branch string `json:"branch"`
 
-	// Claim Where the walk starts, which must lie inside the closure; absent, the walk
-	// starts at the closure's head. It moves where reading begins, never what is
-	// visible.
-	Claim *string `json:"claim,omitempty"`
+	// Claim A claim id: id(v) = Sign(H(S(v))) for a node, id(e) = H(S(e)) for an edge, carried as multibase base32 of the self-describing payload. The pattern fixes the multibase framing; whether the payload's multihash or multikey framing parses is the implementation's check.
+	Claim *Id `json:"claim,omitempty"`
 
-	// Head The closure read: the query sees the closure of this claim and nothing
-	// else. **Required** under `$universe`, which confines nothing and so offers
-	// no head to fall back on; optional under every other scope, where the
-	// scope's own head serves. Given explicitly it must resolve to a claim
-	// within the scope's closure, so it narrows the read and can never widen it
-	// past the grant.
-	Head *string `json:"head,omitempty"`
+	// Head A claim id: id(v) = Sign(H(S(v))) for a node, id(e) = H(S(e)) for an edge, carried as multibase base32 of the self-describing payload. The pattern fixes the multibase framing; whether the payload's multihash or multikey framing parses is the implementation's check.
+	Head *Id `json:"head,omitempty"`
 
-	// Path The traversal: steps applied in order. A step-less `path` returns the full
-	// outward closure of the start claim.
+	// Path The traversal: a sequence of steps over frontiers, each frontier a set of claims. Each step's yield is the frontier the next starts from, and the no-repeat rule holds within a step and resets at each boundary, so membership is all a frontier carries (R-QFRONTIER). Absent, the generator returns the full outward closure of the frontier (R-QSTEPS).
 	Path *[]PathStep `json:"path,omitempty"`
 }
 
@@ -595,6 +542,12 @@ type StorageLayerList struct {
 	// Layers Read-through tiers, top (cache) to bottom (authoritative).
 	Layers []StorageLayer `json:"layers"`
 }
+
+// TypeGlob A glob over class/sub, e.g. derivation/* or entity/person. A leading - excludes. Exclusion decides: a type matching an excluded pattern is refused whatever the included patterns say, and a list of exclusions alone admits every other type (R-QSTEPS).
+type TypeGlob = string
+
+// Value A value a comparison tests against. How two values compare is the engine's, so the shape is unconstrained here.
+type Value = interface{}
 
 // VerificationConfig Parameters for a verification run — the same shape whether declared in the
 // stack config (scheduled) or posted ad-hoc. Depths are those of
@@ -688,11 +641,7 @@ type VerificationReportList struct {
 	Reports []VerificationReport `json:"reports"`
 }
 
-// Where A boolean tree. Each node is exactly one of the `and`/`or`/`not` combinators
-// over sub-trees, or a **leaf** naming a `field` and its `test`. Within a
-// `where`, `or` is boolean; across generators it unions whole result sets. A leaf
-// may name any field a claim carries, including the derived `height` (the level a
-// claim sits at above its sources, compared numerically).
+// Where A boolean tree. Each node is exactly one of the and / or / not combinators over sub-trees, or a leaf naming a field and its test. Within a where, or is boolean; across generators it unions whole result sets. A leaf may name any field a claim carries, height included (V-HEIGHT).
 type Where struct {
 	union json.RawMessage
 }
@@ -709,21 +658,16 @@ type Where1 struct {
 
 // Where2 defines model for Where.2.
 type Where2 struct {
-	// Not A boolean tree. Each node is exactly one of the `and`/`or`/`not` combinators
-	// over sub-trees, or a **leaf** naming a `field` and its `test`. Within a
-	// `where`, `or` is boolean; across generators it unions whole result sets. A leaf
-	// may name any field a claim carries, including the derived `height` (the level a
-	// claim sits at above its sources, compared numerically).
+	// Not A boolean tree. Each node is exactly one of the and / or / not combinators over sub-trees, or a leaf naming a field and its test. Within a where, or is boolean; across generators it unions whole result sets. A leaf may name any field a claim carries, height included (V-HEIGHT).
 	Not Where `json:"not"`
 }
 
-// Where3 A leaf: one field, one comparison (e.g. {"field": "type", "test": {"glob": "source/*"}}).
+// Where3 A leaf: one field, one comparison.
 type Where3 struct {
-	// Field The field tested — any field a claim carries, or the derived `height`.
+	// Field The field tested — any field a claim carries, height included.
 	Field string `json:"field"`
 
-	// Test A test on one field. Exactly one operator is expected. `in` takes a set;
-	// `glob` a shell-style wildcard; the rest a scalar.
+	// Test One operator applied to one field. eq, ne, lt, le, gt and ge take a value, in a set, glob a shell-style wildcard. Exactly one is present.
 	Test Comparison `json:"test"`
 }
 
@@ -745,8 +689,14 @@ type Forbidden = Error
 // NotFound defines model for NotFound.
 type NotFound = Error
 
+// NotImplemented defines model for NotImplemented.
+type NotImplemented = Error
+
 // Unauthorized defines model for Unauthorized.
 type Unauthorized = Error
+
+// AdvanceDevClockJSONRequestBody defines body for AdvanceDevClock for application/json ContentType.
+type AdvanceDevClockJSONRequestBody = DevClockAdvance
 
 // QueryJSONRequestBody defines body for Query for application/json ContentType.
 type QueryJSONRequestBody = Query
@@ -897,6 +847,9 @@ type ServerInterface interface {
 	// Contribute Contribute signed claims (atomic)
 	// (POST /contribute)
 	Contribute(w http.ResponseWriter, r *http.Request)
+	// AdvanceDevClock Advance the dev sequencer's clock
+	// (POST /dev/clock)
+	AdvanceDevClock(w http.ResponseWriter, r *http.Request)
 	// Health Liveness and signer identity
 	// (GET /health)
 	Health(w http.ResponseWriter, r *http.Request)
@@ -1145,6 +1098,20 @@ func (siw *ServerInterfaceWrapper) Contribute(w http.ResponseWriter, r *http.Req
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.Contribute(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// AdvanceDevClock operation middleware
+func (siw *ServerInterfaceWrapper) AdvanceDevClock(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.AdvanceDevClock(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -1487,6 +1454,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/archive/claims/{id}/content", wrapper.GetArchiveClaimContent)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/universe/claims/{id}", wrapper.GetClaim)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/universe/claims/{id}/content", wrapper.GetClaimContent)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/dev/clock", wrapper.AdvanceDevClock)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/system/layers", wrapper.ListStorageLayers)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/system/verifications", wrapper.ListVerifications)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/system/verifications", wrapper.StartVerification)
@@ -1504,6 +1472,8 @@ type ConflictJSONResponse Error
 type ForbiddenJSONResponse Error
 
 type NotFoundJSONResponse Error
+
+type NotImplementedJSONResponse Error
 
 type UnauthorizedJSONResponse Error
 
@@ -2175,6 +2145,84 @@ func (response Contribute409JSONResponse) VisitContributeResponse(w http.Respons
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AdvanceDevClockRequestObject struct {
+	Body *AdvanceDevClockJSONRequestBody
+}
+
+type AdvanceDevClockResponseObject interface {
+	VisitAdvanceDevClockResponse(w http.ResponseWriter) error
+}
+
+type AdvanceDevClock200JSONResponse DevClock
+
+func (response AdvanceDevClock200JSONResponse) VisitAdvanceDevClockResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AdvanceDevClock400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response AdvanceDevClock400JSONResponse) VisitAdvanceDevClockResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AdvanceDevClock401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response AdvanceDevClock401JSONResponse) VisitAdvanceDevClockResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AdvanceDevClock403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response AdvanceDevClock403JSONResponse) VisitAdvanceDevClockResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AdvanceDevClock501JSONResponse struct{ NotImplementedJSONResponse }
+
+func (response AdvanceDevClock501JSONResponse) VisitAdvanceDevClockResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(501)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -2885,6 +2933,9 @@ type StrictServerInterface interface {
 	// Contribute Contribute signed claims (atomic)
 	// (POST /contribute)
 	Contribute(ctx context.Context, request ContributeRequestObject) (ContributeResponseObject, error)
+	// AdvanceDevClock Advance the dev sequencer's clock
+	// (POST /dev/clock)
+	AdvanceDevClock(ctx context.Context, request AdvanceDevClockRequestObject) (AdvanceDevClockResponseObject, error)
 	// Health Liveness and signer identity
 	// (GET /health)
 	Health(ctx context.Context, request HealthRequestObject) (HealthResponseObject, error)
@@ -3188,6 +3239,37 @@ func (sh *strictHandler) Contribute(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// AdvanceDevClock operation middleware
+func (sh *strictHandler) AdvanceDevClock(w http.ResponseWriter, r *http.Request) {
+	var request AdvanceDevClockRequestObject
+
+	var body AdvanceDevClockJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.AdvanceDevClock(ctx, request.(AdvanceDevClockRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "AdvanceDevClock")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(AdvanceDevClockResponseObject); ok {
+		if err := validResponse.VisitAdvanceDevClockResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // Health operation middleware
 func (sh *strictHandler) Health(w http.ResponseWriter, r *http.Request) {
 	var request HealthRequestObject
@@ -3457,227 +3539,243 @@ func (sh *strictHandler) GetClaimContent(w http.ResponseWriter, r *http.Request,
 // const string: with thousands of chunks the chained `+` fold is several
 // times slower for the Go compiler than parsing a slice literal.
 var swaggerSpec = []string{
-	"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",
+	"7L1rciPHlT+6lQyMIhqECyAl9djXZNy4QVGU1B65W+5uWzdC0J1KVCWAFAuZUGYW2ZDcEf40C5i4a5jZ",
+	"xyzFK/nHeWRWFlAg2XrY8oQ/SU3UIyvzvM/vnPP9qLKbrTXKBD86/360lU5uVFAO//WRk6ZaP5cbBf+q",
+	"la+c3gZtzeh89HqtxAJ/F0ZulBiX75VCe+GUV+5W1UKaWuimUSvZCG2EdbU20u3wan8yGxUjDc/ZyrAe",
+	"FSODLxnRE0fFyKlvW+1UPToPrlXFyFdrtZGwjLDbwpU+OG1Wo7dvi9FVI/XmWT28xsqaoEyYyrp2yntV",
+	"iwouF7o+sgRdv9Pr38LFfmuNV7Rnsn6pvm2VD/Avfjv8r9xuG11JWNrpNx7W93322PecWo7OR/9y2p3H",
+	"Kf3qT6+ds45edfh9jl4m7qQXG9ksrduoejaCbbFm2ejqb7QOeIPTixb+BP/AV3txp8NahEQrT7yoWueU",
+	"CWKtJK3zE+sWuq6V+fkXellVynvcq1oZrWqx2InKOjWV+MtMIFnbeicq6ZxWXhgrfLv4RlVB6FpYNzfW",
+	"LKwEal6JtTZhNjfwFc9t+MS2pv7b7DbtZkG0XAjrIp0DC7bmxtg7I/76l/8ffmngM2wbvK4VHgUQej03",
+	"3Yk01rdO0ceHOyukU0KbWvugzarVfi0Xjeq+89lm26iNMkH9Db720giL/y8bUcmtXOhGhx1+RyR9o1Tt",
+	"4cONDUh6etU6ZoI/GtmGtXX6u7/JYtuwVibwU0kckiCBg1hK3eCy3kaBghLj0lVrfauemaVFEezsVrmg",
+	"SZzQIdH/99/1mb0TG2l2Il6CexLgqMTaNrUH+cbSSpugVsrBhgDb3SfNp/wEJWsgeKAh3Gtrg7BLoW6V",
+	"24nyPUmLLqe+sltVC6dkXaDMD2sFPNLsxLaRFVCc9iQdZBWEU1vrghca+abYF6ewPr1ah8euEOn/iRcr",
+	"ZZSjTTftZqEcfDzIQhno83/9dHA32m0tg6ovH/vCJ16UlVNwz7/LUOL23K2VwT3iPRGN9EFs7K2qe6uA",
+	"N02D3qjDz36ba5yv6IzSVuSrLDqC+Do9xaJ4gs8hhX1tgtsdktKxk5dhWDj3FOXBOZnHWAWFkD6T/jl1",
+	"AgU8uBH4EqbZ49/7GX/Y4z53yCR46HOHzuf4eoY5+adcz/1scj9niPH//PfT2fsnSLtnwhohjdBGBy0b",
+	"YWytCqEar+bmffErsZFvhL1VTtwBmWjg36VyylSKdWWttmENggEvyI56a7UJXkjm80fw4s9DUQ/yeG+3",
+	"jjM3vy/jbfHKLsO5kHOTbB/rxJ3TQcFaCuEt7BjrJXjGnQ6GDnij3EoJEAZ72/N4IZHzxqCsOE6gn2uy",
+	"Th+raq5R6McdH9z8Qiyd3QhrOjHojdz6tQ24j96SYoDlejQwKmu89mizoJGoZLUWNqyVm4nrzTbsmDTj",
+	"4/AiY5O6o43TQW38Q/o6F4tv065I5+TuYFvvla9XdrOVTrOxIOtak2XyRbaRS9l4tW8YvDBKwCUSSAQN",
+	"D1WLYHG/llo19UyobwthVCGaUIhGFWIVUJ0CmcgbJaS4lU2rCvClpPAqFGLV2AX8/1o1zdSHXQOb1NSV",
+	"dPVMXL+RVWh2+AbtxRb8MoMMspFv8vW+X4w22uz9pU8Z6tuHdvhPsDbYoZV6/KWNXRzS2quhrxli61V4",
+	"9Ju0GXiPCmKjQCD6td7OHktK6Zl9IipGzeM/vHn8ys1jn/p2kFo7l+yl8m1zRALaNlR2o0CKy74fF60/",
+	"o+4GjC+29oCelakzzxpNz8dqv+Fn61rIZVAOX4DScpAIdD0grq4O9KmuPXxdyP3UuF5fcHiCjMZEBQfv",
+	"uldssBiG9QwJjo/V7VVjq5vhLajVrfDgzJhKOXLIqpvs+6OjE4+jkfBLVLrgzUp/Ay4dnEjU1LIBm3wn",
+	"1iBdUFb2TwSVzPn3P0T14EX3feZlfStNNaDNOTRCKvzIZ9O9IB3HMohGSR9OyIvQxgdpwkxczk3cE9vU",
+	"uEuS1DQ+IzNkt9br6IuBj7+Fc4cNE8ZO7Ra2dG7SjQL9FvBxUMd7sbTuTrq6EF7DmiSR4hOfqXLYDFjO",
+	"CmhNm5W4s21Ti4VT8obdpVUrnTRBKbFodRNAsUX/Z/hMDkmEPx12pdugH+heHD++lizFwyVcipp/o82r",
+	"VaU3sknHR9q5NToI3y6X+o3ySK3GF6L1hQAug/8UYo1/V7PVTPyrB6/4/c2HZzHwAnbBmdgoabxozcK2",
+	"IFZQmMgQlIOV/H/jsz+Pvzqb/vbrX43n8xn938n/Mzb+z63/88b/2f958+f1ycmvTt4bEhjkuh/YPpWt",
+	"Bzb+97Jaa6OmwEgomsCDb8F2kUGtrNsVwpPMkpWzHrx9IFf+dtC8djk3LYYgOCyg6gKIigJeBViG/76E",
+	"zyxSzKwQi9bvQCjdykbXBTxAdxEX+AG2QjYzcdVo0AXRHLMG2QSfSv8A0em9XKkjzraKu7EXWmg30nRf",
+	"HZ8hroZiYgUQuYH3PT378GHfCXc6vnmICK/fqKqNVPgOJtaXa+UovvVtC0znWuNRRa3tHXkuFHlA5vOq",
+	"WSLNedYItoHTAxNUxffjzbWWK2N90JWn8IZB6UBSGVQqmGKH6q6ROzWwsV9o47MlsgGI8Tjhg3VypYAl",
+	"uiXgcy6EXIDxVpDtLasbZWpRra0FUlvssrgY2nfafK7MKqzRkjs4c9qHIdEMfxe3yi1AZu7OhTZLK1Ya",
+	"5OBar9bTRt2qBih+pXwharVoV8LZNoDQQ1vASeMblBIF/KNSYqvclKyCWgWpm5l4BZYrXI2iFviCPssH",
+	"p+QmhV3JMDay4XMTTlXW5UYBemKK2KIQ8JlwWj5og3YvuiN8RKTnxfjl9A8vr7948fI1ph+UaTdAkfCZ",
+	"I6CmRbsC8oWFZ5SZ0fEBrX6mZAP7vC9OvF6ZofPvBcqtE7oGsYDhTO1hZ6sbAfd60jMUPse1vpEgAkDM",
+	"6/r8Ru3Ov/v1729ms0GjyAcZWjLc02325kHO5NuGeHIouXKZzL1zoevx7Yn4v8UrvTLjz8avxrcnJycg",
+	"51DP1uC11GMFV8CPKv5mhKpXquBDR728aZugF9IDnXv14QfRbAOGndICFkBvW7lrrKxJb7B2EKR3UOyl",
+	"xyyd3GizugBPHpxL/JnvfsLvW0u/Br7Df9yoXbxJbKUDFtP00CSFkcTByFir6maP5T7oKavFV3L63QfT",
+	"33z9q0Ft9Lne6PCOcu4jUBeeJRDswCX+V1RtEH4NrLLYCaXxW1GDoukjwHVoVFBCGn8H22AzQSS9YGVL",
+	"ygNOBgQ0ssznz37/jDimT+TEXEP2t9x6NsaAQCrbmnAhzig1kSn1jTZ6Azx4NhQOirbQfc5PMlgGufMF",
+	"2PQDnh/s0Y3a+eSIayO2TlsHnEiOgLgikdHI6gbFG9zwxJOvLjw8AeRP0flAFKV44oWRoXWyEeMulATk",
+	"f0JPJrsQFNNOOLWR2sDjYUsLjpHQ02VzJ3eYTbUNCGCw+0SwQTb8HDiZV1GUPcp1xe34N7Ub8l7Tbw/R",
+	"4r7ZtNlKp4aTE/AtGLPwgq/rLzrKX9NulNPVCHzoN7qSzYDwLUa1PnaUtXaqQm05+HjpqxHx0OBz8USH",
+	"JXV32ArUFRp1cG70dxnJmzRWISgEJ7Spmraj8OOqeE/80kKGpO+LNmzbdxUTr9ZyqzxF1VgNysaalbAu",
+	"rO0K82nyjfIz1sznUUuiJQ9exbmwTq9QBwOVK1PZWpvVuagW1oFadrZuKxa4lTTWwOEJr5yWjf6OvAVQ",
+	"BXGrnnhw6zWRAzrg9lY54iEWsWgUWPxeXAMfbrMDu0QvNRnbKwnuEDh9mJSFY7+6fP7i+YCQyvJ99/IG",
+	"vpIDB0huuCmHdPElvJPsRNIF8fzPcSWoJmrcaXWCaVk2PTpxqI1Ytk1zMhN/NMDIHg7qHHTYGt12lEnI",
+	"8OQ8prsoDdcGYqOPr19fPvu8b8jUo2JELxwk9XiCh1/1jScPOag3HI2N6WTQob9+OsVbQTvg2WsvFgjm",
+	"uCCBJTcKjUXwROHQWfvcyR0u9fr51YuPnz3/tLdYzLgWI3jeMF9atxnafl2tmQFZtuzxYU61HqPxAUxM",
+	"KWq9XE6B4Bqpu4B/rZogL8RGBiZbVdMGAKPnsbBTuF9Ua6lNlMpEv2RQOFWrSnkPu5NnSQowXFvn9a1q",
+	"diTF0SzB94PuZnLdRUOHvgqkCbjVGbMGy5za40bc4E9evPx9b3PjFmC0t/uywY1G+jvcaa/NqlFiB1ud",
+	"rI1qreDVNSV3CrTSIx/ArxdExnwTEqsvWAa1BlWdbcOddDXZ5/DYpbMmaOUioQcv7mRzIxZqJY2QgaT6",
+	"Z5dfXPc+kdZHoYH1I831Ppe/mzx9ZhptUq4OHJt0huycGZuDMDRez8LpxfPX18+HbKiNfDNoPwG/L3YB",
+	"HaEUtsQn82PT+9Gwwj/6XGA88dktKHAetriAmpeNvTsi9RaqshuFgdS0C9IHFv/bc7BA7XKZVoPOKn5D",
+	"uwXq1aEQdqNDuuBubZtkIoDk7/YSrgPuIJq4UWobv454Xye5uy9s8r2OtEILGxUjeOwwreSaGA5lSA9/",
+	"IcP6VVDbH5D78WyhYIgdKHaGrg+b3bRXQPXn/JVruxWb1oMSbBp7F10l2DKv0NkFGmu0D6qeoYvVexTZ",
+	"+OdCCh/UNvJjlJSoZDGxCcwGNz/xe88sMIycQh30Ath0ZynoaTlaAse00RQr2cg37HHAPWu79XCE+OvC",
+	"3ioQfWT845UIjlm2nkBYh/4VmVvid69ePBevUE2DkUEQH7Imw50VXi8aECtMRSgrXl9/8WqA1wYtyK2z",
+	"t8pgPJW22mfCOwqrQrTgBmJEif0m1utoglQ6MMzFGoWBPEPHnRNnR9vdK3Ma7f46KkbwOlCO3ZOGFTqQ",
+	"0EC6FigFLvb71LSRoVo/2mF4vduqTxu7GHIYBgXX760PfO5nCEqLcatGyVuWCEiQyQ1MJAqMEcQGHvCd",
+	"chafwpH0DdCOsWGtzYqdJBnQ50UInsR4ZOvVwwJuM5QI/ETdqbTseEbvM/Xh2igVEHMRqPTWdjsTZ0I2",
+	"3uYq0gfpMByG+VmQUDt073I1F9bOtqs1WeOIycOMDRp9C7WzYAyHh78FWfLwa57bOp592u2N3NEif4KT",
+	"H1Krf2iV272jULxkxJgCxgU3mfLaS/1G1aKxK3Ql0NM9F141qgoRyaL8XvQVZJVy4K41QTmCXpCP7Blq",
+	"VohGg+IJrjWVjPAMdjM8OUrJqIpOk2/drb6F4yOpiZbsny4/H5AsKg9Z3wscTBe+LUZNDP7cdwdFiEA5",
+	"x2DGgy4+Xp1cxoe9HjQCcYsfuv4VXfW2GOGOP3Q5RuQPw4z0kCEF+yqt4l5Kkk3zYjk6/+r7kV4eg7Gw",
+	"7+fD6Hz0Xmv0rXJeHQF7jL4Gql4TAPm9ym42aB6OXk7/8Nn15cfnnJHOwJwtem7pubPRED7s7duvD6me",
+	"iRjcBCOWtoX/1grz52hPueDPYz6HfWJEWBa0CM5U+tYpZiAizruU/EDbGeWQL8gaR1iok7BS2czEK3gc",
+	"kjteFcG+aQ0LVcnWg7bGR6HSW9iwFhiQIrGI6hBlCzkF/phOVCkRi6rxDt23Riu2CBgllX9VrSpdo1vn",
+	"FG4uvueJZ5vmkPm68z6M4GykqWGzd3ETkctRJ+IfqBhBSLFycrsGZZSXNCCU2CjW+QkmWYiIfo3GABmy",
+	"L6W5UVNG8xYddSSXnhwEeCQ6TBz22Dp9qxu1AkPu0giF0Cc0Z3ITCQ2bqxfsBD2Q4sGDeIg7n9U5HPjh",
+	"K9HPGtzlRFyozWNG2C7x5Dw5yVH9RXcwqUPEMqFPgdQzE9cofOnMd2Ts+30NqoRRbwKTObqSXSTW2KlT",
+	"WwUmQpuggeDSE3AKiBYudcorxCfSetAekZjRtRkuCGPnTQOaKbmp7Heg4/3yxfPXz65fnnSWAyyhY3Kn",
+	"Qus45wdOWHJ/I7mz15+e3jdgH6Wsk1vyOGjbsOSl5OPnMW3ZZ7GIzDwCiTnIDNVyi1k6cCnGmOrfqA2m",
+	"y5e6UX7ng9oUwn9YiK31YeWUL4RR9uk3J4+GBONFD33JMM4Rc6p+KAEq62m0zphWg92KcQUi7gSYfWFD",
+	"sBsx5poCcFRu1eNPqrfLD50WL3PoG5N5NpCUQ1AgslzVSO9PfbsoCG5RK6dvqdxhgllmTD2ebpXz1oCn",
+	"1rBJPRXqDcawgRvh/zy4YyyYgcfxYNGXoNRvvL5OmbhMcvUcyRgcjxd64eWOeFei64k1BvGdngKpQtYb",
+	"8FRJcFvK4iFt9ZjlAaFIQLmBHSNZK9mt1N4aERCjxHHmmcBsxp3dz2awXFJmpY16kiVwwKKkbBeaIE5i",
+	"yAZUNNak/AlD2VQjcoXlKgNIgVSIx2nU2+wmUMoJDIbRV3plTHHWqmqkI5saUbeUWabSGDEGcqzbRmFO",
+	"CllQ1ULW07WtZuJjtQ1rQugGDDbY5dxgiVS+giHwEou0Acbi2pFczQdLX7RjiyLXu/i996LfOf70eu2U",
+	"BwE/4NVZhwJ3ypeSYN7INyl25fV3qguzYUADIS+sHaZr6ddzk8XZGulWqldo5W/0dqtq8v1da2biBboZ",
+	"6dtAdfD1PQRO5schgP5w/TFda5T3YixFuZa+FP5Oqe1JwWCIaWWdU1Wga5xKORjt0cCbG6cwRU2sV08p",
+	"eo2mn15hnlL5E3TU860SY3RreQvEorELf0LLTwG1bHVo++4vZ1SM8kcORi+OYGRYSBL0RYwXVDF6wiGn",
+	"OmWEus12yTIGkesVfngmy2+1umMwP5if4A5vpKddaazHiKY0guQros5FrdRWubnBRSBjI2VKXlV3wpry",
+	"JbYNYtFo2NmtDX4QbrUPhGJ2GRLwuYT4hDBnh3qsS1ENwGKPYE8o/ufit+qaDNtYmfb4U3q9jifUuR4R",
+	"HXcnvbALKgMefOZmEG0H5NNuw5QYEosGgnUYHoQ/1NY84QgWvE07geQ5jrgpZ8MpnObF3CBYZK1k48Wt",
+	"lqJHDHqZjpc/AIP1QVYBiJxRd4kXopRNyQnVLEVtlYfF4KUyRCNnITPGOrmYm9Y4tZXaxfLJnIGyb8U6",
+	"5N5rH45RY65vQ1g6OqKH6OjlEdzXJZXqTLVB9GgEWmGkel/pXAiwjDnYxeoECYhzwTF0teehwUe+HASA",
+	"X8U0Ix5xlMDeiqV0FxHp6oFxGyVKQihhmXnJ+aRyuMqRnIkrEH5q6LXkqVb0+0/xPhaIXGX0GFAuajHW",
+	"/fcC/A+thbfFiHnNH0Eu8K+CsaWyqtpN20iMTd73cVx5MwaZNjelvTkXwbWqTIAt4pSoxi+EFGvEwO1S",
+	"nQ7RDGPXhLFGvUOlzpDgG4g+H68miMUDGCJsTVxNnTEyGSA6iK02YJdJdiRn4su1MnNT0rnM+MoyBQmi",
+	"+09YdN8va6eKCH4UgsIvCFjO+EUf5M5zfBOTYQSb7Vez4UMo3BxtrCOy/eDPdqi2wLWKEj3GdjRxh8FS",
+	"QoaZznbp3rWwtlHSMJTQvSNVd+jD/mJiAniMaCuLcPmTosOljZfaaL8mqA2Y+/bOnBSgA9DGGlfAmk2D",
+	"les71NexngpkPGNQKtUIWaX00VY6LGtcagOejRc3ahvI4kF829yMI6GwaCdNuGfu8NJHHZ+P4DtxYQNY",
+	"5vtENvN8qtvj3cp3Gs/ycdJ82MFlpDP87zszHWuJh5zT+IqhZX4ZY8P7eobpSgSnFMd5jK3RU1JZtRp7",
+	"CmCmnsJJnXJd/2ahDZw3R5R8u5jCkzxlmsB7XQKrElyPMVqYTPHoz83ElzEIhCYL3qZ9XNVFxPCn4A0m",
+	"PFuDfihF+Lqcg2d/eYnWJNmGj0aGifGfpp9dP/v0M8pSW6M4nP0OyDtJnSYedb4ch0cP+Rnd8P4D5wuP",
+	"Hzjbd1oiVRb8XCscrh54pwUaG35YCgNufPeX77MDkM95VwFKaJouCHFoRz0IVQQyZ1X3E+IUi1Hgbjb3",
+	"7VRWGjuMbOTHHO7b19gPQ1Wt02GHmX4m8a2+IURq/3vL/3d6+cWz6b+p3bmYt2dnH1Y3aof/o0rx1//4",
+	"T5QecMWN2gnZhrWQFJBMDX9A9irXtfxJD+z0mdxqhsp+c4ffvlDSKfdJVIG/+/L1aP9Iy0tuNYKS9Fx8",
+	"hLfwGr+5C/tr/N2Xrw/Wh9uJShhv7ha0DmFLifdKOjtUo7X/+t/zlbyAYG+U2V9CfNrxdaT37a3kLdbV",
+	"UqODvXDP9avXp5+9fv2FWJDa5QgWI8omE4eJknoxmVDJw3nnwWcoT0zJzA2B8TikhfFWwqxT0LCr5kTP",
+	"K9V0kok1m5u5uRToiTqxtj50mmYyAXbD908mhWhkaxDdhrg0GZ2bJZjKbDpixG9ujBVBGWkCqh02emMZ",
+	"DMM0tzKsPb79X/5FvEwl77BwrTz8/XVMCJDD07qlrFATll+8ePVanOI3lhmGQIrJBDNMf/h8MmHYPi9s",
+	"bvLdKTEdX1KElBIiiMu8VcJvVcVFEuP/+W9+GjWCwKo+xNoQW57PTUmZ2vKexHuJmrTspd5LzFSXWfK9",
+	"xEx3OTf9/DucX0mJ6vKxWfiZeJ23k5mbCdCYn5AXSp9sBRIfVm8pSuAZtit0IMQqSUa064uEIzX13GyU",
+	"NGgoSo5pwJY98TNxtduulTv99A+fwyFNJlgGNpmgdNXgwRIyF7aSej5IMzexUi8r6KJgMRFJI41RTjT2",
+	"DvZOpqIwJtvJBBMPyAyfXr8Gg8erMJmICuyfiK+bamq+41McKj5oYevdTFDvBmvU3JBhtaF6kMkEM6CT",
+	"CeOeCIZFxcOeqJKTZlmSNqyd4oS0J8qjvlliY2vVxN5vfLts9I3iIrrlUjnCnWnDYThKwIa1IvvpHD5a",
+	"iKko4VtPYxuGMjluec+JJz61gSjEIhlg1Dhl6DGn39P/vT2FK8r7LyERcvq9rt+WyYQsTzk2UyIwPX8C",
+	"C4FH3Zc+p2uhRDuRPzBmjt/tiV0iGZ4lRJky0OkVc7O/u9Q7K7XV4B4r3naEXWvPBBcry8Hk5dr62dxc",
+	"dfHwruCeEX2TCX7BhPkztmkRYywyEk7eYRDvBN+YFWiBiwdigrAJCLwlFaK2IOYUBqXhjWuso025XxKm",
+	"6GlzXyrpcc+QO+dGx7/PRFw2xboRcjCZ0LsmE6BSriKlIif0MVlYzeL2X9BSY6iQJMBShQSIoI/oaT+y",
+	"xVBMoP1FARnOkElRyW3sptWJS2weVjt0N7tK9Bwai2TB6/h32NEyRx7CuT+3BAbxapVXLQgpyvdKqqJL",
+	"nRsp3tGAxtAG9LAJXozLlx2koTwhcYneFOsRaps3Zq0xI3oqT2Jyj3aHHt2lrQiLAsvYNlKbuYnr68L1",
+	"eEBUEh6wXheVKysGJRYKEXZY/qkNAuyxIUrUvq9IWKGxQAEd1L97y4zhnA4wkuTjcVRIVsc7Nz2ASMbc",
+	"90FEUANmXNoBRZCqElLkkMNB8IMki9I/QmvQTFlah2YWmeB+Muk+F6VfrDzJ86l0EiX+DpuReu5hzbN0",
+	"zt51NYfdByesOW1t7HlUSUPSnu4suGr6TgOzJtA4UhahvPFu5E+92bQo4/FZW01BI14YFSNLsZUr5hI4",
+	"7thniFZEGGG/1sswNxTrzJuzxRhvpI9rLqQgEon2JxZTkxqOcoCAHKg4sVSZYJ4EdplMwLpgWUGOHPi9",
+	"aMIU0SjEBz3xc8MlhlGcxFKOkk2ztb0TjK0mZc0VVV7VmaCjlqNio2ot5wYtn6XruIsX1mnVb7w1ZPeX",
+	"+40Pp159W4rxy0+uxG+e/vopGYRoC1IuwBcxiUmKpV8TxEhyqkuA05xMKmtuldEIA9o6+w1hmIGVlPS7",
+	"lLJDEQIPxNLrQizaAJaVDSiAEyKtV/w148+pFtYNfA78Ofuc/+s3Tz+gz6F6JTz0P+VnTMbQfhHOBMxR",
+	"bVYT7qUQQTocXWqsgZ0t+5VzpfiVKPuFc/infuEc/om381x8v5FvzsXZ23JuHllQ9261dCBHKG6GEI5Y",
+	"TMe5Xaqmy9PBU0yJDFfZlbHMrjyZzc11Ljxot2gvHZyai25fRgq4+ZNJ1vFOyDcUSd9Kx7ssu0gfthEg",
+	"Q4ELn9CCn00mInIlV5KgUxaf2ZoGLNJ9ZS2kv/H8EVQiUp6woUNWAzggNax5bnppLx/QYxk4M4YuVBLh",
+	"6whbZ/9BTLjoZlKQdoMf5wR6x+whyV5KnarGK0I/40dxXluHxOzs0oLG5j5oYOZjDjRZH1EB8MkSosHb",
+	"jULYfATNxC45up519oLX36mS5cwtGI+d6dC3BLkm2SsVQZ685eqNRrwMN9vAMlP0gtiTIS+FDBawP3NU",
+	"HP2VzTT24a8+evFSjA8YuzwhNQqrmhsdkvEag8baX3AHK1gV+kwoqtkaw3ZpHq1OtMzmpv8OWwUVpnRL",
+	"eTITz/aNwF55lw9Ydc+tC4gS52ZMwpERwiR1C3ydoHiajz/RFxWpJmaxO6DZqKOunMJGEbKhTZZ5oCdG",
+	"E1KL1Qn5xGDUb5WbUpoEE7h6tQ4enNbMNQaBO5kgD5xi78JTWW/AEmtkDetEGs/fh+F6E7RTTa93shgT",
+	"sE/ICiv+OQF49fKPH1/yq+cGI/dsTa0QWFIwsKyOlW6xswwSR/rwvBI+OrVs1FNbp9yqZEBpt2sXGS4L",
+	"E9tsjaJVcivREl7saJW46V/GbpbdrgLbToTCanVwQTRpapkvEkMD3GpP1ZNJEdHUlAqMlZNcGQliTbmN",
+	"NtoHkPSY/4jlpPQIQXG4aEXmUTr252PYA7stWexYQeEijPfBjasWTgfY60aburMI3jFaOZn87svXQDzx",
+	"9fiQx8RiJxOOxh7c/QMilpNJjEjuP40pOTsOivNmtxoLO5jfCEcNcpNUvFfxF08Nw0KLx7IBglZJs2LU",
+	"kCosl3p1gQYEHhgzZGxV2fWijo/FCN/Ts/fLmRi/wHDIEpGFG1WtpdF+k9KzrkKWoBZBc8N0QBVRPVpa",
+	"yqbBpkBIJBQsRPMxAQQppB6L8MDOjn1yUL7H2CX5zT2anJ2IS1jvhyV5d8QwtfZgsccQUNcKKsqrj8Bb",
+	"UM6z9Kd/MSAUyxCd9X5KRhJpX1baZLpitJYxn2jI4IWkizCq5gMW7CHwdNtYR/sKujd0lYkMgvSsGOkh",
+	"Xmzk7ry3gWCRl5JCYC/oolKMEQ66kdMYcagRnVqIclIyFGJ3MhMf4ztg81AJxR2v1VK2TaDmclnt2+UX",
+	"z0RrcHnUTgxjzWaH/gyav5z3Tp9Ma9eeRFMMJeAOgdGDh0L761luAfXI+AAKymx0wJJOJNNlQ9mfWFAR",
+	"692pWVhY29p3hkdiJWrcimFKoCJ2Xa9fy1VJQk+9QeQdiLxooCSPFPgg5sU4Vgm6mvvmgnDlxj7KR/dt",
+	"Aa54HXdIUHphJp7b7MPQfVR1tkpsgYjK6Lwvlym+gzYWywTKABM9498ra2+0ShqXUSJxJ56ePcVyAvi5",
+	"1w3XcWlQpsVDv6N29Iy70pOUNIB7FzvuP5h13s578l92oL1ofuAL2OZi3/KPsdYEiKjBHMNkwj3/MfqW",
+	"IW9TGwkKxkRjrHx69rTkyNRe6//U25e9frRg4ZhwETPOcJBdA2Ivbl6g2gmXRy7OKeTL8fW5Kbto51//",
+	"8l+lqGzTkL9YiBUy3mInJpOX4GKbPFrC8BgdsL9VzCkBj42KEVxC2aiz2QezMwTIbJWRWz06H304O5t9",
+	"yJ0DMNM4FMGFv6/UYJ802i86lpJjs4f2KwX/NLgsVNypTe8cSOPAOQ3EhiaTDrDEhHHYIzXFyFRmVWGM",
+	"FaxjIh3KTXCRVgwaRg5ltEQWXafchTUXXbE4EVGK98Tas4xoZmSCojMaDy/x+WGk+/wg/tcPISJZzo30",
+	"oh+kOxfzUXzUfFR2FT/4qCDdSgUq5SITnXt/JBj/3DwLsYTPs0EAZEWiFYkrLhS/6BlHonaiy8MsdqTm",
+	"RkhPZFc/q0fno09V4KNDbOFobyrMB2dn90yfwCYovekTCWpFcYsBMPHwEBYODRzQ4YwRR1z4AoJ7CHnt",
+	"LJXSawyC7oNf65QYHp6E87YYPT17/xhQIO3HaW8mB9704cM3dVNi8I6nD9+RJrIgvqDdbGAjz0efqFCt",
+	"e6yg++Mb+hIYtl6uPIGesKyz6E1J+mp4Gd0lp3E80Vu4dUjUnGZkMShyXmVebFQCsWIuSqBDQTP8PQWo",
+	"SAQ6qVyPjZGJInt3DWulP4A/X6RhMjrgQJw0b+Y//pMEwklUCUPsz/UVzIaZZM+Y776cEldj5O387k8W",
+	"zU0/WzQTRzi7R+oP83jsI/NOrJ7HGH4als8R1AUHPAjV80+Gzxh+j3f+7vwfsTNHbAzqVQvL6tkFFE1E",
+	"g+GcVdiBXZDZDppNzrnh1+bjetCtsDYQBBqNCY09yHyEiFE7cewTkw2+KGKgb27unz+UzIK8uRuZntzC",
+	"o/vKg6/IfB/MO8co5NxQ1C9wSc6giOmiqSQKKNME63msXLrfPBBXUW6g/Qbb5hSzEWc6QgSjp6ICa2KD",
+	"pqyt2P1y5hm1pn0H+fJug6zy1wzIly8ZDULiXS447Bw55VEy5kslbzIJAx5sv19mtG8xzv4LETg9+fHA",
+	"LhwKCGDzfJjKvW6EesxsFQxoJO5MaBfeOnLOMaj/MsUWiCxhrbBuqtPd5YlscNUHcR5zMwD0EAtKK7c+",
+	"egwcw6QIpLwB9lYXAwNb4qA55cUODHSMOvjYZI/7HTTaR/48zoAhBymU73UgFrL99yQGV61ycJpRDNKL",
+	"+SjFcDORNR/h6xNfi0G2FuM7IGcKfBSixMunV9RA/FwYO0WDojw5j3KXTobWjvXN3EyI/MWu0Uc+liJY",
+	"AmQ05IXnsZq5QVecwIv7g3b4RKPkeXDMzoDo+Vz78FEk3Z9R8GRziO6dcJjaB+Ygr/4EyR8ug/YQZb94",
+	"QQTbdR8U7n5JNIhv+2miHAUSJEWzMyeE3jc3ZXxz2ZlVk0kX2gosYH27Vc4r6jOKocFaVxi5tI5I9k57",
+	"NTf5LMvBgERxTwhL9CJYc5NCWPfJnRTQQyHRfU8sDTOwAXHALf1IH5jEVdduBj6T2k6vlVNz068uEwMB",
+	"tpjUTwFbyd95wRhZfPZaeviaro6Ge8WWyeT861/+C4RWP+B2shfryFCnkwnFO8TYk6NwTO5t20Wjq2Ju",
+	"EngHJCAboPvT7TJoXBRXMbFQraWJsyoOTCISGf+MrvwDRlfkQTj8x3tV2Wzqt8U7+mD3isSfJBoDZ3uP",
+	"TBS5SJybJBPfOQwztctpCigfDcU8TrSJoagLFlt2r+7BeAmds9hlSN7zPIWXUvYDyF5Gl2K0JgXGOc/B",
+	"E+4yqG/WJUwTetU8CSKopqGZV7EgH1xD8AypAuoeTHCXBOkgwfdKwUfEhjIB9c/Q0P+e0NAvX3jFavh7",
+	"DbmjM9jjlGcJrgk6d5RJGetwGLvIZp1qa95JuOx5VnPzg10ruZdQxkFwCB6GV2y7ma34edQgNg1tfW2F",
+	"Nn4bEUb5pF0UqwUh+IUOc4Og/0cUidwrED6jQu+f2ZXCtxyTA/3T/jEu077r9Q8vAa72OAH5nxvl/aRs",
+	"foR3HxUGTs5B6g/s44K7QOMTLyYTCtxmEeCD8c+xDKwTBoYaICNBJ0Xbn+usQzfPOSnXySSPDc8NMhgC",
+	"QGIYJtw3XnmWsBQEUUXkCnWYT7MBuptTZQEWcWKlNDJtHIGUjRpCSVCrRi8wyNPsuA31Of1M6LhMpiO4",
+	"FqHL2PAUQcYZbiN+zdzEkPK4V6N5QiUSiFOmUb6PiWMdE4v7AScclkiSl4oWKX60P5YaDKB7pdDPHUnO",
+	"3vIOgWTehR8dw/mFRm9+nGga2rSfUTZ1EUjsKGJ9GG7XRNcQD1onNtYN1F4niYX5qlT5LYPd6GoymRsa",
+	"gI6ihCFCcuGtW6TmyjgYcWg0MEaDDMU/VZcrzqb9suWfCqF0rTZbCxdNJufCqWlnw5hVr3273Ki50XXq",
+	"XSTqlhhCxWyWIoyK9gIRR098f2Ay2djnWCaE8YGsQiirSLFL7M1HtTXYrSzWllBEPn8kNqfbUbtChrPP",
+	"Eob3qw8K8dV8RHhZjrchYHY+KsRf//JfX38dfdGldh4jxCELrlL3n97rgm3hl/j8s4LBuLqmB8d/k8Al",
+	"HH38YXAdX6c6CZLjcr++BfdJB0+1QPl4RCKrDujTgZS+sdqkNb4f14QtG/urzF0g+onXo95QbTZO/Nkr",
+	"omiwzCw2z4RVJXxdG7MZRGbcGDCroI1kwjhDVmiw+VG1TiZXSRtg1UUIDcHfKReUunfGB3LqBagg6u5I",
+	"g0rWHVQrNr8xyEK9h2QNWal6gnQ8dw2wBls1+Jl4YVSfHDZyl/FSHD08mXhYq2wSJU0mBbni+PZObMb5",
+	"8z2wqWWkK49h5BpOVOWwfV/Qnyl/kaJsqX4illzEjn6tIZrFYRL94ig5N6m0iboGxQAp9TbtRSFj2AK7",
+	"DnbVzncSzsgEysnoGs0L9Qbkgu66peuQQVex0y43YinTTExja3VycoKAWQS3Rtxt5lRZ98SLG7XraL7j",
+	"kzTyqZuRShNUsYtSHr6Zm9jZriviUtQukaUkppUo4/ZKJWBqjPF0ESjOtcdqiJhxwqZHliJBmNVDDgcT",
+	"xflAbQR7Y06p1YxP8OayN1kru7RM1p42lZpjWJjtQx14NGo2n4U/4XVW8ejEBg1VTPH3XtPlC3s6JdqR",
+	"FQbwV3QgpJ7GW7lVTpx9IP7nv1/F558AlwjfUl4x3DvBns4wO998SD6SN+Ut1GBMqdO2PF9A+fCRrXcP",
+	"xLqnXn3bN9z2vApWQ6KnoEC0lF/daFMXONSZefPrUihYBQW5HxWI6lr/BNeqtwdG5/s/mdF5lR3vS6zR",
+	"OuYC03lWdkNYeDGO/izPPETUPA/M51qOkxkZcGcPG3AfyZoH249+saYl3PDbh2+44ink+27ysT47YzLp",
+	"TjKDFKvIOPlYq9tTnKx/3Ka8vJW6YQ8IJNpk0nk31LcaJHDqz4NCs5xOa3VbJvEmRQn/BmHGXHrOjlI3",
+	"2h/+79WekMj9UeTWnI3nBgSZD3KzZZd0aR027w8WvpvGAZ2Qm61vsQgah/T3cRUBsQhgxHfyD1TM7okX",
+	"sRM3W0hL/QY1VWpBVwgvqc1PJUEX3zBovkPPTEhwqXoi1hofi5O3b/BVEyMdFq9MaPyG3dfuMoDUhs8s",
+	"hJNdjSipA2KaRlITJ1YBTskGHOVmStu6sRv6ShBz9MVrud0qw1PCWpNENN1AqT46nYWsbmBHz7EKFzlI",
+	"2KaOy0A/nP26rfWaqquwMKtS28A22GEdS7xWAM1IQ6M1MAYQKafAbElGPpU1/KZSjKkQGyOcHckU/aRB",
+	"+a9n75ddB6Y7jX2vVc27hjqQsg6wY3tBEUL8U/0WyN2X06sPPr58fT0YSbwko+tjdXuFnPRYXfBusjQ+",
+	"nt/2OFF+9pO//nju1WLJHejaeLy/cAH9r495zXMbnsWxd2o/AsBnwQG5287GoVwE0kKUurW6ZZm7TkPp",
+	"H8CWMkeTkNU4pjGVVOiV0WZ1OjisXoe5kYFmJPCcevTZsYEuC5FuWhL1V0iNS1K1IFrnOUSrVpX2qei/",
+	"awmQ9fsaYg+ewf8z0ia/4QhlZts3OwDs3FID/9hjQXW7mB0d1U3z6X0bh6kNa8uXLTYhiQUzHJDMmrnR",
+	"YKcuQ523a0t9SbC3Pf2S2pP020xU4B+ZvCg9tSmZiZexHl46tyP5F6eel/tjz0uexZbaMuTd4cJabYoO",
+	"2Hijdn5ujk5lZ+qUIc1Yz0aqR4Rjf6j6xdwEi+WVRbdawjLT5z/x/JAbtaP+QWm6EEvZJz62uZub8VYb",
+	"0eulsz++Km8/IxYq3CnseLNS/iQWaBpRpn5wM8JAdz2mb5VbgHjbFRwrWOIoYzg1akuVd3chXcgd/17y",
+	"k8Zeqa7uV1L7E+qPFMt+mx3ZM0wb2KKVurFwiwfcIDI7shGGXRe7xq4KUHE4kZFR4sj4cm/SXh17YMt6",
+	"ln82tqwvxVabWJ/re2MfcOpY5t31+93wABrtnHX+kEDPj7W4AZ0/3C5mJi5zbCwSX+p/OATJAiebMVhs",
+	"CeeoNEQUdAlj4fVm2+xEbSlPsN0q6WZ5MSOe5F6Lpzb2gKpFNpeEZWq/odOAWKShjD+PrUDP/tEWwo9w",
+	"VtkkpshIkbcN5TFij3JWi9EQnTy0nN88/fVTao+E49JzB5obhTzaVT7UJklc00MpIhdltogie9u0nlqg",
+	"cxI8OKkbbVZz0xcGd0fEDcUdKaSVyop5AjCVaqi5SROeDlXA3Pyvco57WvtlbEaLHWjFsQa0w2hb0uWn",
+	"3YyxQRvsc6zdzltJ9MQfTvPZH0Z2QoXQCQUNxzU37DFj9w/CUKaZwdw1CRSc8Kpy2LX8OcWI+TWxuKbB",
+	"UXh7jY9cayIWBAyH1DxqvDdRBcfrkH+aDdXBPPPgVB16+ckx+Hk+JO1nxaAfTIo7auDlR/PomXB/P4h4",
+	"f8HHDE2m1PzIjxPsn/YIw8du+Z03i5RcRDQBRoK5yT9PwCCLfzIZGjdDbRZZ9+PMHFWnFE2zE35t70Cd",
+	"KhxBgpdi+xbXUl+QWEqWBp2oXjzD3iqHYSlklNYE3aQQPrZDQ+wCN24pP77+/Pr1tRjcodPv6VXPCPZD",
+	"1snlF884Z8S9neKtZTZN9YC3qFsa9y2Yg8mpDE7aY5QHNZLeorcXG0TnHxWD8akxmY57jEcxvQNrJPEX",
+	"t1BqXaWKrOxPdqH+aPeQwUbBmIWtd5TXAcMl6249E+OPug4YmP9qrFkpJ2xVtdsdB0ssBcN4ejcj3mGR",
+	"t1ZTVAl7BqDfNzs5IhH+1CPRn1EiHBmwcUQu9A+UCPDvyfb7BDbI+cURv/IVjVKVSJncdaU8HD1UnhNI",
+	"pld6EYlpbso0M2fcb5oKbMdwYB5/swdCJEARTeTBntSOPIdGL9NEkDj1EEs6Y44lqiWciidjBoepuSQ/",
+	"Y27iVYWIPQ5TmyROetlsphV2bEIE1ExgzwiEUM7NJM6R4b6QTHQ+gpNIAzdK3iT5GHvOcic8+ARMqcob",
+	"hSABDLRiwzyQhpOJGK9t6xBDUYMnZqkvMM4ezBqrzE1vYh+u9SQuA2fWoh83mUi/M9XaWWNbH8tSK4l9",
+	"57lg5oOzD0qs3ADPCuFSKY4aR/awAKdGvuXnliiijDluFOhdiBhbWcL1Ud7MxBe2aeKoPEZUPiRcC7GV",
+	"FVq0jL4uX6rgdtPLZQDPca1NuMDhQN1zSW6XM/EqjuFP3UHQlrnT4DJHvMed7Y/e3tNKpE/GpOtAPFrY",
+	"5oQHqU+yXqJVaowXP3m6VvJ212WWaf6m3HLCEJF46DC0hiNxG7kDHQCGuqIWqswfaN+NO8K8SO2l3j+h",
+	"kVWx8S1PK8Ys1pzaTKl64MSffvDbrq06J72JdGE/oxAIlhIOztrNTLy2c7N1tlKqLrre0jqIMVh0vbPB",
+	"qaLHDxlbInulYpmpT2QG9LV0ChjDN7jdHYbvXJQ03qnslpdOf60bNTc3SlEX0uD5/BAqFMlCxGGRG5o8",
+	"npoYDhmiSEH54f5MnvTQcLfHuNUf/Iw676hr2hrBU6ouhsSD9l02u4/oixJjeHbNnrSAQ9qCvED0xMNG",
+	"2L1Qv2KUUeaA1mtXK5qZ41VlDbUVQLJmzA0Ni3A+4JIG35WmADKu8BfrEn/w25+MaK5x4tnxshMWXVMg",
+	"GZZLLI6whxv8GWE1RE0MoDU4OXRu0qC3C6AntxMSDo/YHumNRibhsDjPQ7x4GBuxckZ5P+708fXarB48",
+	"954xhrJjwOB/F0cso3BaNw6dGxpZDt4R/eyTkRQnRdAzZuJZZz/hXumm6WY+ksUATgMN2kNyx+hzdAVw",
+	"HigeIbpJNJrVUmZmYcNayIXtjEeMI6OnhhmlNNUvpqe1ETR5R21n4o8Gh4QcTO8rosswN9zoH1v64QiU",
+	"b1tM5H56/brkdppPy5m4Jp10q9wClYgnHCVRYrVDjXIRiYvHJnTjGQveQ/5Gjj0fqIWP8aIDvdATzU+P",
+	"SLlE8zzPUC8jQZ/sHRivpZ79gwTMaFceSfHFcIAhUwTU5BLHaaPdSO56mlfK/TQT/V7wQFMyfJG4MS5g",
+	"UqOKmDvIZl4c2JIp8xlHU1KxALbDGJe9cbJlIco00rY8SaDIlO2xTXMMjH8/6Zz9HbT6gBc7ewcZ+uXx",
+	"YbKF8AcCNlOrmGN7tFb9xTPBK2oG/TgW2IPqP+pUuHILB9htJWa8eXxdVBWjfbvxPsvo60eonlOSlpiN",
+	"/gWs+HjsgryWTqWBsKVpEijoJ5NMup7nWo0QOtpE7RRDgJGeSxbXJWc5eVDPwVxZHcRa1mKF4bkMso7Q",
+	"z54OAhYB/VTPxB+9IiUaLKlQ1qA724o77mUM60dwFCx3buzyQrRedU7NsEcjnqWSh5gqA5OKAm7oPWEd",
+	"N1hbEfXYTd91SUdFjzGP1vDRdsiqIeAqvu6XJ+tca54kJUtWZWZ5jOnQszOn0n3Q2lFT/6Oo5Cs2ppLN",
+	"/FhjdGj02E/UCjdV9WXFFLVy2JY99UDgpsExpWV7vW4K9hREPhwpRu7yytSu79wdxVZu0KTLsutFYmhk",
+	"HGqmvLTunBwVrqOI3WYNR0TTyikUlnDeDcIrJdflOQWyBCeg0G143Y3ahrybbgy95H1wsr3hJgudT03z",
+	"wu8ohH7P4LkYutIBbOgpDvp+sEPv3qS4H9WiNz7rZ+rRm5ZaoLtGzd1NE5tE8wytmbg0OGmJevKsGrtA",
+	"qqEpldhOygpZVQjHYvht+V453TrFM9pprVQAgZ3mcd4krhzjeuVLMSlTa+U4NKXf8OcH9RH+Z4ubf6QW",
+	"N9Qh6VC2jTtZc/JT9xAdEtI/SduaYyI6a+qeEM8ZUokm0BF7Oaz5wsIkggcM9m7vFSv9+Ba/cR7k3Pz4",
+	"Fr//bODyv6WBy9+cNbM55nDn2+J7mh7+1dc4HJ7nmdO/ujneX30Nrg0ZA/TG1jWj89HpCP7OqxuI/OUg",
+	"pXi4hAeOaIGuhrBjgamuxafXr1GgJ29M1tiH5lixd7/mJ7uTSn0Ob32xpRlJXe4LFtgwHLpICBVtgrPY",
+	"jAVjfgcZ7OxVbKUevutjdasauwVbcIqCp5JbGu6H0+7j6B78aa+wSO/XFWFxSPbSWt3Cuf6fAAAA//8=",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,

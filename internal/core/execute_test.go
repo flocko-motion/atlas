@@ -12,6 +12,7 @@ import (
 	"io"
 	"strings"
 	"testing"
+	"time"
 
 	ranke "github.com/flocko-motion/ranke-go"
 
@@ -44,7 +45,7 @@ func newStack(t *testing.T) *Core {
 	}
 
 	store := ranke.NewMemoryUniverse()
-	seq, err := sequencer.New(ctx, scope.Literal(map[string]string{"type": "dev"}), store, sig)
+	seq, err := sequencer.New(ctx, scope.Literal(map[string]string{"type": "dev"}), store, sig, nil)
 	if err != nil {
 		t.Fatalf("sequencer.New: %v", err)
 	}
@@ -278,6 +279,45 @@ func TestWritesNeedASequencer(t *testing.T) {
 		if got := Categorize(err); got != CatUnimplemented {
 			t.Fatalf("%v category = %q, want %q", op, got, CatUnimplemented)
 		}
+	}
+}
+
+// TestDevClockAdvanceNeedsWiring pins that OpDevClockAdvance refuses on a core no one
+// called WithDevClock on — no --dev, or a sequencer.type other than "dev" (config's
+// own guard); the route must not silently no-op against a production stack.
+func TestDevClockAdvanceNeedsWiring(t *testing.T) {
+	c := newCoreFor(t, nil, ranke.NewMemoryUniverse())
+	_, err := c.Handle(context.Background(), &Request{Op: OpDevClockAdvance})
+	if !errors.Is(err, ErrNotImplemented) {
+		t.Fatalf("err = %v, want ErrNotImplemented", err)
+	}
+	if got := Categorize(err); got != CatUnimplemented {
+		t.Fatalf("category = %q, want %q", got, CatUnimplemented)
+	}
+}
+
+// TestDevClockAdvanceReachesTheWiredClock pins the wiring itself: WithDevClock's func
+// is what the operation calls, and its return is what the response reports back.
+func TestDevClockAdvanceReachesTheWiredClock(t *testing.T) {
+	var got time.Time
+	advance := func(t time.Time) time.Time {
+		got = t
+		return t.Add(time.Hour) // a distinguishable answer, so the test can't pass by accident
+	}
+	c := newCoreFor(t, nil, ranke.NewMemoryUniverse(), WithDevClock(advance))
+
+	want := time.Date(2030, 6, 1, 12, 0, 0, 0, time.UTC)
+	body, _ := serve(t, c, &Request{Op: OpDevClockAdvance, DevClockAt: want})
+
+	if !got.Equal(want) {
+		t.Fatalf("wired func received %s, want %s", got, want)
+	}
+	var reported devClock
+	if err := json.Unmarshal(body, &reported); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if wantReported := want.Add(time.Hour); !reported.Time.Equal(wantReported) {
+		t.Fatalf("response time = %s, want %s", reported.Time, wantReported)
 	}
 }
 

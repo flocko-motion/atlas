@@ -8,26 +8,20 @@
  * outside React, and this holds only a ref and ids.
  */
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { activeView, useExplorer } from '../../core/store.ts';
 import type { Notice, ScopesState, SidePane, ViewState } from '../../core/store.ts';
 import { ARCHIVE_SCOPE } from '../../core/scope.ts';
 import {
-  axisWidth,
   discoverScopes,
   lensFor,
   setOnLoaded,
   setOnShowAll,
-  stretchX,
-  timelineExtent,
 } from '../../core/session.ts';
+import { settleUnion, timelineExtent } from '../../core/timeline.ts';
 import { useConnections } from '../../core/connections.ts';
 import {
-  anchorAt,
   applyViewSettings,
-  axisSpanOnScreen,
-  canvasWidth,
-  graphXAt,
   hideLens,
   mount,
   mountLens,
@@ -35,12 +29,19 @@ import {
   onZoom,
   pinExtent,
   refreshSelection,
-  repaint,
-  resetCamera,
-  unpinExtent,
   showLens,
-  shownGraph,
+  unpinExtent,
 } from '../../render/renderer.ts';
+import {
+  fitDenseTime,
+  fitHeight,
+  graphXAt,
+  holdCamera,
+  resetCamera,
+  zoomX,
+  zoomY,
+} from '../../render/camera.ts';
+import { canvasWidth } from '../../render/instances.ts';
 import { Tabs } from '../components/Tabs.tsx';
 import type { TabItem } from '../components/Tabs.tsx';
 import { ConnectionsPane } from '../panes/ConnectionsPane.tsx';
@@ -70,9 +71,13 @@ function HoverPreviewChip() {
   const preview = useExplorer((s) => s.preview);
   if (!preview) return null;
   return (
-    <div className="hover-preview" role="status">
-      <span className="hover-preview-type">{preview.claimType}</span>
-      <span className="hover-preview-label">{preview.label}</span>
+    <div
+      className="hover-preview"
+      role="status"
+      style={{ left: preview.x + 14, top: preview.y + 14 }}
+    >
+      <div className="hover-preview-type">{preview.claimType}</div>
+      {preview.content ? <div className="hover-preview-content">{preview.content}</div> : null}
     </div>
   );
 }
@@ -144,20 +149,6 @@ function EmptyCanvas() {
 }
 
 /**
- * compressionFloor is the least stretch that still fills the viewport with axis, from what one
- * unit of stretch is worth on screen — which the camera and the window size both feed into.
- */
-function compressionFloor(stretch: number): number {
-  const width = axisWidth();
-  const canvas = canvasWidth();
-  if (width === null || width <= 0 || canvas <= 0 || stretch <= 0) return 0;
-  const drawn = axisSpanOnScreen(width * stretch);
-  if (drawn === null || drawn <= 0) return 0;
-  const perUnit = drawn / stretch;
-  return perUnit > 0 ? canvas / perUnit : 0;
-}
-
-/**
  * emptyReason names why the canvas is blank when no action reported one. A listed archive is the
  * common case, since nothing auto-selects where there is a choice — so say what is there.
  */
@@ -193,6 +184,47 @@ function emptyReason(scopes: ScopesState, nodes: number, view: ViewState | null)
   };
 }
 
+/** How wide the side pane opens, and the range a drag may take it to, in pixels. */
+const SIDE_DEFAULT = 480;
+const SIDE_MIN = 280;
+/** The graph keeps at least this much of the window, whatever the pane is dragged to. */
+const SIDE_MAX_SHARE = 0.6;
+
+/**
+ * SideGrip resizes the side pane by dragging its edge. The width goes onto the grid as a custom
+ * property rather than through the store: it is a fact about this window, not about the archive.
+ */
+function SideGrip({ onWidth }: { onWidth: (px: number) => void }) {
+  const [dragging, setDragging] = useState(false);
+
+  const start = (event: React.PointerEvent<HTMLDivElement>) => {
+    event.currentTarget.setPointerCapture(event.pointerId);
+    setDragging(true);
+  };
+  const move = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (!dragging) return;
+    const width = window.innerWidth - event.clientX;
+    onWidth(Math.max(SIDE_MIN, Math.min(width, window.innerWidth * SIDE_MAX_SHARE)));
+  };
+  const end = (event: React.PointerEvent<HTMLDivElement>) => {
+    event.currentTarget.releasePointerCapture(event.pointerId);
+    setDragging(false);
+  };
+
+  return (
+    <div
+      className={`side-grip${dragging ? ' is-dragging' : ''}`}
+      role="separator"
+      aria-orientation="vertical"
+      title="drag to resize"
+      onPointerDown={start}
+      onPointerMove={move}
+      onPointerUp={end}
+      onPointerCancel={end}
+    />
+  );
+}
+
 export function App() {
   const host = useRef<HTMLDivElement | null>(null);
   const lensHost = useRef<HTMLDivElement | null>(null);
@@ -204,6 +236,7 @@ export function App() {
   const activateView = useExplorer((s) => s.activateView);
   const closeView = useExplorer((s) => s.closeView);
   const activeConnectionId = useConnections((s) => s.activeId);
+  const [sideWidth, setSideWidth] = useState(SIDE_DEFAULT);
 
   // Mount the renderer once. Not a dependency of any state: a re-render must not
   // recreate it, and StrictMode's double-invoke is harmless because `mount` is
@@ -211,25 +244,16 @@ export function App() {
   useEffect(() => {
     if (host.current) mount(host.current);
     if (lensHost.current) mountLens(lensHost.current);
-    // Shift stretches time; the plain wheel is the camera's. The lens below is only what keeps a
-    // large graph affordable.
-    const stopZoom = onZoom(({ factor, viewportX, shift }) => {
+    // The wheel zooms time, shift zooms the strata. The lens below is only what keeps a large
+    // graph affordable.
+    const stopZoom = onZoom(({ factor, viewportX, viewportY, shift }) => {
       const state = useExplorer.getState();
       const view = state.views.find((v) => v.id === state.activeViewId);
-      // Only the timeline has an axis worth stretching, and only shift asks for it. Everything
-      // else is the camera's classic zoom — which, alternated with a compression of time, is a
-      // vertical stretch in all but name.
-      if (view?.layout !== 'timeline' || !shift) return false;
-
-      // Compression stops where the axis would be narrower than the viewport: past that the
-      // picture is stranded in empty space and the camera's zoom is the right instrument.
-      const floor = compressionFloor(view.xStretch);
-
-      // A stretch multiplies graph x, so the content's new position is arithmetic.
-      const under = graphXAt(viewportX);
-      const { applied } = stretchX(factor, shownGraph() ?? undefined, floor);
-      repaint();
-      if (under !== null && applied !== 1) anchorAt(viewportX, under * applied);
+      // Only the timeline has an axis apiece to zoom. Everything else is the camera's classic
+      // zoom, which takes both at once.
+      if (view?.layout !== 'timeline') return false;
+      if (shift) zoomY(factor, viewportY);
+      else zoomX(factor, viewportX);
       return true;
     });
 
@@ -241,6 +265,9 @@ export function App() {
       const left = graphXAt(0);
       const right = graphXAt(width);
       if (left === null || right === null) return;
+      // A stretch over a lens reaches the copy alone, so the union is put back on the axis before
+      // it can be shown again or cut from — a lens cut from a stale union is stale too.
+      if (settleUnion()) refreshSelection();
       const cut = lensFor(left, right);
       if (cut) showLens(cut.graph);
       else hideLens();
@@ -248,8 +275,10 @@ export function App() {
     // Core stages a load and hands the finished graph back through this hook, so it
     // never has to import the renderer.
     // Reframing is the camera's, so core asks for it through a hook rather than importing it.
-    setOnShowAll(() => resetCamera());
-    setOnLoaded(() => {
+    // All of time across the canvas, and the strata refitted to it once the camera has settled —
+    // how tall they should be drawn is a fact about the window, which only this layer can measure.
+    setOnShowAll(() => resetCamera(fitHeight));
+    setOnLoaded((framing) => {
       const state = useExplorer.getState();
       const view = state.views.find((v) => v.id === state.activeViewId);
       const extent = timelineExtent();
@@ -260,6 +289,18 @@ export function App() {
         unpinExtent();
       }
       refreshSelection();
+      // The graph a reader has just asked for is framed to the strata, which is the picture the
+      // fit-height tool gives — asking for a branch and being shown a band of dots in the middle
+      // of an empty canvas is a reader doing the renderer's work. Time then narrows further, to
+      // the archive's dense range rather than the full bound — a lone remote outlier is still
+      // reachable by zooming out, just not what the first look opens on (-> fitDenseTime).
+      if (framing === 'fit') {
+        fitHeight();
+        if (view?.layout === 'timeline') fitDenseTime();
+      }
+      // A load is the other way the picture moves without a gesture, and it was the one that
+      // used to land outside what the wheel could reach.
+      else holdCamera();
     });
     // What an archive holds is the first thing worth knowing, and asking for it is not a
     // decision the reader should have to make. A sole branch then loads itself.
@@ -289,7 +330,7 @@ export function App() {
   }));
 
   return (
-    <div className="app">
+    <div className="app" style={{ '--side-width': `${sideWidth}px` } as React.CSSProperties}>
       <Header />
 
       <main className="main">
@@ -319,6 +360,7 @@ export function App() {
       </main>
 
       <aside className="side">
+        <SideGrip onWidth={setSideWidth} />
         <Tabs
           ariaLabel="Tooling and details"
           items={SIDE_TABS.map((t) => ({ id: t.id, label: t.label }))}

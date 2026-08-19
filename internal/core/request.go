@@ -13,6 +13,7 @@ package core
 import (
 	"fmt"
 	"io"
+	"time"
 
 	"github.com/flocko-motion/ranke-go"
 
@@ -53,6 +54,7 @@ const (
 	OpVerificationGet                     // one verification run                   (no grant)
 	OpVerificationCancel                  // cancel a run                           (no grant)
 	OpVerificationDelete                  // delete a run                           (no grant)
+	OpDevClockAdvance                     // steer the --dev clock forward          (no grant)
 )
 
 // Right is the right this operation requires, or 0 for none. Reads need R, writes
@@ -92,6 +94,8 @@ type Request struct {
 	VerConfig *VerificationConfig
 	// VerID targets one run (OpVerificationGet, OpVerificationCancel, OpVerificationDelete).
 	VerID string
+	// DevClockAt is the instant to advance the dev clock to (OpDevClockAdvance).
+	DevClockAt time.Time
 
 	// --- enrichment: filled by core as the request flows ---
 

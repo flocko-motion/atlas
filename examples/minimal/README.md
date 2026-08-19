@@ -75,7 +75,7 @@ The stack assembles fully — storage, sequencer, signer, and one REST endpoint 
 ### Reaching it from a browser
 
 `allowedOrigins` on the transport admits the explorer's dev origins — vite's `5173` and its
-preview `4173` — so `make dev` here and `make -C frontend run` there work together with no
+preview `4173` — so `make dev` here and `make -C frontend dev` there work together with no
 proxy. It is a comma-separated list and `*` admits any; omitting it leaves the instance
 unreachable from any page but its own origin, which is the right default for a server nobody
 browses. Admitting an origin grants it nothing: every request still authenticates and is

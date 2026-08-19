@@ -8,7 +8,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { gapWidth, timeScale } from './timescale.ts';
+import { gapWidth, granularityFor, timeScale } from './timescale.ts';
 
 const SECOND = 1000;
 const MINUTE = 60 * SECOND;
@@ -129,4 +129,108 @@ test('stepInstant moves to the neighbouring claim', () => {
   // Either end holds rather than running off.
   assert.equal(scale.stepInstant(3 * YEAR + 1, 1), 3 * YEAR);
   assert.equal(scale.stepInstant(-1, -1), 0);
+});
+
+// A remote claim (a generator's bad timestamp, say) must stay fully on the axis — atX/toX
+// still reach it — while the dense range a first look opens on trims past it.
+test('a lone remote outlier is trimmed from the dense range but stays on the axis', () => {
+  const outlier = 0;
+  const cluster = Array.from({ length: 5 }, (_, i) => 50 * YEAR + i * MINUTE);
+  const scale = timeScale([outlier, ...cluster]);
+
+  assert.equal(scale.toX(outlier), 0, 'the outlier fell off the axis');
+  assert.equal(scale.atX(0), outlier, 'and is no longer reachable back off it');
+  assert.ok(
+    scale.denseExtent.x0 > 0,
+    `expected the dense range to start past the outlier, got x0=${scale.denseExtent.x0}`,
+  );
+  assert.equal(scale.denseExtent.x1, scale.width, 'the dense range should still reach the cluster end');
+});
+
+test('an archive with no lone outlier has a dense range spanning the whole axis', () => {
+  const times = Array.from({ length: 10 }, (_, i) => i * DAY);
+  const scale = timeScale(times);
+  assert.equal(scale.denseExtent.x0, 0);
+  assert.equal(scale.denseExtent.x1, scale.width);
+});
+
+// The outlier at the *end* of the axis exercises the other half of the trim — a widest gap
+// sitting last in the window under consideration, which a previous version of denseRange
+// looped on forever rather than shrinking past.
+test('a lone remote outlier at the end trims from the right without hanging', { timeout: 2000 }, () => {
+  const cluster = Array.from({ length: 5 }, (_, i) => i * MINUTE);
+  const outlier = 50 * YEAR;
+  const scale = timeScale([...cluster, outlier]);
+
+  assert.equal(scale.denseExtent.x0, 0);
+  assert.ok(
+    scale.denseExtent.x1 < scale.width,
+    `expected the dense range to stop short of the outlier, got x1=${scale.denseExtent.x1}`,
+  );
+});
+
+// granularityFor is the rule a candidate's wording follows: the coarsest unit that still
+// distinguishes it from a neighbour this far away.
+test('granularityFor buckets a gap to the coarsest unit that still shows it', () => {
+  assert.equal(granularityFor(45 * SECOND), 'second');
+  // A year is 365.25 days internally (calendar leap years average out); comfortably past that,
+  // not the test's own 365-day YEAR constant, which is a hair short of it.
+  assert.equal(granularityFor(366 * DAY), 'year');
+  assert.equal(granularityFor(DAY), 'day');
+  assert.equal(granularityFor(0), 'ms');
+  assert.equal(granularityFor(500), 'ms');
+});
+
+// tickPositions is the build-time walk a reader's "sweep left to right, grab a claim every so
+// often" idea becomes: density should follow where the claims actually are, not the calendar.
+test('tickPositions is denser where claims are dense, sparser across a silence', () => {
+  const burstStart = 10 * YEAR;
+  const burst = Array.from({ length: 200 }, (_, i) => burstStart + i * SECOND); // ~200 s of claims
+  const after = burstStart + 5 * YEAR; // five years of silence, then one more claim
+  const scale = timeScale([...burst, after]);
+
+  const inBurst = scale.tickPositions.filter((p) => p.at >= burstStart && p.at < burstStart + 200 * SECOND);
+  const inSilence = scale.tickPositions.filter((p) => p.at > burstStart + 200 * SECOND && p.at < after);
+  assert.ok(inBurst.length > 1, `expected more than one candidate inside the burst, got ${inBurst.length}`);
+  assert.ok(inSilence.length === 0, `expected no candidate in the silence, got ${inSilence.length}`);
+});
+
+// The true ends of the loaded data are never silently absent, even where the build threshold
+// would otherwise have skipped straight past them.
+test('tickPositions always keeps the first and last instant', () => {
+  const times = Array.from({ length: 500 }, (_, i) => i * SECOND); // tightly packed, well under threshold
+  const scale = timeScale(times);
+  const ats = scale.tickPositions.map((p) => p.at);
+  assert.equal(ats[0], times[0], 'the first instant was not kept');
+  assert.equal(ats[ats.length - 1], times[times.length - 1], 'the last instant was not kept');
+});
+
+// The count tickPositions produces is bounded by the axis's own width divided by the build
+// threshold, not by how many distinct instants fed it — a reference-view-full archive should
+// hold roughly the same number of candidates whether it has hundreds of claims or hundreds of
+// thousands, since a finer packing only makes the threshold skip more of them, not fewer.
+test('tickPositions count does not grow with how many claims fed it', () => {
+  const span = 10 * YEAR;
+  const few = timeScale(Array.from({ length: 50 }, (_, i) => (i * span) / 49)).tickPositions.length;
+  const many = timeScale(Array.from({ length: 50_000 }, (_, i) => (i * span) / 49_999)).tickPositions.length;
+  assert.ok(many < few * 4, `50,000 claims produced ${many} candidates against ${few} for 50 — not bounded`);
+});
+
+// The one property the user's algorithm asks for by name: a candidate's granularity comes from
+// its distance to the instant immediately before it, not from a calendar or a global unit — a
+// claim moments after a long silence still reads coarse, one moments after a burst reads fine.
+test('a candidate is worded by its distance to its own left neighbour', () => {
+  const longSilenceThenBurst = [0, 20 * YEAR, 20 * YEAR + 2 * SECOND, 20 * YEAR + 4 * SECOND];
+  const scale = timeScale(longSilenceThenBurst);
+  const at = (t: number) => scale.tickPositions.find((p) => p.at === t);
+
+  // The claim right after the long silence: coarse, since its left neighbour is 20 years away.
+  const afterSilence = at(20 * YEAR);
+  assert.ok(afterSilence, 'the claim after the silence was not a candidate at all');
+  assert.equal(afterSilence?.unit, 'year');
+
+  // A claim a couple of seconds after ITS left neighbour: fine, regardless of how coarse the
+  // claim before *that* one read.
+  const inBurst = at(20 * YEAR + 4 * SECOND);
+  if (inBurst) assert.equal(inBurst.unit, 'second');
 });

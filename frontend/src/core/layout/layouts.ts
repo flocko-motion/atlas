@@ -16,6 +16,7 @@ import FA2Layout from 'graphology-layout-forceatlas2/worker.js';
 import { circlepack, circular, random } from 'graphology-layout';
 import type { DirectedGraph } from 'graphology';
 import { requireContribution } from '../graph/shape.ts';
+import { hashString } from '../hash.ts';
 
 export type LayoutName =
   | 'timeline'
@@ -37,21 +38,40 @@ export const LAYOUT_LABELS: Record<LayoutName, string> = {
 };
 
 /**
- * STRATA are the bands, bottom of the screen first. Sigma maps a larger graph y higher up
- * (`y: (1 - y) * height / 2`), so the array index *is* the y ordering.
- *
- * The order follows the ADT: bookkeeping, then what entered, what was concluded, the things
- * distilled, and the links between them. It is monotone with provenance, so an edge points
- * down or sideways and almost never up — provenance becomes a direction rather than
- * something to trace. Contribution sits at the edge because it is the band the class filter
- * drops, and dropping the bottom band leaves the picture whole.
+ * STRATA are the classes a claim may belong to, top of the picture first when reversed for
+ * display (-> ui/panes/ViewPane). Every class keeps its own colour (-> core/graph/build.ts
+ * CLASS_COLOR) and its own filter toggle; which vertical band it draws in is a separate
+ * question BANDS answers below — entity and relation are two classes sharing one band.
  */
 export const STRATA = ['contribution', 'source', 'derivation', 'entity', 'relation'] as const;
 
-/** stratumOf is the band a claim class belongs to; an unknown class sits with the sources. */
+/**
+ * BANDS are the timeline layout's vertical strata, bottom of the screen first. Sigma maps a
+ * larger graph y higher up (`y: (1 - y) * height / 2`), so the array index *is* the y ordering.
+ *
+ * The order follows the ADT: bookkeeping, then what entered, what was concluded, then the
+ * semantic layer built from it. It is monotone with provenance, so an edge points down or
+ * sideways and almost never up — provenance becomes a direction rather than something to
+ * trace. Contribution sits at the edge because it is the band the class filter drops, and
+ * dropping the bottom band leaves the picture whole.
+ *
+ * Entity and relation share the top band as one *semantic layer* — entities and the relations
+ * between them are one reading of the graph, not two — while each keeps its own colour and its
+ * own filter toggle (-> STRATA); only the height they are allotted is pooled. Left separate, a
+ * relation is rare enough in most archives that its own band sits almost empty while the four
+ * content bands beneath it are cramped for room they are not given.
+ */
+const BANDS = ['contribution', 'source', 'derivation', 'semantic'] as const;
+
+/** bandOf names the band a class draws in — entity and relation share one, semantic. */
+function bandOf(cls: string): (typeof BANDS)[number] {
+  if (cls === 'entity' || cls === 'relation') return 'semantic';
+  return (BANDS as readonly string[]).includes(cls) ? (cls as (typeof BANDS)[number]) : 'source';
+}
+
+/** stratumOf is the band index a claim class draws in; an unknown class sits with the sources. */
 export function stratumOf(cls: string): number {
-  const at = STRATA.indexOf(cls as (typeof STRATA)[number]);
-  return at === -1 ? STRATA.indexOf('source') : at;
+  return BANDS.indexOf(bandOf(cls));
 }
 
 export interface TimelineContext {
@@ -61,11 +81,14 @@ export interface TimelineContext {
   createdAt: (node: string) => number;
   /** The claim's class — the band it sits in. */
   classOf: (node: string) => string;
+  /** The claim's subtype — which subband of its band it sits in (-> HEAD_SUBBAND_FRACTION). */
+  subOf: (node: string) => string;
   /**
-   * The strata to give room to, or empty for all of them. A hidden stratum takes no height,
-   * so the bands that remain fill the picture rather than leaving a gap where it was.
+   * How far the strata are stretched, 1 being the height below. It scales the finished
+   * positions rather than the height they are laid out in: a band keeps its lanes and its
+   * neighbours, and only the room between them grows.
    */
-  visible?: readonly string[];
+  yStretch?: number;
 }
 
 /** How tall the whole picture is, in graph units — the extent the renderer normalises against. */
@@ -75,48 +98,84 @@ export const TIMELINE_HEIGHT = 1000;
 const LANE_UNITS = 16;
 
 /**
+ * Room left below the bottom band and above the top one — asymmetric, and more asymmetric than
+ * equal canvas-pixel spacing would suggest. The ruler is a hard visual landmark right below
+ * graph-y 0 (its own border and background, not just empty pane), so the same gap that reads as
+ * spacious above the top band — nothing there but the pane's edge — reads as tight next to it;
+ * the bottom margin has to overcompensate for that anchor, not just match the top one's pixels.
+ * Sigma draws a larger graph y higher up the screen, so it is graph-y 0 that sits by the ruler.
+ */
+const TIMELINE_MARGIN_BOTTOM = LANE_UNITS * 2.5;
+const TIMELINE_MARGIN_TOP = LANE_UNITS / 8;
+
+/**
+ * Share of the contribution band given to `contribution/head` claims — the bottom of the band,
+ * every other contribution subtype (contributor, branches, delete, expiry) taking the rest
+ * above it. A head is one per currently-open line of work, not one per claim the way a
+ * contributor or a branch-table revision is, so it is a small, distinctive slice of the band's
+ * traffic — set apart in its own strip rather than scattered in among the rest of the
+ * bookkeeping, it reads as what it is instead of one more dot among many.
+ */
+const HEAD_SUBBAND_FRACTION = 0.3;
+
+/** One vertical slice a claim may be placed in: where it starts, and how many lanes it holds. */
+interface Slot {
+  base: number;
+  lanes: number;
+  laneGap: number;
+}
+
+/** slotOf builds the lane geometry for a height, floored at one lane so a slice never vanishes. */
+function slotOf(base: number, height: number): Slot {
+  const lanes = Math.max(1, Math.floor(height / LANE_UNITS));
+  return { base, lanes, laneGap: height / lanes };
+}
+
+/**
  * assignTimeline puts time on x and class strata on y.
  *
  * Claims sharing an instant share an x, so a stack means "simultaneous" and nothing else.
- * Within a band, lanes are handed out round-robin in time order: consecutive claims land on
- * different lanes, so neighbours in time do not draw over each other even where the axis puts
- * them close together.
+ * Within a slot, a claim's lane is a hash of its id — not its position in time order. A
+ * round-robin by time-sorted index put neighbours in time on consecutive lanes, so as x
+ * advanced the lane advanced in lockstep with it: a staircase, not a scatter, and captions
+ * collided along the diagonal it drew. A hash gives every claim a lane independent of when its
+ * neighbours fall, which is what the round-robin was reaching for — spreading claims apart —
+ * without the diagonal that came along with it.
  *
- * The visible bands divide the whole height between them, so the picture is always full and
- * hiding a stratum gives its room to the others rather than leaving a hole.
+ * Every one of the four bands gets its fixed share of the height, whether or not any of its
+ * classes is currently shown: the View tab's stratum toggles hide claims (-> render/renderer
+ * admits), never move them, so the band heights are set from the potential four, never from how
+ * many happen to be switched on right now — a toggle must not shift anyone else's claims. The
+ * contribution band alone further splits into two slots by subtype (-> HEAD_SUBBAND_FRACTION),
+ * the same reasoning one level down: a subtype's slot is fixed whether or not that subtype
+ * happens to be present in what is loaded.
  */
 export function assignTimeline(graph: DirectedGraph, ctx: TimelineContext): void {
-  const shown = ctx.visible && ctx.visible.length > 0 ? ctx.visible : STRATA;
-  const bands = STRATA.filter((stratum) => shown.includes(stratum));
-  if (bands.length === 0) return;
+  const bandHeight = (TIMELINE_HEIGHT - TIMELINE_MARGIN_BOTTOM - TIMELINE_MARGIN_TOP) / BANDS.length;
+  // Bottom of the picture first, matching BANDS — Sigma draws a larger y higher up.
+  const slotsOf = new Map<string, { rest: Slot; head?: Slot }>(
+    BANDS.map((band, i) => {
+      const bandBase = TIMELINE_MARGIN_BOTTOM + i * bandHeight;
+      if (band !== 'contribution') return [band, { rest: slotOf(bandBase, bandHeight) }];
+      const headHeight = bandHeight * HEAD_SUBBAND_FRACTION;
+      return [
+        band,
+        { head: slotOf(bandBase, headHeight), rest: slotOf(bandBase + headHeight, bandHeight - headHeight) },
+      ];
+    }),
+  );
 
-  const bandHeight = TIMELINE_HEIGHT / bands.length;
-  const lanes = Math.max(1, Math.floor(bandHeight / LANE_UNITS));
-  const laneGap = bandHeight / lanes;
-  // Bottom of the picture first, matching STRATA — Sigma draws a larger y higher up.
-  const baseOf = new Map<string, number>(bands.map((stratum, i) => [stratum, i * bandHeight]));
-
-  // Time order per band, so the round robin walks the claims as a reader would.
-  const byBand = new Map<string, string[]>();
-  graph.forEachNode((node) => {
-    const stratum = STRATA[stratumOf(ctx.classOf(node))];
-    const bucket = byBand.get(stratum);
-    if (bucket) bucket.push(node);
-    else byBand.set(stratum, [node]);
-  });
-
+  const stretch = ctx.yStretch ?? 1;
   const placed = new Map<string, { x: number; y: number }>();
-  for (const [stratum, nodes] of byBand) {
-    const base = baseOf.get(stratum);
-    nodes.sort((a, b) => ctx.createdAt(a) - ctx.createdAt(b));
-    nodes.forEach((node, i) => {
-      const x = ctx.toX(ctx.createdAt(node));
-      // A hidden band has no base; its claims keep a position so the reducer, not the
-      // layout, is what hides them.
-      const y = (base ?? 0) + (i % lanes) * laneGap;
-      placed.set(node, { x, y });
-    });
-  }
+  graph.forEachNode((node) => {
+    const band = BANDS[stratumOf(ctx.classOf(node))];
+    const slots = slotsOf.get(band);
+    const slot = (slots?.head && ctx.subOf(node) === 'head' ? slots.head : slots?.rest) ?? slotOf(0, 0);
+    const lane = hashString(node) % slot.lanes;
+    const x = ctx.toX(ctx.createdAt(node));
+    const y = (slot.base + lane * slot.laneGap) * stretch;
+    placed.set(node, { x, y });
+  });
 
   graph.updateEachNodeAttributes((node, attr) => {
     const at = placed.get(node);

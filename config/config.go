@@ -17,6 +17,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"time"
 
 	"github.com/flocko-motion/rankedb/adapters/auth"
 	"github.com/flocko-motion/rankedb/adapters/endpoints"
@@ -68,6 +69,9 @@ type App struct {
 	Endpoints []endpoints.Endpoints
 	// Layers names the configured storage layers, name and type only.
 	Layers []storage.Layer
+	// DevClock is the launch's steerable clock, non-nil only when Run was called with
+	// dev true — the handle POST /dev/clock advances (-> core.WithDevClock).
+	DevClock *sequencer.SteerableClock
 	// The secret store is omitted on purpose: it lives in the section box, and nobody
 	// downstream holds it.
 }
@@ -102,18 +106,20 @@ func Verify(ctx context.Context, cfg io.Reader, pass PassphraseSource, level Lev
 		return nil
 	}
 	// Assembling the stack reaches every backend it uses; discard it without serving.
-	_, err = c.build(ctx)
+	// Never --dev: a check has no business minting a steerable clock.
+	_, err = c.build(ctx, false)
 	return err
 }
 
-// Run decrypts with pass when needed, parses, and assembles the stack. The vault
-// builds lazily as sections resolve vault() references.
-func Run(ctx context.Context, cfg io.Reader, pass PassphraseSource) (*App, error) {
+// Run decrypts with pass when needed, parses, and assembles the stack. dev mounts the
+// launch's steerable clock — see App.DevClock — and requires sequencer.type "dev";
+// pass false for every real deployment.
+func Run(ctx context.Context, cfg io.Reader, pass PassphraseSource, dev bool) (*App, error) {
 	c, err := decode(cfg, pass)
 	if err != nil {
 		return nil, err
 	}
-	return c.build(ctx)
+	return c.build(ctx, dev)
 }
 
 // decode reads, decrypts (when encrypted), and parses the config — the shared
@@ -169,8 +175,10 @@ func (c *Config) accountSpecs() map[string][]string {
 }
 
 // build assembles in dependency order: storage, signer, the sequencer that needs
-// both, then each endpoint's own core. An absent section yields a nil adapter.
-func (c *Config) build(ctx context.Context) (*App, error) {
+// both, then each endpoint's own core. An absent section yields a nil adapter. dev
+// requires sequencer.type "dev" and, when true, mints the steerable clock the
+// sequencer mints claims from and POST /dev/clock later steers.
+func (c *Config) build(ctx context.Context, dev bool) (*App, error) {
 	var app App
 
 	if len(c.Storage) > 0 {
@@ -190,7 +198,20 @@ func (c *Config) build(ctx context.Context) (*App, error) {
 	}
 
 	if len(c.Sequencer) > 0 {
-		seq, err := sequencer.New(ctx, c.section(c.Sequencer), app.Storage, app.Signer)
+		sec := c.section(c.Sequencer)
+		var now func() time.Time
+		if dev {
+			t, err := sec.Get(ctx, "type")
+			if err != nil {
+				return nil, err
+			}
+			if t != "dev" {
+				return nil, fmt.Errorf("config: --dev requires sequencer.type \"dev\", got %q", t)
+			}
+			app.DevClock = sequencer.NewSteerableClock()
+			now = app.DevClock.Now
+		}
+		seq, err := sequencer.New(ctx, sec, app.Storage, app.Signer, now)
 		if err != nil {
 			return nil, err
 		}
@@ -249,10 +270,14 @@ func (c *Config) buildEndpoint(ctx context.Context, ec endpointConfig, app *App)
 	for _, l := range app.Layers {
 		layers = append(layers, core.StorageLayer{Name: l.Name, Type: l.Type})
 	}
-	return core.New(set, chk, app.Sequencer, app.Storage,
+	opts := []core.Option{
 		core.WithSigner(app.Signer),
 		core.WithLayers(layers),
-	), nil
+	}
+	if app.DevClock != nil {
+		opts = append(opts, core.WithDevClock(app.DevClock.Advance))
+	}
+	return core.New(set, chk, app.Sequencer, app.Storage, opts...), nil
 }
 
 // resolveAll resolves every env()/vault() reference and assembles nothing, failing on

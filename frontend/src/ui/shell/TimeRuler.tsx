@@ -11,9 +11,11 @@
  */
 
 import { useEffect, useState } from 'react';
-import { timeAxis } from '../../core/session.ts';
+import { timeAxis } from '../../core/timeline.ts';
 import { useExplorer } from '../../core/store.ts';
-import { canvasWidth, graphXAt, onRender, viewportXAt } from '../../render/renderer.ts';
+import { graphXAt, viewportXAt } from '../../render/camera.ts';
+import { canvasWidth } from '../../render/instances.ts';
+import { onRender } from '../../render/renderer.ts';
 import { timeTicks } from '../ticks.ts';
 import type { TimeTick } from '../ticks.ts';
 
@@ -85,5 +87,6 @@ function readTicks(): TimeTick[] {
     to: axis.atX(Math.max(left, right)),
     xOf: (instant) => viewportXAt(axis.toX(instant)) ?? 0,
     minGap: MIN_GAP_PX,
+    positions: axis.tickPositions,
   }).filter((tick) => tick.x >= 0 && tick.x <= width);
 }

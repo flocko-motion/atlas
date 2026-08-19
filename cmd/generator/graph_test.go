@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"slices"
 	"testing"
 
 	"github.com/flocko-motion/ranke-go"
@@ -73,13 +74,15 @@ func TestExampleGraphHasRealProvenance(t *testing.T) {
 	}
 
 	// The derivation cites both sources, which is the provenance the shape exists to show.
+	// Which one comes first is the library's — Edges reports canonical order, not the order
+	// the builder was handed them — so this asks whether each source is cited, not where.
 	cited := inputs(claims[2])
 	if len(cited) != 2 {
 		t.Fatalf("derivation cites %d inputs, want 2", len(cited))
 	}
 	for i, source := range claims[:2] {
-		if !cited[i].Equal(source.ID()) {
-			t.Errorf("derivation input %d = %s, want %s", i, cited[i], source.ID())
+		if !slices.ContainsFunc(cited, source.ID().Equal) {
+			t.Errorf("source %d (%s) is not among the derivation's inputs %v", i, source.ID(), cited)
 		}
 	}
 }

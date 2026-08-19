@@ -10,7 +10,7 @@
 
 import { activeConnection, useConnections } from './connections.ts';
 import { useQuery } from './query.ts';
-import { sourceFor } from './data/source.ts';
+import { CONTENT_LIMIT, sourceFor } from './data/source.ts';
 import { mergeClaimsProgressively, graph, totalContributions } from './graph/universe.ts';
 import { membersOf, setMembers } from './graph/members.ts';
 import { contentOf, rememberContent } from './content.ts';
@@ -20,10 +20,9 @@ import type { DirectedGraph } from 'graphology';
 import { yieldToPaint } from './scheduler.ts';
 import { contributionOf, depths, historyStats } from './graph/shape.ts';
 import { degreeStats, sizeByDegree } from './graph/build.ts';
-import { TIMELINE_HEIGHT, apply, assignTimeline } from './layout/layouts.ts';
-import type { LayoutName, TimelineContext } from './layout/layouts.ts';
-import { timeScale } from './layout/timescale.ts';
-import type { TimeScale } from './layout/timescale.ts';
+import { apply } from './layout/layouts.ts';
+import type { LayoutName } from './layout/layouts.ts';
+import { stretchOf, stretchX, timelineContext } from './timeline.ts';
 import { defaultView, useExplorer } from './store.ts';
 import type { ViewState } from './store.ts';
 import { ARCHIVE_SCOPE, scopeLabel } from './scope.ts';
@@ -41,46 +40,14 @@ export interface LoadRequest {
 
 let viewCounter = 0;
 
+/** kib renders a byte count for a status line, where the exact figure says nothing. */
+function kib(bytes: number): string {
+  return `${Math.round(bytes / 1024).toLocaleString('en-US')} KiB`;
+}
+
 /** log appends a line to the store's log, which the log pane renders. */
 function log(line: string): void {
   useExplorer.getState().appendLog(line);
-}
-
-/**
- * The axis the layout and the ruler share, so the ruler cannot disagree with the picture.
- */
-let axis: TimeScale | null = null;
-
-/**
- * The extent the unstretched timeline occupies. Held so the renderer can normalise against it
- * rather than against the graph, whose x grows as time is stretched.
- */
-let restExtent: { x0: number; x1: number; y0: number; y1: number } | null = null;
-
-/** timelineExtent is the unstretched extent, or null before a timeline is laid out. */
-export function timelineExtent() {
-  return restExtent;
-}
-
-/** timeAxis is the current time axis, or null before anything is laid out on one. */
-export function timeAxis(): TimeScale | null {
-  return axis;
-}
-
-/** timelineContext reads the instants and classes off the graph, and builds the axis. */
-function timelineContext(visible?: readonly string[], stretch = 1): TimelineContext {
-  const g = graph();
-  const createdAt = (node: string) => Number(g.getNodeAttribute(node, 'createdAt') ?? 0);
-  const instants: number[] = [];
-  g.forEachNode((node) => instants.push(createdAt(node)));
-  axis = timeScale(instants);
-  restExtent = { x0: 0, x1: Math.max(axis.width, 1), y0: 0, y1: TIMELINE_HEIGHT };
-  return {
-    toX: (at) => (axis as TimeScale).toX(at) * stretch,
-    createdAt,
-    classOf: (node) => String(g.getNodeAttribute(node, 'cls') ?? ''),
-    visible,
-  };
 }
 
 /** shapeOf recomputes the union's shape statistics for the status bar and panes. */
@@ -136,14 +103,15 @@ export async function load(req: LoadRequest = {}): Promise<void> {
     page = await source.fetch({
       limit: req.limit ?? useQuery.getState().query.limit,
       scope,
-      onProgress: (read, through) => {
-        // The count of claims to come is only known where membership was asked for first; the
-        // bytes are known either way, so the bar has something to show regardless.
+      onProgress: (read, bytesRead) => {
+        // How many claims are still to come is only known where membership was asked for
+        // first. Without that there is no total to be a fraction of — a streamed body declares
+        // no length — so the bar runs indeterminate and the bytes read say it is moving.
         useExplorer.getState().patchStatus({
           busy: expected > 0
             ? `reading claims · ${read.toLocaleString('en-US')} of ${expected.toLocaleString('en-US')}`
-            : `reading claims · ${read.toLocaleString('en-US')}`,
-          progress: expected > 0 ? Math.min(1, read / expected) : through,
+            : `reading claims · ${read.toLocaleString('en-US')} · ${kib(bytesRead)}`,
+          progress: expected > 0 ? Math.min(1, read / expected) : null,
         });
       },
     });
@@ -190,7 +158,7 @@ export async function load(req: LoadRequest = {}): Promise<void> {
   // The claims that came back *are* the scope's membership, so a read establishes it where it
   // was not already known. Asking separately would be a second walk of the same closure.
   if (scope && !membersOf(scope.name)) {
-    setMembers(scope.name, page.claims.map((claim) => claim.id));
+    setMembers(scope.name, page.claims.map((drawn) => drawn.claim.id));
   }
 
   const g = graph();
@@ -218,7 +186,7 @@ export async function load(req: LoadRequest = {}): Promise<void> {
   const layoutMs = await apply(g, layout, {
     depth: shape.depth,
     contribution: contributionOf(g),
-    timeline: layout === 'timeline' ? timelineContext(view.classes, view.xStretch) : undefined,
+    timeline: layout === 'timeline' ? timelineContext(stretchOf(view)) : undefined,
   });
   log(`layout      ${layoutMs.toFixed(0)} ms · ${layout}`);
 
@@ -230,7 +198,7 @@ export async function load(req: LoadRequest = {}): Promise<void> {
     contributions: shape.contributions,
   });
   await yieldToPaint();
-  onLoaded?.();
+  onLoaded?.('fit');
   useExplorer.getState().patchStatus({ busy: null, progress: null });
 }
 
@@ -287,7 +255,7 @@ export async function selectScope(scope: Scope | null): Promise<void> {
 
   if (!scope) {
     log('scope       everything loaded');
-    onLoaded?.();
+    onLoaded?.('fit');
     return;
   }
 
@@ -307,7 +275,7 @@ export async function selectScope(scope: Scope | null): Promise<void> {
   // Asking first would then walk the closure twice for one answer.
   if (!membersOf(scope.name) && graph().order === 0) {
     await load({ scope });
-    onLoaded?.();
+    onLoaded?.('fit');
     return;
   }
 
@@ -359,7 +327,7 @@ export async function selectScope(scope: Scope | null): Promise<void> {
     });
   }
 
-  onLoaded?.();
+  onLoaded?.('fit');
   useExplorer.getState().patchStatus({ busy: null, progress: null });
 }
 
@@ -392,11 +360,18 @@ export function scopeCounts(scope: Scope | null): { contains: number; loaded: nu
   return { contains: members.size, loaded: members.size - missing };
 }
 
+/**
+ * How a finished graph should be framed. A graph that has just arrived is framed to it, since a
+ * reader asked for this one and not for wherever the last one left the camera; `keep` is for the
+ * caller that has framing of its own to apply afterwards.
+ */
+export type Framing = 'fit' | 'keep';
+
 /** onLoaded is the renderer's hook, so core hands over a finished graph without importing it. */
-let onLoaded: (() => void) | null = null;
+let onLoaded: ((framing: Framing) => void) | null = null;
 
 /** setOnLoaded lets the render layer register its refresh without core importing it. */
-export function setOnLoaded(fn: () => void): void {
+export function setOnLoaded(fn: (framing: Framing) => void): void {
   onLoaded = fn;
 }
 
@@ -404,45 +379,19 @@ export function setOnLoaded(fn: () => void): void {
  * showAll returns to the whole archive: time back to its own scale, and the camera framing the
  * extent that scale occupies. The way back from anywhere, which is what makes zooming freely
  * comfortable.
+ *
+ * Only time is put back. The strata are refitted to the canvas afterwards by the layer that can
+ * measure it, since the height that shows all of them is a fact about the window, not the graph.
  */
 export function showAll(): void {
   const store = useExplorer.getState();
   const active = store.views.find((v) => v.id === store.activeViewId);
   if (active && active.xStretch !== 1) stretchX(1 / active.xStretch);
-  onLoaded?.();
+  // The one caller with framing of its own: the camera reset below is the whole point of it.
+  onLoaded?.('keep');
   onShowAll?.();
 }
 
-/** The edges of the archive in time, for jumping to either end. */
-export function timeEnds(): { from: number; to: number } | null {
-  return axis ? { from: axis.from, to: axis.to } : null;
-}
-
-/** instantAtX reads the instant under a drawn x, undoing the stretch the layout applied. */
-export function instantAtX(graphX: number): number | null {
-  const store = useExplorer.getState();
-  const active = store.views.find((v) => v.id === store.activeViewId);
-  if (!axis || !active) return null;
-  return axis.atX(graphX / active.xStretch);
-}
-
-/** stepFrom is the instant one claim along from here, in either direction. */
-export function stepFrom(at: number, direction: 1 | -1): number | null {
-  return axis ? axis.stepInstant(at, direction) : null;
-}
-
-/** axisWidth is the unstretched width of the time axis, which bounds how far it may compress. */
-export function axisWidth(): number | null {
-  return axis ? axis.width : null;
-}
-
-/** axisXOf is where an instant sits on the drawn axis, stretch included. */
-export function axisXOf(at: number): number | null {
-  const store = useExplorer.getState();
-  const active = store.views.find((v) => v.id === store.activeViewId);
-  if (!axis || !active) return null;
-  return axis.toX(at) * active.xStretch;
-}
 
 /**
  * onShowAll is the renderer's camera reset. Core decides *that* the view should be reframed and
@@ -485,15 +434,12 @@ export async function relayout(layout: LayoutName): Promise<void> {
   const ms = await apply(g, layout, {
     depth,
     contribution: contributionOf(g),
-    timeline: layout === 'timeline' ? timelineContext(active.classes, active.xStretch) : undefined,
+    timeline: layout === 'timeline' ? timelineContext(stretchOf(active)) : undefined,
   });
   log(`layout      ${ms.toFixed(0)} ms · ${layout}`);
-  onLoaded?.();
+  onLoaded?.('fit');
   useExplorer.getState().patchStatus({ busy: null, progress: null });
 }
-
-/** The most content to fetch: beyond it the size is reported and the bytes stay put. */
-export const CONTENT_LIMIT = 4096;
 
 /**
  * fetchContent reads the selected claim's bytes, deciding from the declared size whether to
@@ -589,50 +535,6 @@ export function dropLens(): void {
   lensWindow = null;
 }
 
-/**
- * The range time may be stretched over. It compresses as well as stretches — zooming classically
- * scales both axes and compressing time afterwards leaves the height alone, which is a vertical
- * zoom in all but name.
- *
- * How far it may compress is not a constant: the floor is wherever the drawn axis would become
- * narrower than the viewport, since past that the picture is stranded in empty space and the
- * camera's own zoom is the right instrument. The caller measures that and passes a limit, so this
- * bound is only the backstop for a caller that cannot measure.
- */
-export const STRETCH_MIN = 1 / 4096;
-export const STRETCH_MAX = 4096;
-
-/**
- * stretchX scales the time axis and lays the drawn graph out again. Only x moves: the strata
- * already fill the height. It acts on whichever graph is showing, which is what makes a step
- * over a lens cost a thirtieth of one over the union.
- */
-export function stretchX(
-  factor: number,
-  target?: DirectedGraph,
-  /** Least stretch the caller will allow, from what it can see of the canvas. */
-  floor = STRETCH_MIN,
-): { stretch: number; applied: number } {
-  const store = useExplorer.getState();
-  const active = store.views.find((v) => v.id === store.activeViewId);
-  if (!active || active.layout !== 'timeline') return { stretch: 1, applied: 1 };
-
-  const stretched = Math.min(STRETCH_MAX, Math.max(Math.max(STRETCH_MIN, floor), active.xStretch * factor));
-  const applied = stretched / active.xStretch;
-  if (applied === 1) return { stretch: stretched, applied };
-  store.patchView(active.id, { xStretch: stretched });
-
-  const g = target ?? graph();
-  const scale = axis;
-  if (!scale) return { stretch: stretched, applied };
-  assignTimeline(g, {
-    toX: (at) => scale.toX(at) * stretched,
-    createdAt: (node) => Number(g.getNodeAttribute(node, 'createdAt') ?? 0),
-    classOf: (node) => String(g.getNodeAttribute(node, 'cls') ?? ''),
-    visible: active.classes,
-  });
-  return { stretch: stretched, applied };
-}
 
 /**
  * edgeDetail gathers what the detail pane shows for one edge: its type, and the two claims it
@@ -644,11 +546,18 @@ export function edgeDetail(key: string) {
   if (!g.hasEdge(key)) return null;
   const from = g.source(key);
   const to = g.target(key);
+  const attrs = g.getEdgeAttributes(key) as Record<string, unknown>;
   const label = (node: string) => String(g.getNodeAttribute(node, 'label') ?? '');
   const claimType = (node: string) => String(g.getNodeAttribute(node, 'claimType') ?? '');
   return {
     key,
-    edgeType: String(g.getEdgeAttribute(key, 'claimType') ?? ''),
+    edgeType: String(attrs.claimType ?? ''),
+    contentSize: attrs.contentSize as number | undefined,
+    encoding: attrs.encoding as string | undefined,
+    contentKind: String(attrs.contentKind ?? 'none'),
+    contentHash: String(attrs.contentHash ?? ''),
+    fields: (attrs.fields ?? {}) as Readonly<Record<string, string>>,
+    direction: Number(attrs.direction ?? 0),
     from,
     fromLabel: label(from),
     fromType: claimType(from),
@@ -658,25 +567,61 @@ export function edgeDetail(key: string) {
   };
 }
 
+/**
+ * Reference is one end of an edge as a pane lists it: the edge that states it, and the claim at
+ * the other end. Both travel, so a row never has to say "type" and leave which one open.
+ */
+export interface Reference {
+  edge: string;
+  edgeType: string;
+  id: string;
+  claimType: string;
+}
+
+/** reference reads one row off an edge and the claim at its far end. */
+function reference(edge: string, edgeAttrs: unknown, far: string, farAttrs: unknown): Reference {
+  return {
+    edge,
+    edgeType: String((edgeAttrs as { claimType?: string }).claimType ?? ''),
+    id: far,
+    claimType: String((farAttrs as { claimType?: string }).claimType ?? ''),
+  };
+}
+
 /** claimDetail gathers what the detail pane shows for one claim. */
 export function claimDetail(id: string) {
   const g = graph();
   if (!g.hasNode(id)) return null;
   const attrs = g.getNodeAttributes(id) as Record<string, unknown>;
-  const references: { id: string; type: string }[] = [];
-  g.forEachOutEdge(id, (_edge, edgeAttrs, _s, target) => {
-    references.push({ id: target, type: String((edgeAttrs as { claimType?: string }).claimType ?? '') });
+  // A reference is two things a reader may ask about: the edge that states it, and the claim it
+  // points at. Both travel, so the pane never has to say "type" and leave which one open.
+  const references: Reference[] = [];
+  g.forEachOutEdge(id, (edge, edgeAttrs, _s, target, _sa, targetAttrs) => {
+    references.push(reference(edge, edgeAttrs, target, targetAttrs));
+  });
+  // The other half of what a claim is joined to: an edge belongs to the claim it points from, so
+  // a citation is somebody else's statement about this one — a different question, and one only
+  // the union can answer, since the citing claim need not be drawn.
+  const citations: Reference[] = [];
+  g.forEachInEdge(id, (edge, edgeAttrs, source, _t, sourceAttrs) => {
+    citations.push(reference(edge, edgeAttrs, source, sourceAttrs));
   });
   return {
     id,
     claimType: String(attrs.claimType ?? ''),
     contribution: Number(attrs.contribution ?? 0),
     createdAt: Number(attrs.createdAt ?? 0),
+    createdAtIso: String(attrs.createdAtIso ?? ''),
+    height: attrs.height as number | undefined,
     contentSize: attrs.contentSize as number | undefined,
     encoding: attrs.encoding as string | undefined,
+    contentKind: String(attrs.contentKind ?? 'none'),
+    contentHash: String(attrs.contentHash ?? ''),
+    fields: (attrs.fields ?? {}) as Readonly<Record<string, string>>,
     label: String(attrs.label ?? ''),
     degree: g.degree(id),
     references,
+    citations,
     citedBy: g.inDegree(id),
   };
 }

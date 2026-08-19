@@ -44,7 +44,9 @@ ranke-db run    examples/minimal/config.json   # resolve secrets, assemble the s
 ```
 
 For a dev server with something in it, `make dev SEED=example` launches the minimal
-example with a throwaway signing key and seeds it as soon as it answers; `SEED=chain`
+example with a throwaway signing key and seeds it as soon as it answers. `SEED=release`
+writes a release process — four signing identities, two packages travelling from a git
+snapshot to a signed-off release, and the CVEs their scans mention — and `SEED=chain`
 grows a larger archive one contribution at a time. Seeding is a **client** — a
 contributor is an application-held key, so `bin/generator` signs its own claims and
 sends them to `POST /contribute`.

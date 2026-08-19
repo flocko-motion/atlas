@@ -52,7 +52,7 @@ func rootCmd() *cobra.Command {
 	f.StringVar(&o.token, "token", "", "Authorization: Bearer credential")
 	f.StringVar(&o.apiKey, "api-key", "", "X-API-Key credential")
 	f.DurationVar(&o.wait, "wait", 0, "wait up to this long for the server to answer /health before writing")
-	root.AddCommand(exampleCmd(&o), chainCmd(&o))
+	root.AddCommand(exampleCmd(&o), chainCmd(&o), releaseCmd(&o))
 	return root
 }
 
@@ -88,6 +88,25 @@ func chainCmd(o *options) *cobra.Command {
 	}
 	c.Flags().IntVar(&contributions, "contributions", 20, "how many contributions to merge, one after another")
 	c.Flags().IntVar(&per, "claims", 10, "claims per contribution")
+	return c
+}
+
+// releaseCmd writes the release-process scenario: the shape the slides draw, built for real.
+func releaseCmd(o *options) *cobra.Command {
+	var releases int
+	c := &cobra.Command{
+		Use:   "release <url>",
+		Short: "Write a release process: four signing identities, two packages, one artifact each release",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return deliver(cmd, args[0], o, func(g *grower) (batches, error) {
+				// One branch: a release process is one line, and the flag that spreads a
+				// shape over several would say something about branches instead.
+				return g.release(cmd.Context(), o.branch, releases)
+			})
+		},
+	}
+	c.Flags().IntVar(&releases, "releases", 3, "how many releases to run, each carrying both packages")
 	return c
 }
 
@@ -127,6 +146,12 @@ func deliver(cmd *cobra.Command, url string, o *options, shape func(*grower) (ba
 			claims = append([]ranke.Claim{g.selfClaim}, claims...)
 			seeded[b.branch] = true
 		}
+		// Steer the merge time to this batch's own story, before it lands — the first call
+		// of the run included, so even the sequencer's bootstrap identity (minted at server
+		// start, before any of this) is the last thing left dated off the real clock.
+		if err := c.advanceClock(ctx, maxCreatedAt(claims)); err != nil {
+			return fmt.Errorf("advance dev clock for contribution %d/%d: %w", i+1, len(bs), err)
+		}
 		body, err := encodeContribution(b.branch, claims)
 		if err != nil {
 			return err
@@ -150,6 +175,18 @@ func deliver(cmd *cobra.Command, url string, o *options, shape func(*grower) (ba
 		}
 	}
 	return report(ctx, cmd, c, o.branch)
+}
+
+// maxCreatedAt is the latest created_at among claims — a batch's own story time, and
+// what the dev clock should be at no earlier than before the batch is merged.
+func maxCreatedAt(claims []ranke.Claim) time.Time {
+	var at time.Time
+	for _, c := range claims {
+		if t := c.Node().CreatedAt(); t.After(at) {
+			at = t
+		}
+	}
+	return at
 }
 
 // report reads the branch back, so a seed that claims to have written shows it served.

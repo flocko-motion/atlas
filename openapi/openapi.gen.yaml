@@ -1,0 +1,1572 @@
+openapi: 3.0.3
+info:
+  title: ranke-db API
+  version: 0.2.0
+  description: |
+    REST/HTTP binding for a single **ranke-db** stack: read the verifiable graph
+    with a declarative query, and contribute signed claims to it.
+
+    A server hosts exactly **one stack**, launched from a config file — there is
+    no tenant or archive routing in the paths.
+
+    ## Reads are queries
+
+    The full read surface is `POST /query`, carrying a **RankeQL** query — the
+    declarative `Query` type the normative spec fixes (§RankeQL) — as a JSON object:
+    `select` generates the result set, `where` filters it, `order` sorts it, `limit`
+    truncates it, and `output` shapes and encodes each surviving claim. This contract
+    *binds* that type to HTTP and defines none of it; the field names, values and
+    meanings are the spec's. Cypher/GQL is **never** a client route — it is an
+    internal execution engine the planner lowers a query to.
+
+    A **cacheable GET subset** covers the by-id reads without a query body. Every one
+    of them is a **scope** followed by what is read within it, so the three scopes the
+    access model reserves read alike and differ only in which scope they name:
+
+      - `GET /branches` — the branch table's branches, by name and head
+      - `GET /branches/{branch}/head`
+      - `GET /branches/{branch}/claims/{id}` and its `/content` form
+      - `GET /archive/claims/{id}` and its `/content` form — the `$archive` scope
+      - `GET /universe/claims/{id}` and its `/content` form — the privileged
+        `$universe` scope
+
+    `GET /branches` needs no branch name, so a client discovers what it may address.
+    Content is addressed by the **claim** that holds it (not a raw hash), so whether the
+    bytes are inline or a separate blob is hidden and the read stays scoped as its route
+    is scoped. Content also rides **inline** in query results via `output.content`; the
+    content route fetches the bytes for a single claim — including whatever a capped read
+    truncated or dropped, since a claim keeps its `content_hash` either way.
+
+    No path segment carries a `$`. The reserved names live in grants (`R $universe`) and
+    in a RankeQL body (`select.branch`), and a route names the same scope as a plain
+    segment — which also means these paths survive being typed into a shell.
+
+    ## Scopes and closures
+
+    `select.branch` is the mandatory **scope**: a branch name confines the query to
+    that branch, `$archive` to the whole Ranke-Archive, and `$universe` applies no
+    confinement — the privileged by-head-id read, which therefore **requires**
+    `select.head`. Under every other scope `head` is optional and narrows the read to
+    that claim's closure, so it can only narrow, never widen past the grant. A closure
+    is immutable, so pinning `head` gives a paged read a snapshot that cannot shift
+    while the archive advances.
+
+    ## Encodings and verifiability
+
+    A query returns a **streaming sequence** of results, one item each, in the query's
+    order. `output.encoding` fixes how each item is serialised and the response media
+    type frames the sequence:
+
+      - `json` → `application/json-seq` (RFC 7464) — JSON records, content
+        base64-encoded when inlined. A **convenience projection**: easy to read and
+        debug, but **not** independently verifiable.
+      - `cbor` → `application/cbor-seq` (RFC 8742) — binary.
+
+    Verifiability is a property of the *shaping*, not of the framing alone:
+    `detail: claims` + `form: original` + `encoding: cbor` + `content: {max: 0}`
+    reproduces the canonical serialization a claim's id is computed over, and is the only
+    combination directly re-hashable and signature-checkable against that id (`R-QCANON`).
+    Every other shaping is a rendering for convenience.
+
+    **The content axis is part of that combination, not a detail of it.** A query inlines
+    no content unless `output.content` asks (`R-QCONTENT`), so a read shaped for
+    verification states `content: {max: 0}` — a cap of zero meaning *in full*, as a zero
+    bound does everywhere else in a query. Omit it and the claims arrive without their
+    content, which re-hashes to something other than the id. `content_size` is served
+    either way, so a client always sees that content exists and how long it is.
+
+    A by-id claim GET returns the claim as its signed CBOR (`application/cbor`) whole, so
+    it needs none of this; a content GET streams the blob as raw bytes
+    (`application/octet-stream`). In query results content is instead carried inline
+    (base64 under `json`, byte strings under `cbor`), bounded by `output.content`.
+
+    ## Credentials and authorization
+
+    The contract **binds no per-operation rights** and defines **no** read/write/admin
+    ladder — authorization is entirely core-access (system accounts with CRUDA rights
+    over branch globs), decided on the subject the credential resolves to. Every route
+    accepts the same set of credentials; the shape of a route never varies by right.
+
+    What the contract *does* enumerate is how a credential is **presented**, because
+    the endpoint routes deterministically on the presented scheme to the auth adapter
+    of that type — no parsing a token to guess its kind:
+
+      - `Authorization: Bearer <jwt>` → the **JWT** adapter
+      - `X-API-Key: <key>` → the **API-key** adapter
+      - `Authorization: Macaroon <token>` → the **macaroon** adapter
+      - **no** credential header → the **noauth** adapter
+
+    Which of these adapters is actually mounted is the stack's config; a presentation
+    with no configured adapter is `401`. (Only if two mechanisms were forced onto one
+    scheme would the endpoint fall back to trying each — the schemes above are
+    distinct, so routing stays deterministic.) A `403` body never discloses the
+    subject id.
+
+    ## Browsers
+
+    A browser refuses a cross-origin read unless the server admits the origin, so an
+    instance an explorer is meant to reach declares which origins may: the endpoint's
+    `allowedOrigins` (a comma-separated list, `*` for any). Declaring none — the default —
+    leaves the API unreachable from any page but its own origin, which is right for a server
+    nobody browses.
+
+    Where an origin is admitted, a preflight is answered with the methods and the credential
+    headers above, and `ETag` is **exposed**, without which the conditional reads this
+    contract describes cannot be made from a script. No origin is granted credentialed
+    access: a credential rides in a header here, never in a cookie.
+
+    ## Closure and the 404 rule
+
+    Every branch read is bounded by that branch's closure, and every archive read by
+    the current head's closure. A claim or content that exists in the Universe but lies
+    **outside** the closure the route names returns `404` — indistinguishable from one
+    that does not exist. Reads under no closure at all are privileged: they are the
+    `/universe/…` collection, gated by **R** on `$universe`.
+servers:
+  - url: /
+security:
+  - {}
+  - jwt: []
+  - apikey: []
+  - macaroon: []
+tags:
+  - name: read
+    description: Read the graph — the query surface and the cacheable by-id GETs.
+  - name: write
+    description: Contribute signed claims.
+  - name: system
+    description: Operate the stack — liveness, storage introspection, verification runs.
+  - name: dev
+    description: Development-only capabilities, mounted only when the stack is launched with --dev.
+paths:
+  /health:
+    get:
+      operationId: health
+      summary: Liveness and signer identity
+      description: |
+        Reports that the stack is up and the signing/contributor identity it
+        attests merges under. Whether this requires a privileged subject is a
+        core-access decision, not part of this contract.
+      tags:
+        - system
+      responses:
+        '200':
+          description: The stack is up.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Health'
+  /query:
+    post:
+      operationId: query
+      summary: Read the graph with a declarative query
+      description: |
+        Runs a RankeQL query (§RankeQL) and streams the result set, one item per
+        result, in the serialization chosen by `output.encoding`. Results carry the
+        natural `(created_at, id)` order unless `order` sorts them, with its keys
+        applied in priority order and that natural order breaking any remaining ties;
+        to page, carry the last result's order key into the next request's `where`
+        (pin `select.head` so the closure cannot shift between pages).
+
+        When `execution.report` names a verbosity, the **final item** in the sequence
+        is a `QueryReport` (see the schema) — typed distinctly from result items and
+        always last — carrying the execution log, timing, and whether a limit truncated
+        the read. `execution.layer` pins which storage layer runs it.
+
+        The response media type mirrors `output.encoding`: `application/json-seq` or
+        `application/cbor-seq`. A branch named in `select` that does not exist is
+        `404`; claims outside the scope's closure simply do not appear. `$universe`
+        is the privileged unconfined read and requires `select.head`.
+      tags:
+        - read
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Query'
+      responses:
+        '200':
+          description: |
+            The result sequence. One item per result, plus an optional trailing
+            `QueryReport` when `execution.report` is set. The content type is the one
+            matching `output.encoding`.
+          content:
+            application/json-seq:
+              schema:
+                type: string
+                format: binary
+                description: RFC 7464 JSON text sequence of results.
+            application/cbor-seq:
+              schema:
+                type: string
+                format: binary
+                description: RFC 8742 CBOR sequence — canonical, verifiable claims.
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /contribute:
+    post:
+      operationId: contribute
+      summary: Contribute signed claims (atomic)
+      description: |
+        Contributes one or more signed claims to a branch as a single **atomic**
+        merge — all are absorbed under one new branch-table head, or none are.
+        Content-addressed and therefore **idempotent**: re-contributing yields the same
+        ids with no duplicates.
+
+        The body is ranke's contribution stream: a **CBOR sequence** (RFC 8742) of
+        records, self-framing so a contribution of any size streams.
+
+          - `[2, ["<branch>", …]]` — **first**, the branches this contribution touches
+          - `[0, <id>, <claim bytes>, "<branch>"]` — a claim, as the canonical CBOR its
+            contributor signed, and the branch it joins
+          - `[1, <hash>, <content bytes>]` — externalized content, which lives in the
+            Universe unbranched and so names no branch
+
+        The header comes first so the **C** right is settled on every declared branch
+        before any of the body is read; a claim naming an undeclared branch is refused, so
+        the declaration binds. One contribution may therefore advance **several branches**,
+        and an unauthorized one is answered without its payload being read.
+
+        Payloads are CBOR byte strings carried through untouched: a claim's id is a
+        signature over exactly those bytes, so the server stores what it was sent. The id
+        is explicit because it cannot be derived — `Sign(H(S(node)))` is made with the
+        contributor's key, and the canonical encoding carries only the node. Content is
+        checked against the hash addressing it.
+
+        Send every claim the closure needs that the archive may not hold yet — a
+        first-time contributor includes its own `contribution/contributor` claim, since
+        everything it signs references it.
+
+        The sequencer mints the `contribution/branches` branch-table claim recording the
+        merge (paper 02 §Sequencer). On success the new branch-table head id and the
+        contributed claim ids are returned.
+      tags:
+        - write
+      requestBody:
+        required: true
+        content:
+          application/cbor-seq:
+            schema:
+              type: string
+              format: binary
+              description: RFC 8742 CBOR sequence of `[kind, id, payload]` entries.
+      responses:
+        '201':
+          description: The merge committed (or the claims were already present).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContributionResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /branches:
+    get:
+      operationId: listBranches
+      summary: List the branch table's branches
+      description: |
+        Returns every branch the branch table holds, each with its name and current
+        head id. Reachable **without knowing any branch name**, so a client discovers
+        what it may address before using the routes that take one; an archive with no
+        branches yet answers with an empty list.
+
+        Requires the **R** right on the reserved `$branches` target, which is what
+        core-access grants as "enumerates the table".
+
+        Cacheable **with revalidation** (weak `ETag`, `Cache-Control: no-cache`): every
+        head in the list moves as its branch is contributed to. The listing is answered
+        from **one archive snapshot**, so the heads are consistent with each other.
+      tags:
+        - read
+      responses:
+        '200':
+          description: The branches, each by name and current head.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BranchList'
+          headers:
+            ETag:
+              description: Weak validator for the branch table's current state.
+              schema:
+                type: string
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /branches/{branch}/head:
+    parameters:
+      - $ref: '#/components/parameters/BranchName'
+    get:
+      operationId: getBranchHead
+      summary: Current head id of a branch
+      description: |
+        Returns the branch's current head id — a moving target (it advances on every
+        contribution). Requires the **R** right on that branch. Cacheable **with
+        revalidation** (weak `ETag`, `Cache-Control: no-cache`): a conditional request
+        is cheap when the head has not moved. To inspect the head claim itself, fetch it
+        via `GET /branches/{branch}/claims/{id}`.
+      tags:
+        - read
+      responses:
+        '200':
+          description: The current head id.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BranchHead'
+          headers:
+            ETag:
+              description: Weak validator for the current head.
+              schema:
+                type: string
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /branches/{branch}/info:
+    parameters:
+      - $ref: '#/components/parameters/BranchName'
+    get:
+      operationId: getBranchInfo
+      summary: What is known about a branch
+      description: |
+        Reports a branch beyond its head id: the head's **height** — the generation number
+        of the branch's newest claim, so the depth of what it points at — and **when it last
+        moved**, which is the head claim's `created_at`.
+
+        Everything here comes from the head claim, so it costs one claim read. A claim count
+        is deliberately absent: counting a branch's claims is a walk of its closure, which is
+        a query (`POST /query`) and not a field.
+
+        Requires the **R** right on the branch. Cacheable **with revalidation** — every
+        field moves when the branch does.
+      tags:
+        - read
+      responses:
+        '200':
+          description: What is known about the branch.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BranchInfo'
+          headers:
+            ETag:
+              description: Weak validator for the branch's current state.
+              schema:
+                type: string
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /archive/info:
+    get:
+      operationId: getArchiveInfo
+      summary: What is known about the archive
+      description: |
+        Reports the Ranke-Archive as a whole: the **branch-table head** — the id every
+        archive-scoped read is rooted at — with its height and when it last moved, and how
+        many branches the table holds.
+
+        This is the only route that reports the branch-table head, which is what a client
+        needs to name the `$archive` scope in a query or a grant.
+
+        Reads the `$archive` scope and requires the **R** right on `$archive`. Cacheable
+        **with revalidation**: the head advances on every contribution.
+      tags:
+        - read
+      responses:
+        '200':
+          description: What is known about the archive.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ArchiveInfo'
+          headers:
+            ETag:
+              description: Weak validator for the archive's current state.
+              schema:
+                type: string
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /branches/{branch}/claims/{id}:
+    parameters:
+      - $ref: '#/components/parameters/BranchName'
+      - $ref: '#/components/parameters/ClaimId'
+    get:
+      operationId: getBranchClaim
+      summary: Fetch a claim within a branch's closure
+      description: |
+        Returns claim `{id}` as its signed CBOR bytes, **only if it lies in branch
+        `{branch}`'s closure**. A claim that is superseded, contradicted, or otherwise
+        outside the closure returns `404`, indistinguishable from one that does not
+        exist. Requires the **R** right on that branch.
+
+        `{branch}` names an **ordinary branch**. A reserved scope name supplied here
+        names a branch that does not exist and is answered as `404`; each scope has
+        exactly one route (`/archive/…`, `/universe/…`).
+
+        Immutably **cacheable** by id (strong `ETag`, `Cache-Control: public,
+        immutable`): the id content-addresses the bytes, so they never change.
+      tags:
+        - read
+      responses:
+        '200':
+          description: The claim's signed CBOR bytes.
+          content:
+            application/cbor:
+              schema:
+                type: string
+                format: binary
+          headers:
+            ETag:
+              description: Strong validator — the claim id.
+              schema:
+                type: string
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /branches/{branch}/claims/{id}/content:
+    parameters:
+      - $ref: '#/components/parameters/BranchName'
+      - $ref: '#/components/parameters/ClaimId'
+    get:
+      operationId: getBranchClaimContent
+      summary: Fetch the content of a claim within a branch's closure
+      description: |
+        Streams the content of claim `{id}` — **only if it lies in branch `{branch}`'s
+        closure** (same closure guarantee as the claim itself; out-of-closure or
+        unknown → `404`). Requires the **R** right on that branch. Content is addressed
+        by the claim that holds it, not by a raw hash: the server resolves whether the
+        bytes live inline in the claim or in a separate blob, so the client can't tell
+        and doesn't need to — and the read stays scoped as the route is scoped.
+        Immutably **cacheable** by the claim id.
+      tags:
+        - read
+      responses:
+        '200':
+          description: The content bytes, streamed.
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+          headers:
+            ETag:
+              description: Strong validator — the claim id.
+              schema:
+                type: string
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /archive/claims/{id}:
+    parameters:
+      - $ref: '#/components/parameters/ClaimId'
+    get:
+      operationId: getArchiveClaim
+      summary: Fetch a claim within the archive head's closure
+      description: |
+        Returns claim `{id}` as its signed CBOR bytes if it lies in the closure of the
+        **whole Ranke-Archive** — the current branch-table head — whichever branch holds
+        it. A client reaches a claim without naming the branch it is on; a claim outside
+        that closure returns `404`.
+
+        This collection reads the `$archive` scope: the same scope a RankeQL body names
+        as `select.branch: "$archive"`, and the same target a grant is written against.
+        It requires the **R** right on `$archive`.
+
+        Immutably cacheable by id.
+      tags:
+        - read
+      responses:
+        '200':
+          description: The claim's signed CBOR bytes.
+          content:
+            application/cbor:
+              schema:
+                type: string
+                format: binary
+          headers:
+            ETag:
+              description: Strong validator — the claim id.
+              schema:
+                type: string
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /archive/claims/{id}/content:
+    parameters:
+      - $ref: '#/components/parameters/ClaimId'
+    get:
+      operationId: getArchiveClaimContent
+      summary: Fetch the content of a claim within the archive head's closure
+      description: |
+        Streams the content of claim `{id}` if it lies in the archive head's closure,
+        across every branch (same closure guarantee as the claim itself; outside it or
+        unknown → `404`). Reads the `$archive` scope and requires **R** on `$archive`.
+        Content is addressed by the claim; whether the bytes are inline or a separate
+        blob is hidden. Immutably cacheable by the claim id.
+      tags:
+        - read
+      responses:
+        '200':
+          description: The content bytes, streamed.
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+          headers:
+            ETag:
+              description: Strong validator — the claim id.
+              schema:
+                type: string
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /universe/claims/{id}:
+    parameters:
+      - $ref: '#/components/parameters/ClaimId'
+    get:
+      operationId: getClaim
+      summary: Fetch a claim by id from the Universe (privileged)
+      description: |
+        Returns claim `{id}` as its signed CBOR bytes from the Universe under **no
+        closure at all** — no branch table, and no confinement to the current head.
+        This is what makes it privileged, and what it exists for: reaching an archive
+        from a Universe and a head id alone, as when restoring from a head kept outside
+        the server. A claim the Universe holds is returned even where
+        `GET /archive/claims/{id}` reports it not-found.
+
+        This collection reads the `$universe` scope: the same scope a RankeQL body names
+        as `select.branch: "$universe"`, and the same target a grant is written against.
+        It requires the **R** right on `$universe`, to which only **R** applies. An
+        ordinary glob confers it by no accident — a `$`-prefixed target needs an exact
+        grant, so `R *` reaches neither reserved scope.
+
+        Immutably cacheable by id.
+      tags:
+        - read
+      responses:
+        '200':
+          description: The claim's signed CBOR bytes.
+          content:
+            application/cbor:
+              schema:
+                type: string
+                format: binary
+          headers:
+            ETag:
+              description: Strong validator — the claim id.
+              schema:
+                type: string
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /universe/claims/{id}/content:
+    parameters:
+      - $ref: '#/components/parameters/ClaimId'
+    get:
+      operationId: getClaimContent
+      summary: Fetch the content of a claim by id from the Universe (privileged)
+      description: |
+        Streams the content of claim `{id}` from the Universe under no closure — the
+        privileged read, conferred only through **R** on `$universe`. Content is
+        addressed by the claim; whether the bytes are inline or a separate blob is
+        hidden. Immutably cacheable by the claim id.
+      tags:
+        - read
+      responses:
+        '200':
+          description: The content bytes, streamed.
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+          headers:
+            ETag:
+              description: Strong validator — the claim id.
+              schema:
+                type: string
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /dev/clock:
+    post:
+      operationId: advanceDevClock
+      summary: Advance the dev sequencer's clock
+      description: |
+        Available **only** when the stack was launched with `--dev` against a `dev`
+        Sequencer: moves the clock the Sequencer mints `created_at` and branch-table
+        timestamps from forward to (at least) the given instant, so a client that
+        knows its own story's schedule — a fixture generator, say — can make the
+        archive's *recorded* history track its *narrated* one, one contribution at a
+        time, rather than every merge landing at the real wall-clock moment the
+        client happened to run.
+
+        The clock never moves backward: a request older than its current position
+        is accepted and answered with the position unchanged. Absent `--dev`, or
+        against a `concurrent` (production) Sequencer, the route is `501` — the
+        witnessed merge time stays real, which is the whole point of `R-C2DATE`.
+      tags:
+        - dev
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DevClockAdvance'
+      responses:
+        '200':
+          description: The clock's new position.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DevClock'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '501':
+          $ref: '#/components/responses/NotImplemented'
+  /system/layers:
+    get:
+      operationId: listStorageLayers
+      summary: List storage layers
+      description: |
+        Lists the stack's storage layers (read-through tiers) by **name and type
+        only** — never connection details or secrets. Naming layers is what lets a
+        verification run target one directly (a read-through view can mask the loss
+        of an object on a deeper layer).
+      tags:
+        - system
+      responses:
+        '200':
+          description: The storage layers, top (cache) to bottom (authoritative).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StorageLayerList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /system/verifications:
+    get:
+      operationId: listVerifications
+      summary: List verification runs
+      description: |
+        Verification runs across the whole stack, newest first. Each report is a
+        **point-in-time record**: a layer repaired externally shows clean in a later
+        run, so reports accumulate rather than overwrite — until explicitly removed
+        with `DELETE /system/verifications/{reportId}`.
+
+        The API lives under `/system/` because a verification run is a ranke-db
+        extension beyond the paper's surface rather than archive content: it is a
+        stack-wide operational resource, rooted at a closure named in the request body
+        and not in the path. (Branch reads no longer occupy the root, so nothing here
+        is avoiding a collision.)
+      tags:
+        - system
+      responses:
+        '200':
+          description: The verification reports.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VerificationReportList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      operationId: startVerification
+      summary: Start a verification run
+      description: |
+        Starts a run from a `VerificationConfig`: walk the closure rooted at
+        `closure` (a branch name — resolved to its current head and **pinned** for
+        the life of the run — or a head id directly), reading the named `layer`
+        directly, re-checking each claim to the configured depth. It returns
+        *findings*, not contents, so it never leaks across closures.
+
+        A run may take a **very long time** (hours to days over a large closure at
+        full-content depth), so it is always **asynchronous**: the call returns `202`
+        immediately with the running report and a `Location` header pointing at the
+        report resource. Poll it with `GET /system/verifications/{reportId}`, pacing
+        by the `Retry-After` hint; stop it with `DELETE`. Starting the same run twice
+        yields two independent point-in-time reports (runs are not deduplicated).
+
+        Verification is resource-heavy, so the stack caps the number of runs that may
+        execute **concurrently** (configured; default 1). When that cap is already
+        reached the call returns `429` — the server never stops a run to make room. To
+        proceed, either wait (per `Retry-After`) or `GET /system/verifications` to see
+        what is running and free a slot deliberately: `cancel` a run to stop it while
+        keeping its report, or `DELETE` it to remove it entirely.
+      tags:
+        - system
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VerificationConfig'
+      responses:
+        '202':
+          description: The run started; the running report is returned.
+          headers:
+            Location:
+              description: The report resource to poll — `/system/verifications/{reportId}`.
+              schema:
+                type: string
+            Retry-After:
+              description: Suggested seconds to wait before the first poll.
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VerificationReport'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          description: |
+            The concurrent-run cap is reached. No run was started and none was
+            cancelled; retry after a running one finishes or is stopped.
+          headers:
+            Retry-After:
+              description: Suggested seconds to wait before retrying.
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /system/verifications/{reportId}:
+    parameters:
+      - name: reportId
+        in: path
+        required: true
+        description: The verification report id.
+        schema:
+          type: string
+    get:
+      operationId: getVerification
+      summary: Show a verification run
+      description: |
+        The report for a run. Poll until `status` leaves `running`; while it is still
+        running the response carries a `Retry-After` hint and the progress counters
+        (`claimsChecked`, `bytesRead`) advance between polls.
+      tags:
+        - system
+      responses:
+        '200':
+          description: The verification report.
+          headers:
+            Retry-After:
+              description: While `status` is `running`, suggested seconds before the next poll.
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VerificationReport'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      operationId: deleteVerification
+      summary: Delete a verification run
+      description: |
+        Really deletes the run and its report. If the run is still `running` it is
+        stopped first, then the record is removed — so this both aborts a run and
+        cleans up finished history in one step. Unlike the cancel action, nothing
+        survives: a subsequent `GET` is `404`. Either verb frees a concurrency slot;
+        cancel keeps the report, delete removes it.
+      tags:
+        - system
+      responses:
+        '204':
+          description: The run was stopped (if running) and its report deleted.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /system/verifications/{reportId}/cancel:
+    parameters:
+      - name: reportId
+        in: path
+        required: true
+        description: The verification report id.
+        schema:
+          type: string
+    post:
+      operationId: cancelVerification
+      summary: Cancel a running verification run
+      description: |
+        Stops a `running` run but **keeps** its report: the record stays in history
+        with `status` `stopped` and whatever partial findings it had gathered, and the
+        concurrency slot is freed. Use this to abort a run you want to keep a record
+        of; use `DELETE` to remove it entirely. Idempotent — cancelling a run that has
+        already finished or stopped returns its current report unchanged.
+      tags:
+        - system
+      responses:
+        '200':
+          description: The run's report after the cancel (status `stopped` if it was running).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VerificationReport'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+components:
+  securitySchemes:
+    jwt:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: '`Authorization: Bearer <jwt>` → the JWT auth adapter.'
+    apikey:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: '`X-API-Key: <key>` → the API-key auth adapter.'
+    macaroon:
+      type: http
+      scheme: macaroon
+      description: '`Authorization: Macaroon <token>` → the macaroon auth adapter.'
+  parameters:
+    BranchName:
+      name: branch
+      in: path
+      required: true
+      description: The branch name (`$` is reserved and illegal in ordinary names).
+      schema:
+        type: string
+    ClaimId:
+      name: id
+      in: path
+      required: true
+      description: The content-addressed claim id.
+      schema:
+        type: string
+  responses:
+    BadRequest:
+      description: The request was malformed.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Unauthorized:
+      description: Authentication is required or failed.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Forbidden:
+      description: |
+        Access was denied by core-access. The body carries no subject id or
+        onboarding hint.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    NotFound:
+      description: |
+        The branch, claim, or content is unknown — or lies outside the named
+        branch's closure. The two are indistinguishable.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Conflict:
+      description: The contribution conflicts with the branch's current head.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    NotImplemented:
+      description: An optional capability the request needs is not configured.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+  schemas:
+    Query:
+      type: object
+      additionalProperties: false
+      required:
+        - select
+      description: 'A read, evaluated in a fixed logical order: select generates the result set, where filters it, order sorts it, limit truncates it, output shapes and encodes each surviving claim (R-QEVAL).'
+      properties:
+        select:
+          $ref: '#/components/schemas/Select'
+        where:
+          $ref: '#/components/schemas/Where'
+        output:
+          $ref: '#/components/schemas/Output'
+        order:
+          $ref: '#/components/schemas/Order'
+        limit:
+          $ref: '#/components/schemas/Limit'
+        execution:
+          $ref: '#/components/schemas/Execution'
+    QueryReport:
+      type: object
+      description: |
+        Diagnostic report emitted as the **final item** of a `POST /query` sequence
+        when `execution.report` names a verbosity. Typed distinctly from result items,
+        so a reader never mistakes it for data, and always last.
+      properties:
+        started_at:
+          type: string
+          format: date-time
+          description: Wall clock at query start.
+        elapsed_ns:
+          type: integer
+          description: |
+            Total execution time in nanoseconds. The unit is in the name because the
+            value is a bare integer, and it is nanoseconds because a `trace` report
+            exists to show steps a millisecond would round away.
+        results:
+          type: integer
+          description: Number of result items emitted before this report.
+        truncated:
+          type: boolean
+          description: True if `limit.results` or `limit.time` cut the read short.
+        events:
+          type: array
+          description: The ordered, multi-engine execution log, at the requested verbosity.
+          items:
+            $ref: '#/components/schemas/QueryEvent'
+    QueryEvent:
+      type: object
+      description: |
+        One entry in a query's execution log — a stage, a routing decision, or a
+        translation.
+      properties:
+        at_ns:
+          type: integer
+          description: Offset from `started_at` in nanoseconds.
+        engine:
+          type: string
+          description: Who emitted it (e.g. native, cypher, stack, partition).
+        op:
+          type: string
+          description: What it did (e.g. load-root, step, filter, sort, route, translate-cypher).
+        level:
+          type: string
+          enum:
+            - error
+            - warn
+            - info
+            - debug
+            - trace
+          description: |
+            The entry's own level; a report carries everything at or above the
+            verbosity `execution.report` asked for.
+        duration_ns:
+          type: integer
+          description: Elapsed time for a timed step, in nanoseconds; 0 for a point event.
+        detail:
+          type: string
+          description: Human-readable message, or the translated query text (e.g. the Cypher).
+        attrs:
+          type: object
+          additionalProperties: true
+          description: Structured extras — layer or shard name, depth, edge and result counts, …
+    ContributionResult:
+      type: object
+      required:
+        - head
+        - ids
+      description: The outcome of a contribution — the new branch-table head and the appended claim ids.
+      properties:
+        head:
+          type: string
+          description: The new branch-table head id after the merge.
+        ids:
+          type: array
+          description: Content-addressed ids of the contributed claims, in order.
+          items:
+            type: string
+    DevClockAdvance:
+      type: object
+      required:
+        - time
+      description: |
+        Requests the dev sequencer's clock advance to (at least) this instant. A
+        request older than the clock's current position is accepted as a no-op —
+        the clock only ever moves forward, since a merge's witnessed time
+        regressing would break every guarantee built on it.
+      properties:
+        time:
+          type: string
+          format: date-time
+          description: The instant to advance to.
+    DevClock:
+      type: object
+      required:
+        - time
+      description: |
+        The dev sequencer's clock after the request — the later of what was asked
+        and what it already held.
+      properties:
+        time:
+          type: string
+          format: date-time
+    BranchHead:
+      type: object
+      required:
+        - head
+      properties:
+        head:
+          type: string
+          description: The content-addressed head claim id.
+    BranchInfo:
+      type: object
+      required:
+        - name
+        - head
+        - height
+        - updatedAt
+      properties:
+        name:
+          type: string
+          description: The branch name, as the branch table holds it.
+        head:
+          type: string
+          description: The content-addressed head claim id.
+        height:
+          type: integer
+          format: int64
+          description: |
+            The head claim's generation number (§4.1) — 0 on an initial node, else
+            1 + max over what it references. The depth of what the branch points at.
+        updatedAt:
+          type: string
+          format: date-time
+          description: |
+            The head claim's `created_at` — when the branch last moved. Soft: a
+            contributor writes it, so it is not the witnessed merge time.
+    ArchiveInfo:
+      type: object
+      required:
+        - head
+        - height
+        - updatedAt
+        - branches
+      properties:
+        head:
+          type: string
+          description: |
+            The branch-table head id — the root of every `$archive`-scoped read, and the
+            only place this contract reports it.
+        height:
+          type: integer
+          format: int64
+          description: The branch-table head claim's generation number.
+        updatedAt:
+          type: string
+          format: date-time
+          description: The branch-table head's `created_at` — when the archive last moved.
+        branches:
+          type: integer
+          description: How many branches the table holds.
+    BranchEntry:
+      type: object
+      required:
+        - name
+        - head
+      properties:
+        name:
+          type: string
+          description: The branch name, as the branch table holds it.
+        head:
+          type: string
+          description: That branch's current head claim id.
+    BranchList:
+      type: object
+      required:
+        - branches
+      properties:
+        branches:
+          type: array
+          description: |
+            Every branch the branch table holds, from one archive snapshot — so the
+            heads are consistent with each other. Empty on an archive with no branches.
+          items:
+            $ref: '#/components/schemas/BranchEntry'
+    Health:
+      type: object
+      required:
+        - status
+      properties:
+        status:
+          type: string
+          example: ok
+        signer:
+          type: string
+          description: The contributor identity this stack signs merges with.
+          example: did:key:z6Mk...
+    StorageLayer:
+      type: object
+      required:
+        - name
+        - type
+      properties:
+        name:
+          type: string
+        type:
+          type: string
+          description: Adapter type (e.g. memory, filesystem, s3, postgres, neo4j).
+    StorageLayerList:
+      type: object
+      required:
+        - layers
+      properties:
+        layers:
+          type: array
+          description: Read-through tiers, top (cache) to bottom (authoritative).
+          items:
+            $ref: '#/components/schemas/StorageLayer'
+    VerificationConfig:
+      type: object
+      required:
+        - closure
+      description: |
+        Parameters for a verification run — the same shape whether declared in the
+        stack config (scheduled) or posted ad-hoc. Depths are those of
+        core-verification.
+      properties:
+        closure:
+          type: string
+          description: Root of the closure to verify — a branch name or a claim id.
+        layer:
+          type: string
+          description: |
+            Storage layer (by name) to read directly. Omit to read the composed
+            read-through view — which may mask the loss of an object on a deeper
+            layer, so name a layer to verify it without blind spots.
+        depth:
+          type: string
+          enum:
+            - completeness
+            - record-correctness
+            - full-content
+          description: |
+            completeness (a `has` sweep), record-correctness (recanonicalise and
+            recheck the id-chain and signatures), or full-content (also re-hash blobs).
+        contentThreshold:
+          type: integer
+          description: |
+            For full-content, the max content size in bytes to re-read and re-hash
+            per claim; larger content is skipped this run. Omit to verify all content.
+    VerificationReport:
+      type: object
+      required:
+        - id
+        - config
+        - head
+        - status
+        - startedAt
+        - ok
+      description: A point-in-time record of a verification run; embeds the config that produced it.
+      properties:
+        id:
+          type: string
+        config:
+          $ref: '#/components/schemas/VerificationConfig'
+        head:
+          type: string
+          description: |
+            The head id the run verified — the closure it pinned at start. When
+            `config.closure` names a branch, this is the branch's head at start time;
+            the report stays fixed to it even as the branch head moves on.
+        status:
+          type: string
+          enum:
+            - running
+            - complete
+            - stopped
+            - error
+          description: |
+            running (in progress), complete (finished on its own), stopped (cancelled
+            by an operator via the cancel action — partial findings kept), or error
+            (the run itself failed).
+        startedAt:
+          type: string
+          format: date-time
+        completedAt:
+          type: string
+          format: date-time
+        claimsChecked:
+          type: integer
+          description: Claims checked so far; advances while `status` is `running`.
+        bytesRead:
+          type: integer
+          description: Content bytes re-read so far; advances while `status` is `running`.
+        ok:
+          type: boolean
+          description: True when no failures were found in this run.
+        failures:
+          type: array
+          description: |
+            The failures found, accumulating while `status` is `running`. Empty (with
+            `ok: true`) for an intact closure; a healthy archive verifies with none.
+          items:
+            $ref: '#/components/schemas/VerificationFailure'
+    VerificationReportList:
+      type: object
+      required:
+        - reports
+      properties:
+        reports:
+          type: array
+          items:
+            $ref: '#/components/schemas/VerificationReport'
+    VerificationFailure:
+      type: object
+      required:
+        - id
+        - mode
+        - layer
+      properties:
+        id:
+          type: string
+          description: The claim or object id that failed.
+        mode:
+          type: string
+          enum:
+            - corrupt-bytes
+            - invalid-content
+          description: |
+            corrupt-bytes — stored bytes don't match their hash (storage rot/loss;
+            self-heals via read-through if a deeper layer is intact).
+            invalid-content — the claim itself doesn't validate (e.g. bad signature);
+            unrepairable.
+        layer:
+          type: string
+          description: The layer where the failure was observed.
+        detail:
+          type: string
+    Error:
+      type: object
+      required:
+        - code
+        - error
+      properties:
+        code:
+          type: string
+          description: |
+            Machine-readable failure category, stable across releases — one of
+            unauthenticated, forbidden, not_found, conflict, busy, invalid,
+            unimplemented, internal. Clients branch on this, not on the message.
+        error:
+          type: string
+          description: Human-readable message. Carries no subject id, even on 403.
+    Id:
+      type: string
+      minLength: 2
+      pattern: ^b[a-z2-7]+$
+      description: 'A claim id: id(v) = Sign(H(S(v))) for a node, id(e) = H(S(e)) for an edge, carried as multibase base32 of the self-describing payload. The pattern fixes the multibase framing; whether the payload''s multihash or multikey framing parses is the implementation''s check.'
+    TypeGlob:
+      type: string
+      minLength: 1
+      description: 'A glob over class/sub, e.g. derivation/* or entity/person. A leading - excludes. Exclusion decides: a type matching an excluded pattern is refused whatever the included patterns say, and a list of exclusions alone admits every other type (R-QSTEPS).'
+    PathStep:
+      type: object
+      additionalProperties: false
+      description: 'One section of a path. edges bounds the walk: every hop must follow an edge whose type is listed. nodes bounds the answer: a step yields a claim only when its node''s type is listed, whatever the nodes it crossed to reach it. min and max bound the hops. A min above a bounded max is refused by the implementation — a JSON Schema cannot compare two sibling values (R-QSTEPS).'
+      properties:
+        edges:
+          type: array
+          description: Edge types every hop must match.
+          items:
+            $ref: '#/components/schemas/TypeGlob'
+        dir:
+          type: string
+          enum:
+            - provenance
+            - uses
+            - connections
+          description: provenance follows references outward, uses runs to the claims that cite this one, connections either way. Absent, provenance.
+        min:
+          type: integer
+          minimum: 0
+          description: Fewest hops. Absent, 1 — a step moves at least one hop. 0 also yields the starting set, carrying the frontier through alongside what lies beyond it.
+        max:
+          type: integer
+          minimum: 0
+          description: 'Most hops. 0, or absent, leaves the step unbounded: a step of at most zero hops would move nothing, so that reading has no use.'
+        nodes:
+          type: array
+          description: Node types the step may yield.
+          items:
+            $ref: '#/components/schemas/TypeGlob'
+    Select:
+      type: object
+      additionalProperties: false
+      required:
+        - branch
+      description: 'A generator in four independent parts: branch is the scope, head the closure read, claim where the walk starts, path the traversal. Scope and start are independent because a walk runs both ways — a uses step reaches the claims that cite the current one, which lie above it, so the closure decides a reverse step''s answer.'
+      properties:
+        branch:
+          type: string
+          minLength: 1
+          description: 'The mandatory scope, and every scope names a graph: a branch name confines to that branch, $archive to the whole Ranke-Archive, $universe applies no confinement and is privileged. An empty value is refused (R-QSCOPE).'
+        head:
+          $ref: '#/components/schemas/Id'
+          description: 'The closure read: the query sees the intersection of the scope''s graph and closure(head), so a head narrows a query. Required under $universe, which confines nothing and so offers no head to fall back on, and may name any claim the Universe holds there; optional under every other scope, where the scope''s own head serves (R-QHEAD).'
+        claim:
+          $ref: '#/components/schemas/Id'
+          description: Anchors the frontier at the single claim it names, which must lie inside the closure. Absent, the frontier is every claim in the closure and the path is unanchored (R-QANCHOR).
+        path:
+          type: array
+          description: 'The traversal: a sequence of steps over frontiers, each frontier a set of claims. Each step''s yield is the frontier the next starts from, and the no-repeat rule holds within a step and resets at each boundary, so membership is all a frontier carries (R-QFRONTIER). Absent, the generator returns the full outward closure of the frontier (R-QSTEPS).'
+          items:
+            $ref: '#/components/schemas/PathStep'
+      allOf:
+        - if:
+            required:
+              - branch
+            properties:
+              branch:
+                const: $universe
+          then:
+            required:
+              - head
+            $comment: 'R-QHEAD: head is required under $universe.'
+    Where:
+      description: A boolean tree. Each node is exactly one of the and / or / not combinators over sub-trees, or a leaf naming a field and its test. Within a where, or is boolean; across generators it unions whole result sets. A leaf may name any field a claim carries, height included (V-HEIGHT).
+      oneOf:
+        - type: object
+          additionalProperties: false
+          required:
+            - and
+          properties:
+            and:
+              type: array
+              minItems: 1
+              items:
+                $ref: '#/components/schemas/Where'
+        - type: object
+          additionalProperties: false
+          required:
+            - or
+          properties:
+            or:
+              type: array
+              minItems: 1
+              items:
+                $ref: '#/components/schemas/Where'
+        - type: object
+          additionalProperties: false
+          required:
+            - not
+          properties:
+            not:
+              $ref: '#/components/schemas/Where'
+        - type: object
+          additionalProperties: false
+          required:
+            - field
+            - test
+          description: 'A leaf: one field, one comparison.'
+          properties:
+            field:
+              type: string
+              minLength: 1
+              description: The field tested — any field a claim carries, height included.
+            test:
+              $ref: '#/components/schemas/Comparison'
+    Value:
+      description: A value a comparison tests against. How two values compare is the engine's, so the shape is unconstrained here.
+    Comparison:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      maxProperties: 1
+      description: One operator applied to one field. eq, ne, lt, le, gt and ge take a value, in a set, glob a shell-style wildcard. Exactly one is present.
+      properties:
+        eq:
+          $ref: '#/components/schemas/Value'
+        ne:
+          $ref: '#/components/schemas/Value'
+        lt:
+          $ref: '#/components/schemas/Value'
+        le:
+          $ref: '#/components/schemas/Value'
+        gt:
+          $ref: '#/components/schemas/Value'
+        ge:
+          $ref: '#/components/schemas/Value'
+        in:
+          type: array
+          description: Set membership.
+          items:
+            $ref: '#/components/schemas/Value'
+        glob:
+          type: string
+          description: Shell-style wildcard.
+    OutputContent:
+      type: object
+      additionalProperties: false
+      required:
+        - max
+      description: Inline content per claim. Absent, no content is inlined (R-QCONTENT).
+      properties:
+        max:
+          type: integer
+          minimum: 0
+          description: Cap in bytes on the content inlined per claim; 0 inlines every claim's content in full.
+        overflow:
+          type: string
+          enum:
+            - cutoff
+            - omit
+          description: 'What becomes of content past the cap: cutoff inlines the bytes up to it, omit inlines whole values only. Absent, omit. A claim keeps every field it carries either way (R-QCONTENT).'
+    Output:
+      type: object
+      additionalProperties: false
+      description: 'Shapes each result along orthogonal axes. detail: claims with form: original and encoding: cbor reproduces the canonical serialization S(v) a claim''s id is computed over, and is the only output form directly verifiable against that id (R-QCANON).'
+      properties:
+        shape:
+          type: string
+          enum:
+            - single
+            - path
+          description: single yields the reached endpoints, one element each; path yields routes, each running outward from the frontier claim its walk began at (R-QSHAPE).
+        detail:
+          type: string
+          enum:
+            - id
+            - claims
+          description: 'What each element carries: id (the id alone) or claims (the claim in full). Under shape: path it applies to every claim in the route (R-QDETAIL).'
+        form:
+          type: string
+          enum:
+            - original
+            - materialized
+          description: 'Which field values a claim carries: original as written, a diff-overlaid claim''s delta; materialized with any contribution/diff chain resolved over the predecessor it references, recursively to a base claim. A property of the values, hence orthogonal to detail and encoding (R-QFORM).'
+        content:
+          $ref: '#/components/schemas/OutputContent'
+        encoding:
+          type: string
+          enum:
+            - json
+            - cbor
+          description: json is text with content base64-encoded, cbor is binary; the same information either way (R-QENCODING).
+    OrderKey:
+      type: object
+      additionalProperties: false
+      required:
+        - field
+      properties:
+        field:
+          type: string
+          minLength: 1
+          description: The field sorted on — any field a claim carries, height included.
+        compare:
+          type: string
+          enum:
+            - numeric
+            - lexical
+          description: How the values compare (R-QSORT).
+        dir:
+          type: string
+          enum:
+            - asc
+            - desc
+          description: Sort direction (R-QSORT).
+    Order:
+      type: array
+      description: Sort keys applied in priority order. Claims lacking a key's field sort last, and the archive's natural (created_at, id) order breaks any remaining ties, so the sort always resolves to a total order (R-QSORT).
+      items:
+        $ref: '#/components/schemas/OrderKey'
+    Duration:
+      type: string
+      pattern: ^(0|([0-9]+(\.[0-9]+)?(ns|us|ms|s|m|h))+)$
+      description: A duration as a decimal sequence with unit suffixes — ns, us, ms, s, m, h — e.g. 5s or 1m30s. The bare 0 means unbounded.
+    Limit:
+      type: object
+      additionalProperties: false
+      description: Bounds the read. A read cut short by either bound is a complete answer to the query as bounded, not an error (R-QLIMIT).
+      properties:
+        results:
+          type: integer
+          minimum: 0
+          description: Caps the claim count; 0 is unbounded.
+        time:
+          $ref: '#/components/schemas/Duration'
+          description: The execution budget; 0 is unbounded.
+    Execution:
+      type: object
+      additionalProperties: false
+      description: Where the query runs and how it reports on itself. These controls reach execution and diagnostics, and never the result set.
+      properties:
+        layer:
+          type: string
+          minLength: 1
+          description: Pins the query to one named storage or execution layer; absent, the backend chooses by capability.
+        report:
+          type: string
+          enum:
+            - info
+            - debug
+            - trace
+          description: 'Report verbosity: info gives high-level stages, debug routing and translation, trace per-claim detail. Set, and only then, the stream carries one final report record after the last element, typed distinctly from result claims (R-QREPORT).'

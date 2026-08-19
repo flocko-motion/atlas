@@ -9,17 +9,13 @@
  * interaction modes — inert is more honest than pretending.
  */
 
+// The markup rather than a URL, so the topbar can hide the plate the tab icon needs.
+import icon from '../icon.svg?raw';
 import { useConnections } from '../../core/connections.ts';
-import {
-  axisXOf,
-  discoverScopes,
-  instantAtX,
-  selectScope,
-  showAll,
-  stepFrom,
-  timeEnds,
-} from '../../core/session.ts';
-import { canvasWidth, fitHeight, graphXAt, panTo } from '../../render/renderer.ts';
+import { discoverScopes, selectScope, showAll } from '../../core/session.ts';
+import { axisXOf, instantAtX, stepFrom, timeEnds } from '../../core/timeline.ts';
+import { fitHeight, graphXAt, panTo } from '../../render/camera.ts';
+import { canvasWidth } from '../../render/instances.ts';
 import { scopeOptions } from '../../core/scope.ts';
 import { activeView, useExplorer } from '../../core/store.ts';
 
@@ -155,9 +151,7 @@ export function Header() {
   return (
     <header className="topbar">
       <div className="brand">
-        <span className="brand-mark" aria-hidden="true">
-          ◆
-        </span>
+        <span className="brand-mark" aria-hidden="true" dangerouslySetInnerHTML={{ __html: icon }} />
         <span className="brand-name">Ranke Explorer</span>
       </div>
 
