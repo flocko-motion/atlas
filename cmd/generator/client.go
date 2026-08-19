@@ -61,6 +61,23 @@ func (c *client) contribute(ctx context.Context, body []byte) (openapi.Contribut
 	return res, nil
 }
 
+// advanceClock steers a --dev server's clock to at (§POST /dev/clock), so the merge
+// this contribution lands in is dated close to the story rather than real wall time.
+// Absent --dev, the route doesn't exist: a 501 is silently swallowed, so one generator
+// binary works unmodified against a dev or a production server alike.
+func (c *client) advanceClock(ctx context.Context, at time.Time) error {
+	body, err := json.Marshal(openapi.DevClockAdvance{Time: at})
+	if err != nil {
+		return fmt.Errorf("encode dev clock advance: %w", err)
+	}
+	_, err = c.do(ctx, http.MethodPost, "/dev/clock", "application/json", body)
+	var refused *apiRefusal
+	if errors.As(err, &refused) && refused.status == http.StatusNotImplemented {
+		return nil
+	}
+	return err
+}
+
 // head reads a branch's current head claim id.
 func (c *client) head(ctx context.Context, branch string) (string, error) {
 	out, err := c.do(ctx, http.MethodGet, "/branches/"+url.PathEscape(branch)+"/head", "", nil)

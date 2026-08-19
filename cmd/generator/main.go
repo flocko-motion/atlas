@@ -146,6 +146,12 @@ func deliver(cmd *cobra.Command, url string, o *options, shape func(*grower) (ba
 			claims = append([]ranke.Claim{g.selfClaim}, claims...)
 			seeded[b.branch] = true
 		}
+		// Steer the merge time to this batch's own story, before it lands — the first call
+		// of the run included, so even the sequencer's bootstrap identity (minted at server
+		// start, before any of this) is the last thing left dated off the real clock.
+		if err := c.advanceClock(ctx, maxCreatedAt(claims)); err != nil {
+			return fmt.Errorf("advance dev clock for contribution %d/%d: %w", i+1, len(bs), err)
+		}
 		body, err := encodeContribution(b.branch, claims)
 		if err != nil {
 			return err
@@ -169,6 +175,18 @@ func deliver(cmd *cobra.Command, url string, o *options, shape func(*grower) (ba
 		}
 	}
 	return report(ctx, cmd, c, o.branch)
+}
+
+// maxCreatedAt is the latest created_at among claims — a batch's own story time, and
+// what the dev clock should be at no earlier than before the batch is merged.
+func maxCreatedAt(claims []ranke.Claim) time.Time {
+	var at time.Time
+	for _, c := range claims {
+		if t := c.Node().CreatedAt(); t.After(at) {
+			at = t
+		}
+	}
+	return at
 }
 
 // report reads the branch back, so a seed that claims to have written shows it served.

@@ -11,6 +11,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/flocko-motion/rankedb/adapters/auth"
 	"github.com/flocko-motion/rankedb/internal/core"
@@ -42,7 +43,7 @@ func TestBuildResolvesAndWires(t *testing.T) {
 		"signer": {"type": "inmemory", "key": "env(RANKE_TEST_SIGNER_KEY)"}
 	}`
 
-	app, err := Run(context.Background(), strings.NewReader(cfgJSON), nil)
+	app, err := Run(context.Background(), strings.NewReader(cfgJSON), nil, false)
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -190,8 +191,48 @@ func TestBuildEndpointAPIKeyRejectsBadDigest(t *testing.T) {
 // than yielding an empty key.
 func TestBuildMissingEnvFails(t *testing.T) {
 	const cfgJSON = `{"signer": {"type": "inmemory", "key": "env(RANKE_TEST_ABSENT)"}}`
-	if _, err := Run(context.Background(), strings.NewReader(cfgJSON), nil); err == nil {
+	if _, err := Run(context.Background(), strings.NewReader(cfgJSON), nil, false); err == nil {
 		t.Fatal("Run succeeded with an unset env delegation; want error")
+	}
+}
+
+// TestDevWiresSteerableClock asserts dev=true against sequencer.type "dev" mints the
+// launch's steerable clock and hands it to the sequencer — the wiring POST /dev/clock
+// later reaches through Core.
+func TestDevWiresSteerableClock(t *testing.T) {
+	t.Setenv("RANKE_TEST_SIGNER_KEY", testKeyPEM(t))
+	const cfgJSON = `{
+		"signer": {"type": "inmemory", "key": "env(RANKE_TEST_SIGNER_KEY)"},
+		"storage": {"type": "stack", "layers": [{"type": "mem"}]},
+		"sequencer": {"type": "dev"}
+	}`
+	app, err := Run(context.Background(), strings.NewReader(cfgJSON), nil, true)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if app.DevClock == nil {
+		t.Fatal("dev=true against sequencer.type \"dev\": DevClock is nil")
+	}
+	// A fixture generator's story is typically dated in the past relative to whenever
+	// it's re-run (SteerableClock's own tests pin why that must still land exactly).
+	at := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	if got := app.DevClock.Advance(at); !got.Equal(at) {
+		t.Errorf("Advance(%s) = %s, want the requested instant", at, got)
+	}
+}
+
+// TestDevRequiresDevSequencer asserts dev=true refuses a concurrent (production)
+// Sequencer rather than silently wiring a steerable clock into it — the whole point
+// of R-C2DATE is that a production merge's witnessed time is real.
+func TestDevRequiresDevSequencer(t *testing.T) {
+	t.Setenv("RANKE_TEST_SIGNER_KEY", testKeyPEM(t))
+	const cfgJSON = `{
+		"signer": {"type": "inmemory", "key": "env(RANKE_TEST_SIGNER_KEY)"},
+		"storage": {"type": "stack", "layers": [{"type": "mem"}]},
+		"sequencer": {"type": "concurrent"}
+	}`
+	if _, err := Run(context.Background(), strings.NewReader(cfgJSON), nil, true); err == nil {
+		t.Fatal("dev=true against sequencer.type \"concurrent\": want error, got none")
 	}
 }
 

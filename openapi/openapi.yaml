@@ -146,6 +146,8 @@ tags:
     description: Contribute signed claims.
   - name: system
     description: Operate the stack — liveness, storage introspection, verification runs.
+  - name: dev
+    description: Development-only capabilities, mounted only when the stack is launched with --dev.
 
 paths:
   /health:
@@ -585,6 +587,40 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
 
+  /dev/clock:
+    post:
+      operationId: advanceDevClock
+      summary: Advance the dev sequencer's clock
+      description: |
+        Available **only** when the stack was launched with `--dev` against a `dev`
+        Sequencer: moves the clock the Sequencer mints `created_at` and branch-table
+        timestamps from forward to (at least) the given instant, so a client that
+        knows its own story's schedule — a fixture generator, say — can make the
+        archive's *recorded* history track its *narrated* one, one contribution at a
+        time, rather than every merge landing at the real wall-clock moment the
+        client happened to run.
+
+        The clock never moves backward: a request older than its current position
+        is accepted and answered with the position unchanged. Absent `--dev`, or
+        against a `concurrent` (production) Sequencer, the route is `501` — the
+        witnessed merge time stays real, which is the whole point of `R-C2DATE`.
+      tags: [dev]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/DevClockAdvance" }
+      responses:
+        "200":
+          description: The clock's new position.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DevClock" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "501": { $ref: "#/components/responses/NotImplemented" }
+
   /system/layers:
     get:
       operationId: listStorageLayers
@@ -903,6 +939,31 @@ components:
           type: array
           description: Content-addressed ids of the contributed claims, in order.
           items: { type: string }
+
+    DevClockAdvance:
+      type: object
+      required: [time]
+      description: |
+        Requests the dev sequencer's clock advance to (at least) this instant. A
+        request older than the clock's current position is accepted as a no-op —
+        the clock only ever moves forward, since a merge's witnessed time
+        regressing would break every guarantee built on it.
+      properties:
+        time:
+          type: string
+          format: date-time
+          description: The instant to advance to.
+
+    DevClock:
+      type: object
+      required: [time]
+      description: |
+        The dev sequencer's clock after the request — the later of what was asked
+        and what it already held.
+      properties:
+        time:
+          type: string
+          format: date-time
 
     BranchHead:
       type: object

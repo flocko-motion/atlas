@@ -15,9 +15,74 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/flocko-motion/ranke-go"
 )
+
+// The schedule a release actually keeps: minutes to build and test, then days quiet before
+// the release window, the scan landing hours before triage rather than at build time.
+const (
+	buildDelayMin = 4 * time.Minute
+	buildDelayMax = 15 * time.Minute
+
+	testDelayMin = 20 * time.Minute
+	testDelayMax = 3 * time.Hour
+
+	// The quiet stretch after code is ready, before the release window it waits for.
+	devToTriageMin = 2 * 24 * time.Hour
+	devToTriageMax = 5 * 24 * time.Hour
+
+	scanLeadMin = 2 * time.Hour
+	scanLeadMax = 6 * time.Hour
+
+	candidateDelayMin = 10 * time.Minute
+	candidateDelayMax = 40 * time.Minute
+
+	reviewDelayMin = 15 * time.Minute
+	reviewDelayMax = 2 * time.Hour
+
+	// Both packages triage the same window, not the same instant.
+	packageStaggerMin = 30 * time.Minute
+	packageStaggerMax = 90 * time.Minute
+
+	releaseDelayMin = 30 * time.Minute
+	releaseDelayMax = 4 * time.Hour
+
+	// Clear of devToTriageMax, so the first release's dev work can't predate setup.
+	firstReleaseDelayMin = 7 * 24 * time.Hour
+	firstReleaseDelayMax = 10 * 24 * time.Hour
+
+	releaseCadenceMin = 14 * 24 * time.Hour
+	releaseCadenceMax = 28 * 24 * time.Hour
+)
+
+// jitter draws a duration from [lo, hi) off the grower's own seed, so the schedule looks
+// handmade rather than metronomic while staying reproducible (TestReleaseIsDeterministic).
+func (g *grower) jitter(lo, hi time.Duration) time.Duration {
+	if hi <= lo {
+		return lo
+	}
+	return lo + time.Duration(g.rnd.Int64N(int64(hi-lo)))
+}
+
+// atLeast keeps a computed time from drifting earlier than a claim it must follow — a
+// claim can never predate what it cites (V-MONO).
+func atLeast(t, floor time.Time) time.Time {
+	if t.Before(floor) {
+		return floor
+	}
+	return t
+}
+
+// laterTime is the later of two, zero losing to anything — the seed value for scanning a
+// package's claims for the last one to land.
+func laterTime(a, b time.Time) time.Time {
+	if b.After(a) {
+		return b
+	}
+	return a
+}
 
 // The scenario's vocabulary. Only `contribution/*` subtypes are reserved (`V-TYPE`), so these
 // name what each claim *is*: a reader filtering `derivation/triage` wants triage decisions.
@@ -83,8 +148,8 @@ func (g *grower) release(ctx context.Context, branch string, releases int) (batc
 	if releases < 1 {
 		return nil, fmt.Errorf("release: --releases must be at least 1")
 	}
-	// The setup contribution, then per release: four per package, plus the release itself.
-	out := make(batches, 0, 1+releases*(len(packages)*4+1))
+	// The setup contribution, then per release: seven events per package, plus the release.
+	out := make(batches, 0, 1+releases*(len(packages)*7+1))
 
 	// Everything the process refers to, before anything cites it. The root claim rides in
 	// ahead of it, added by the caller, since all of this is attributed to the root.
@@ -98,20 +163,41 @@ func (g *grower) release(ctx context.Context, branch string, releases int) (batc
 	}
 	out = append(out, batch{branch: branch, claims: append(setup, advisories...)})
 
+	// floor is the earliest a release's own claims may land: every one of them is signed
+	// under a key setup minted, so none may predate setup without breaking V-MONO.
+	floor := g.at
+	// cursor tracks the last thing that happened, so each release's window is scheduled off
+	// the one before it — weeks apart, not the seconds a flat clockStep would give it.
+	cursor := floor
 	for i := range releases {
+		gap := g.jitter(releaseCadenceMin, releaseCadenceMax)
+		if i == 0 {
+			gap = g.jitter(firstReleaseDelayMin, firstReleaseDelayMax)
+		}
+		releaseDay := cursor.Add(gap)
+
 		version := fmt.Sprintf("v0.%d.0", i+1)
 		var triaged []made
-		for _, pkg := range packages {
-			bs, decision, err := g.releaseOnePackage(branch, pkg, version, actors, found)
+		var latestReview time.Time
+		for pi, pkg := range packages {
+			// Both packages triage in the same window, staggered rather than simultaneous.
+			triageAt := releaseDay
+			if pi > 0 {
+				triageAt = releaseDay.Add(g.jitter(packageStaggerMin, packageStaggerMax))
+			}
+			bs, decision, reviewedAt, err := g.releaseOnePackage(branch, pkg, version, actors, found, triageAt, floor)
 			if err != nil {
 				return nil, err
 			}
 			out = append(out, bs...)
 			triaged = append(triaged, decision)
+			latestReview = laterTime(latestReview, reviewedAt)
 		}
 
-		// The fan-in: one release citing both triage decisions. A reader following either
-		// package upward arrives here, which is what a release *is*.
+		// The fan-in: one release citing both triage decisions, cut once both packages are
+		// truly done — reviewed, not merely decided. A reader following either package
+		// upward arrives here, which is what a release *is*.
+		artifactAt := latestReview.Add(g.jitter(releaseDelayMin, releaseDelayMax))
 		artifact, err := g.write(spec{
 			by:      actors[whoRelease].signs,
 			branch:  branch,
@@ -119,11 +205,13 @@ func (g *grower) release(ctx context.Context, branch string, releases int) (batc
 			fields:  map[string]string{"name": version},
 			content: []byte(releaseNotes(version, packages)),
 			cites:   asInputs(triaged...),
+			at:      artifactAt,
 		})
 		if err != nil {
 			return nil, err
 		}
 		out = append(out, batch{branch: branch, claims: []ranke.Claim{artifact.claim}})
+		cursor = artifactAt
 	}
 	return out, nil
 }
@@ -205,40 +293,52 @@ func affects(i int, pkg string) bool {
 	return len(vulnerabilities[i].affects) == 0 || slices.Contains(vulnerabilities[i].affects, pkg)
 }
 
-// releaseOnePackage takes one package from snapshot to triage, a contribution per step so the
-// branch table records the process advancing.
+// releaseOnePackage takes one package from snapshot to a reviewed decision, a contribution
+// per step so the branch table records the process advancing, scheduled around the shared
+// triageAt. Returns the decision and when its review note landed, so the caller knows when
+// this package was truly done.
 func (g *grower) releaseOnePackage(
 	branch, pkg, version string,
 	actors map[string]*actor,
 	found []made,
-) (batches, made, error) {
+	triageAt time.Time,
+	floor time.Time,
+) (batches, made, time.Time, error) {
 	name := map[string]string{"name": pkg, "version": version}
 
 	// What arrives from outside. Sources rest on nothing, which is what makes them sources.
+	// The dev work — commit, build, test — is done days before the release window it waits
+	// for, but never before floor: every claim here is signed under a key setup minted.
+	snapshotAt := atLeast(triageAt.Add(-g.jitter(devToTriageMin, devToTriageMax)), floor)
 	snapshot, err := g.write(spec{
 		by: actors[whoCI].signs, branch: branch, typ: typeGitSnapshot, fields: name,
-		content: []byte(snapshotText(pkg, version)),
+		content: []byte(snapshotText(pkg, version)), at: snapshotAt,
 	})
 	if err != nil {
-		return nil, made{}, err
+		return nil, made{}, time.Time{}, err
 	}
+	buildAt := snapshotAt.Add(g.jitter(buildDelayMin, buildDelayMax))
 	buildLog, err := g.write(spec{
 		by: actors[whoCI].signs, branch: branch, typ: typeBuildLog, fields: name,
-		content: []byte(logText(fmt.Sprintf("build %s %s", pkg, version), 6)),
+		content: []byte(logText(fmt.Sprintf("build %s %s", pkg, version), 6)), at: buildAt,
 	})
 	if err != nil {
-		return nil, made{}, err
+		return nil, made{}, time.Time{}, err
 	}
+	testAt := buildAt.Add(g.jitter(testDelayMin, testDelayMax))
 	testReport, err := g.write(spec{
 		by: actors[whoTests].signs, branch: branch, typ: typeTestReport, fields: name,
-		content: []byte(logText(fmt.Sprintf("test %s %s", pkg, version), 8)),
+		content: []byte(logText(fmt.Sprintf("test %s %s", pkg, version), 8)), at: testAt,
 	})
 	if err != nil {
-		return nil, made{}, err
+		return nil, made{}, time.Time{}, err
 	}
 
 	// The scan derives from the snapshot and *reaches* the CVEs it matched — not inputs, a
-	// scan not being derived from what it reports.
+	// scan not being derived from what it reports. It runs close to the decision, not at
+	// build time: a fresh read on a candidate about to ship, dated no earlier than the tests
+	// it follows in the archive even when the schedule's margin is thin.
+	scanAt := atLeast(triageAt.Add(-g.jitter(scanLeadMin, scanLeadMax)), testAt)
 	cites := asInputs(snapshot)
 	var matched []string
 	for i, v := range found {
@@ -251,24 +351,28 @@ func (g *grower) releaseOnePackage(
 	scan, err := g.write(spec{
 		by: actors[whoSecurity].signs, branch: branch, typ: typeScan, fields: name,
 		content: []byte(scanText(pkg, version, matched)),
-		cites:   cites,
+		cites:   cites, at: scanAt,
 	})
 	if err != nil {
-		return nil, made{}, err
+		return nil, made{}, time.Time{}, err
 	}
 
-	// The candidate cites all four, which is what makes it a candidate rather than an opinion.
+	// The candidate cites all four, which is what makes it a candidate rather than an
+	// opinion — assembled once the scan is in, the last of the four to land.
+	candidateAt := scanAt.Add(g.jitter(candidateDelayMin, candidateDelayMax))
 	candidate, err := g.write(spec{
 		by: actors[whoCI].signs, branch: branch, typ: typeCandidate, fields: name,
 		content: []byte(fmt.Sprintf("release candidate %s %s", pkg, version)),
-		cites:   asInputs(snapshot, buildLog, testReport, scan),
+		cites:   asInputs(snapshot, buildLog, testReport, scan), at: candidateAt,
 	})
 	if err != nil {
-		return nil, made{}, err
+		return nil, made{}, time.Time{}, err
 	}
 
 	// The decision cites the candidate it judges and names who decided, as people rather than
-	// as keys. Naming an actor is not provenance.
+	// as keys. Naming an actor is not provenance. Pinned no earlier than the candidate it
+	// judges, the same margin the scan above keeps.
+	decisionAt := atLeast(triageAt, candidateAt)
 	decided := asInputs(candidate)
 	for _, who := range []string{whoRelease, whoSecurity} {
 		decided = append(decided, cite{to: actors[who].entity, typ: edgeDecidedBy, dir: ranke.RelationTo})
@@ -276,29 +380,37 @@ func (g *grower) releaseOnePackage(
 	decision, err := g.write(spec{
 		by: actors[whoRelease].signs, branch: branch, typ: typeTriage, fields: name,
 		content: []byte(triageText(pkg, version, matched)),
-		cites:   decided,
+		cites:   decided, at: decisionAt,
 	})
 	if err != nil {
-		return nil, made{}, err
+		return nil, made{}, time.Time{}, err
 	}
 
-	// A remark on the decision, in someone's own words: prose, signed by whoever wrote it.
-	// The slide has no box for this; a real archive is full of them.
+	// A remark on the decision, in someone's own words: prose, signed by whoever wrote it,
+	// written some time after the decision rather than in the same breath. The slide has no
+	// box for this; a real archive is full of them.
+	noteAt := decisionAt.Add(g.jitter(reviewDelayMin, reviewDelayMax))
 	note, err := g.write(spec{
 		by: actors[whoSecurity].signs, branch: branch, typ: typeReviewNote, fields: name,
 		content: []byte(reviewNote(pkg, version, matched)),
-		cites:   asInputs(decision),
+		cites:   asInputs(decision), at: noteAt,
 	})
 	if err != nil {
-		return nil, made{}, err
+		return nil, made{}, time.Time{}, err
 	}
 
+	// One contribution per event, not one covering the whole span: the branch table should
+	// advance as the story happens — snapshot, then build, then tests, each its own revision
+	// — rather than catch up on all of them at once (V-MONO admits either; realism doesn't).
 	return batches{
-		{branch: branch, claims: []ranke.Claim{snapshot.claim, buildLog.claim, testReport.claim}},
+		{branch: branch, claims: []ranke.Claim{snapshot.claim}},
+		{branch: branch, claims: []ranke.Claim{buildLog.claim}},
+		{branch: branch, claims: []ranke.Claim{testReport.claim}},
 		{branch: branch, claims: []ranke.Claim{scan.claim}},
 		{branch: branch, claims: []ranke.Claim{candidate.claim}},
-		{branch: branch, claims: []ranke.Claim{decision.claim, note.claim}},
-	}, decision, nil
+		{branch: branch, claims: []ranke.Claim{decision.claim}},
+		{branch: branch, claims: []ranke.Claim{note.claim}},
+	}, decision, noteAt, nil
 }
 
 // logParagraph is the filler a fake log is padded with. Content this size is the point: it

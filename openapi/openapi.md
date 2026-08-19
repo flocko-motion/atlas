@@ -1331,6 +1331,69 @@ To perform this operation, you must be authenticated by means of one of the foll
 None, jwt, apikey, macaroon
 </aside>
 
+<h1 id="ranke-db-api-dev">dev</h1>
+
+Development-only capabilities, mounted only when the stack is launched with --dev.
+
+## Advance the dev sequencer's clock
+
+<a id="opIdadvanceDevClock"></a>
+
+`POST /dev/clock`
+
+Available **only** when the stack was launched with `--dev` against a `dev`
+Sequencer: moves the clock the Sequencer mints `created_at` and branch-table
+timestamps from forward to (at least) the given instant, so a client that
+knows its own story's schedule — a fixture generator, say — can make the
+archive's *recorded* history track its *narrated* one, one contribution at a
+time, rather than every merge landing at the real wall-clock moment the
+client happened to run.
+
+The clock never moves backward: a request older than its current position
+is accepted and answered with the position unchanged. Absent `--dev`, or
+against a `concurrent` (production) Sequencer, the route is `501` — the
+witnessed merge time stays real, which is the whole point of `R-C2DATE`.
+
+> Body parameter
+
+```json
+{
+  "time": "2019-08-24T14:15:22Z"
+}
+```
+
+<h3 id="advance-the-dev-sequencer's-clock-parameters">Parameters</h3>
+
+|Name|In|Type|Required|Description|
+|---|---|---|---|---|
+|body|body|[DevClockAdvance](#schemadevclockadvance)|true|none|
+
+> Example responses
+
+> 200 Response
+
+```json
+{
+  "time": "2019-08-24T14:15:22Z"
+}
+```
+
+<h3 id="advance-the-dev-sequencer's-clock-responses">Responses</h3>
+
+|Status|Meaning|Description|Schema|
+|---|---|---|---|
+|200|[OK](https://tools.ietf.org/html/rfc7231#section-6.3.1)|The clock's new position.|[DevClock](#schemadevclock)|
+|400|[Bad Request](https://tools.ietf.org/html/rfc7231#section-6.5.1)|The request was malformed.|[Error](#schemaerror)|
+|401|[Unauthorized](https://tools.ietf.org/html/rfc7235#section-3.1)|Authentication is required or failed.|[Error](#schemaerror)|
+|403|[Forbidden](https://tools.ietf.org/html/rfc7231#section-6.5.3)|Access was denied by core-access. The body carries no subject id or
+onboarding hint.|[Error](#schemaerror)|
+|501|[Not Implemented](https://tools.ietf.org/html/rfc7231#section-6.6.2)|An optional capability the request needs is not configured.|[Error](#schemaerror)|
+
+<aside class="warning">
+To perform this operation, you must be authenticated by means of one of the following methods:
+None, jwt, apikey, macaroon
+</aside>
+
 # Schemas
 
 <h2 id="tocS_Query">Query</h2>
@@ -1521,6 +1584,54 @@ The outcome of a contribution — the new branch-table head and the appended cla
 |---|---|---|---|---|
 |head|string|true|none|The new branch-table head id after the merge.|
 |ids|[string]|true|none|Content-addressed ids of the contributed claims, in order.|
+
+<h2 id="tocS_DevClockAdvance">DevClockAdvance</h2>
+<!-- backwards compatibility -->
+<a id="schemadevclockadvance"></a>
+<a id="schema_DevClockAdvance"></a>
+<a id="tocSdevclockadvance"></a>
+<a id="tocsdevclockadvance"></a>
+
+```json
+{
+  "time": "2019-08-24T14:15:22Z"
+}
+
+```
+
+Requests the dev sequencer's clock advance to (at least) this instant. A
+request older than the clock's current position is accepted as a no-op —
+the clock only ever moves forward, since a merge's witnessed time
+regressing would break every guarantee built on it.
+
+### Properties
+
+|Name|Type|Required|Restrictions|Description|
+|---|---|---|---|---|
+|time|string(date-time)|true|none|The instant to advance to.|
+
+<h2 id="tocS_DevClock">DevClock</h2>
+<!-- backwards compatibility -->
+<a id="schemadevclock"></a>
+<a id="schema_DevClock"></a>
+<a id="tocSdevclock"></a>
+<a id="tocsdevclock"></a>
+
+```json
+{
+  "time": "2019-08-24T14:15:22Z"
+}
+
+```
+
+The dev sequencer's clock after the request — the later of what was asked
+and what it already held.
+
+### Properties
+
+|Name|Type|Required|Restrictions|Description|
+|---|---|---|---|---|
+|time|string(date-time)|true|none|none|
 
 <h2 id="tocS_BranchHead">BranchHead</h2>
 <!-- backwards compatibility -->

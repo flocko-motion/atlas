@@ -171,6 +171,7 @@ type spec struct {
 	encoding string
 	fields   map[string]string
 	cites    []cite
+	at       time.Time // explicit schedule (release.go); zero rides the ambient clock
 }
 
 // write signs one claim from a spec and remembers it. Height is explicit because a claim
@@ -194,6 +195,10 @@ func (g *grower) write(s spec) (made, error) {
 	}
 	height++
 
+	at := s.at
+	if at.IsZero() {
+		at = g.at
+	}
 	encoding := s.encoding
 	if encoding == "" {
 		encoding = "text/plain"
@@ -201,7 +206,7 @@ func (g *grower) write(s spec) (made, error) {
 	b := ranke.NewClaim(s.typ, s.by.as).
 		WithInlineContent(s.content).
 		WithEncoding(encoding).
-		WithCreatedAt(g.at).
+		WithCreatedAt(at).
 		WithHeight(height).
 		WithEdges(edges...)
 	for key, value := range s.fields {
@@ -211,7 +216,12 @@ func (g *grower) write(s spec) (made, error) {
 	if err != nil {
 		return made{}, fmt.Errorf("sign %s: %w", s.typ, err)
 	}
-	g.at = g.at.Add(clockStep)
+	// Unscheduled ticks the ambient clock forward; scheduled only ever pulls it ahead.
+	if s.at.IsZero() {
+		g.at = g.at.Add(clockStep)
+	} else if at.After(g.at) {
+		g.at = at
+	}
 	m := made{claim: claim, height: height, branch: s.branch}
 	g.made = append(g.made, m)
 	return m, nil

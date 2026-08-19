@@ -298,7 +298,94 @@ func TestReleaseHeightsCountTheContributorEdge(t *testing.T) {
 	}
 }
 
+// TestReleaseContributionsAreOneEventEach pins the addition that fixes the archive's own
+// history: a build finishing and a test suite finishing are different moments, so each
+// lands as its own contribution — the branch table advances once per real event, not once
+// for everything that happened since the last check-in.
+func TestReleaseContributionsAreOneEventEach(t *testing.T) {
+	g := newTestGrower(t)
+	bs, err := g.release(context.Background(), "main", 1)
+	if err != nil {
+		t.Fatalf("release: %v", err)
+	}
+	for i, b := range bs {
+		if i == 0 {
+			continue // setup: provisioning the fixture, not a lifecycle event
+		}
+		if len(b.claims) != 1 {
+			t.Errorf("contribution %d carries %d claims, want one event each", i, len(b.claims))
+		}
+	}
+}
+
+// TestReleaseTimestampsAreMonotonic pins V-MONO across the whole scenario: no claim's
+// created_at may sit before that of a claim it cites. A schedule built by counting
+// backward from a later moment (triage, minus days of dev work) can otherwise walk a
+// claim past what it's attributed to — as it once did past the setup phase itself.
+func TestReleaseTimestampsAreMonotonic(t *testing.T) {
+	g := newTestGrower(t)
+	bs, err := g.release(context.Background(), "main", 2)
+	if err != nil {
+		t.Fatalf("release: %v", err)
+	}
+	all := map[string]ranke.Claim{}
+	for _, b := range bs {
+		for _, c := range b.claims {
+			all[c.ID().String()] = c
+		}
+	}
+	for _, c := range all {
+		for _, edge := range c.Edges() {
+			ref, ok := all[edge.Reference().String()]
+			if !ok {
+				continue
+			}
+			if c.Node().CreatedAt().Before(ref.Node().CreatedAt()) {
+				t.Errorf("%s %s (%s) predates its %s reference %s (%s)",
+					c.Node().Type(), c.ID(), c.Node().CreatedAt(),
+					edge.Type(), ref.Node().Type(), ref.Node().CreatedAt())
+			}
+		}
+	}
+}
+
+// TestReleaseTimelineSpansDays pins the addition this scenario exists for: the archive
+// goes quiet for days between code being ready and the release window, and the
+// vulnerability scan lands close to triage rather than at build time.
+func TestReleaseTimelineSpansDays(t *testing.T) {
+	g := newTestGrower(t)
+	bs, err := g.release(context.Background(), "main", 1)
+	if err != nil {
+		t.Fatalf("release: %v", err)
+	}
+	byType := claimsByType(bs)
+	for _, pkg := range packages {
+		snapshot := findByName(t, byType[typeGitSnapshot], pkg)
+		scan := findByName(t, byType[typeScan], pkg)
+		decision := findByName(t, byType[typeTriage], pkg)
+
+		if gap := scan.Node().CreatedAt().Sub(snapshot.Node().CreatedAt()); gap < devToTriageMin {
+			t.Errorf("%s: snapshot to scan = %s, want at least %s", pkg, gap, devToTriageMin)
+		}
+		if gap := decision.Node().CreatedAt().Sub(scan.Node().CreatedAt()); gap < 0 || gap > scanLeadMax+candidateDelayMax {
+			t.Errorf("%s: scan to triage = %s, want the scan landing close to the decision", pkg, gap)
+		}
+	}
+}
+
 // --- helpers --------------------------------------------------------------
+
+// findByName returns the one claim in cs whose "name" field is name.
+func findByName(t *testing.T, cs []ranke.Claim, name string) ranke.Claim {
+	t.Helper()
+	for _, c := range cs {
+		if fieldOf(t, c, "name") == name {
+			return c
+		}
+	}
+	t.Fatalf("no claim named %q among %d", name, len(cs))
+	return nil
+}
 
 // claimsByType indexes every claim in a scenario by node type.
 func claimsByType(bs batches) map[string][]ranke.Claim {

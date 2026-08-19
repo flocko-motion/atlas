@@ -25,7 +25,7 @@ func TestBuildStorageStack(t *testing.T) {
 		}
 	}`
 
-	app, err := Run(context.Background(), strings.NewReader(cfgJSON), nil)
+	app, err := Run(context.Background(), strings.NewReader(cfgJSON), nil, false)
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -66,7 +66,7 @@ func TestBuildStorageStackRejectsUnsettableLayer(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			cfgJSON := `{"storage": {"type": "stack", "layers": [` + tc.layer + `]}}`
-			app, err := Run(context.Background(), strings.NewReader(cfgJSON), nil)
+			app, err := Run(context.Background(), strings.NewReader(cfgJSON), nil, false)
 			if err == nil {
 				t.Cleanup(func() { _ = app.Storage.Close() })
 				t.Fatalf("Run accepted %s, want a refusal", tc.layer)

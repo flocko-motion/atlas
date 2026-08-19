@@ -9,6 +9,7 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -45,7 +46,7 @@ func TestNewBindsBackends(t *testing.T) {
 	for _, kind := range []string{"dev", "concurrent"} {
 		t.Run(kind, func(t *testing.T) {
 			seq, err := sequencer.New(ctx, scope.Literal(map[string]string{"type": kind}),
-				ranke.NewMemoryUniverse(), newSigner(t))
+				ranke.NewMemoryUniverse(), newSigner(t), nil)
 			require.NoError(t, err)
 			require.NotNil(t, seq)
 			require.NotNil(t, seq.GetContributor(), "the sequencer signs as somebody")
@@ -53,7 +54,7 @@ func TestNewBindsBackends(t *testing.T) {
 	}
 
 	_, err := sequencer.New(ctx, scope.Literal(map[string]string{"type": "nope"}),
-		ranke.NewMemoryUniverse(), newSigner(t))
+		ranke.NewMemoryUniverse(), newSigner(t), nil)
 	require.ErrorContains(t, err, "unknown type")
 }
 
@@ -62,7 +63,7 @@ func TestNewBindsBackends(t *testing.T) {
 func TestArchiveOpensAtEmptyBranchTable(t *testing.T) {
 	ctx := context.Background()
 	seq, err := sequencer.New(ctx, scope.Literal(map[string]string{"type": "dev"}),
-		ranke.NewMemoryUniverse(), newSigner(t))
+		ranke.NewMemoryUniverse(), newSigner(t), nil)
 	require.NoError(t, err)
 
 	archive, err := seq.GetArchive(ctx)
@@ -83,7 +84,7 @@ func TestContributorIdIsStableAcrossBuilds(t *testing.T) {
 	build := func() ranke.Id {
 		sig, err := signer.New(ctx, cfg)
 		require.NoError(t, err)
-		seq, err := sequencer.New(ctx, sequencerCfg, ranke.NewMemoryUniverse(), sig)
+		seq, err := sequencer.New(ctx, sequencerCfg, ranke.NewMemoryUniverse(), sig, nil)
 		require.NoError(t, err)
 		return seq.GetContributor().ID()
 	}
@@ -91,11 +92,35 @@ func TestContributorIdIsStableAcrossBuilds(t *testing.T) {
 	require.Equal(t, build(), build())
 }
 
+// TestContributorAlwaysPinsToEpoch: the sequencer's own identity is minted once at
+// boot, before any --dev caller can possibly steer the clock — the HTTP server isn't
+// listening yet. It must precede whatever the earliest merge it signs turns out to be,
+// so it stays epoch-pinned whether or not a clock was supplied, past-dated fixtures
+// (a --dev story set in 2024, say) included; a value that tracked the clock instead
+// would put this identity's created_at *after* the very first branch table it signs,
+// which V-MONO forbids.
+func TestContributorAlwaysPinsToEpoch(t *testing.T) {
+	ctx := context.Background()
+	cfg := scope.Literal(map[string]string{"type": "dev"})
+
+	seq, err := sequencer.New(ctx, cfg, ranke.NewMemoryUniverse(), newSigner(t), nil)
+	require.NoError(t, err)
+	require.True(t, seq.GetContributor().Node().CreatedAt().Equal(time.Unix(0, 0).UTC()),
+		"nil now: want the identity pinned to the epoch")
+
+	past := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	seq, err = sequencer.New(ctx, cfg, ranke.NewMemoryUniverse(), newSigner(t),
+		func() time.Time { return past })
+	require.NoError(t, err)
+	require.True(t, seq.GetContributor().Node().CreatedAt().Equal(time.Unix(0, 0).UTC()),
+		"a supplied now, even a --dev story's own past date: want the identity still pinned to the epoch")
+}
+
 // TestHistoryDescriptorIsValidated: an unknown history type fails by name rather
 // than silently falling back to memory.
 func TestHistoryDescriptorIsValidated(t *testing.T) {
 	_, err := sequencer.New(context.Background(),
 		scope.Literal(map[string]string{"type": "dev", "history": "nonsense"}),
-		ranke.NewMemoryUniverse(), newSigner(t))
+		ranke.NewMemoryUniverse(), newSigner(t), nil)
 	require.NoError(t, err, "a scalar history key is not a section, so the default applies")
 }

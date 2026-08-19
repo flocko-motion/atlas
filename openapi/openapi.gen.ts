@@ -83,6 +83,29 @@ export interface ContributionResult {
   ids: string[];
 }
 
+/**
+ * Requests the dev sequencer's clock advance to (at least) this instant. A
+ * request older than the clock's current position is accepted as a no-op —
+ * the clock only ever moves forward, since a merge's witnessed time
+ * regressing would break every guarantee built on it.
+ */
+export interface DevClockAdvance {
+  /**
+   * The instant to advance to.
+   * @format date-time
+   */
+  time: string;
+}
+
+/**
+ * The dev sequencer's clock after the request — the later of what was asked
+ * and what it already held.
+ */
+export interface DevClock {
+  /** @format date-time */
+  time: string;
+}
+
 export interface BranchHead {
   /** The content-addressed head claim id. */
   head: string;
@@ -1041,6 +1064,27 @@ export class Api<
         path: `/universe/claims/${id}/content`,
         method: "GET",
         secure: true,
+        ...params,
+      }),
+  };
+  dev = {
+    /**
+     * @description Available **only** when the stack was launched with `--dev` against a `dev` Sequencer: moves the clock the Sequencer mints `created_at` and branch-table timestamps from forward to (at least) the given instant, so a client that knows its own story's schedule — a fixture generator, say — can make the archive's *recorded* history track its *narrated* one, one contribution at a time, rather than every merge landing at the real wall-clock moment the client happened to run. The clock never moves backward: a request older than its current position is accepted and answered with the position unchanged. Absent `--dev`, or against a `concurrent` (production) Sequencer, the route is `501` — the witnessed merge time stays real, which is the whole point of `R-C2DATE`.
+     *
+     * @tags dev
+     * @name AdvanceDevClock
+     * @summary Advance the dev sequencer's clock
+     * @request POST:/dev/clock
+     * @secure
+     */
+    advanceDevClock: (data: DevClockAdvance, params: RequestParams = {}) =>
+      this.request<DevClock, Error>({
+        path: `/dev/clock`,
+        method: "POST",
+        body: data,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
         ...params,
       }),
   };

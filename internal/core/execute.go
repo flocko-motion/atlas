@@ -31,6 +31,8 @@ func (c *Core) execute(ctx context.Context, req *Request) (Stream, error) {
 		return c.health(ctx, req)
 	case OpLayerList, OpLayerInfo:
 		return c.layers(req)
+	case OpDevClockAdvance:
+		return c.devClockAdvanceOp(req)
 	}
 
 	archive, err := c.archive(ctx)
@@ -266,6 +268,17 @@ func (c *Core) layers(req *Request) (Stream, error) {
 	return &jsonStream{value: layerList{Layers: c.layerInfo}}, nil
 }
 
+// devClockAdvanceOp steers the launch's dev clock, refusing when none was wired —
+// no --dev, or a sequencer.type other than "dev" (config.build's own guard).
+func (c *Core) devClockAdvanceOp(req *Request) (Stream, error) {
+	if c.devClockAdvance == nil {
+		return nil, fmt.Errorf("%w: not launched --dev against a dev sequencer", ErrNotImplemented)
+	}
+	at := c.devClockAdvance(req.DevClockAt)
+	req.Report.step("dev clock advanced to %s", at)
+	return &jsonStream{value: devClock{Time: at}}, nil
+}
+
 // --- wire values ----------------------------------------------------------
 
 // branchHead is one branch's current head.
@@ -298,6 +311,11 @@ type branchEntry struct {
 // branchList is the branch table's branches.
 type branchList struct {
 	Branches []branchEntry `json:"branches"`
+}
+
+// devClock is the dev clock's position after an advance request.
+type devClock struct {
+	Time time.Time `json:"time"`
 }
 
 // layerList is the storage stack's layers, top to bottom.

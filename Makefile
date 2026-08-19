@@ -160,7 +160,7 @@ dev: build ## Run a dev server from DEV_CONFIG (SEED=example|release|chain|big t
 		echo ">> try:  curl $$url/health  ·  curl $$url/branches  ·  curl $$url/branches/main/head"; \
 		echo ">> ctrl-c to stop"; \
 		$(if $(SEED),$(GEN) $(SEED_ARGS) "$$url" --wait 15s &,) \
-		RANKE_SIGNER_KEY="$$(openssl genpkey -algorithm ed25519)" $(BIN) run $(DEV_CONFIG)
+		RANKE_SIGNER_KEY="$$(openssl genpkey -algorithm ed25519)" $(BIN) run --dev $(DEV_CONFIG)
 
 # Seeding a server that is already up. An in-memory stack dies with its process, so
 # against the default config this only reaches an instance started by `make dev`.

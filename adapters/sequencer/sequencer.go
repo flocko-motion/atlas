@@ -29,8 +29,12 @@ import (
 // merges that advance the head to write.
 type Sequencer = ranke.Sequencer
 
-// New builds the backend named by the section's "type".
-func New(ctx context.Context, cfg scope.Section, storage ranke.Universe, sig signer.Signer) (Sequencer, error) {
+// New builds the backend named by the section's "type". now is the time source it mints
+// claims from; nil defaults to the wall clock. Both dev.NewSequencer and
+// concurrent.NewSequencer already accept any Clock — real time is this package's own
+// choice, not something either backend requires — so a caller wanting a different source
+// (a steerable one, for --dev) supplies now instead of leaving it nil.
+func New(ctx context.Context, cfg scope.Section, storage ranke.Universe, sig signer.Signer, now func() time.Time) (Sequencer, error) {
 	if !cfg.HasValue("type") {
 		return nil, fmt.Errorf("sequencer: missing type")
 	}
@@ -47,12 +51,16 @@ func New(ctx context.Context, cfg scope.Section, storage ranke.Universe, sig sig
 	if err != nil {
 		return nil, err
 	}
+	if now == nil {
+		now = func() time.Time { return time.Now().UTC() }
+	}
+	clock := clockFunc(now)
 
 	switch t {
 	case "dev":
-		return dev.NewSequencer(ctx, storage, hist, self, systemClock{})
+		return dev.NewSequencer(ctx, storage, hist, self, clock)
 	case "concurrent":
-		return concurrent.NewSequencer(ctx, storage, hist, self, systemClock{})
+		return concurrent.NewSequencer(ctx, storage, hist, self, clock)
 	default:
 		return nil, fmt.Errorf("sequencer: unknown type %q (want dev or concurrent)", t)
 	}
@@ -84,8 +92,10 @@ func buildHistory(ctx context.Context, cfg scope.Section) (ranke.History, error)
 }
 
 // contributor mints the identity merges are signed as. created_at is pinned to the
-// epoch so the id follows from the key alone; a launch time would mint a new identity
-// every start.
+// epoch, always — not just for id stability across restarts, but because this identity
+// is minted once at boot, before any --dev caller can possibly steer the clock (the
+// HTTP server isn't listening yet); it must precede whatever the earliest merge it will
+// ever sign turns out to be, and epoch is the one instant guaranteed to.
 func contributor(ctx context.Context, u ranke.Universe, sig signer.Signer) (ranke.Contributor, error) {
 	pub, err := sig.Public(ctx)
 	if err != nil {
@@ -123,8 +133,9 @@ func (k portKey) Sign(_ io.Reader, digest []byte, _ crypto.SignerOpts) ([]byte, 
 	return k.sig.Sign(k.ctx, digest)
 }
 
-// systemClock stamps the claims the sequencer mints with wall-clock time.
-type systemClock struct{}
+// clockFunc adapts a bare function to dev.Clock/concurrent.Clock — identically shaped
+// (Tick() time.Time) in both, so one adapter serves either backend.
+type clockFunc func() time.Time
 
-// Tick returns now, in UTC.
-func (systemClock) Tick() time.Time { return time.Now().UTC() }
+// Tick reads the next timestamp.
+func (f clockFunc) Tick() time.Time { return f() }
