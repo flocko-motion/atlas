@@ -4,7 +4,7 @@ go 1.26.6
 
 require (
 	filippo.io/age v1.3.1
-	github.com/flocko-motion/ranke-go v0.21.0
+	github.com/flocko-motion/ranke-go v0.24.0
 	github.com/getkin/kin-openapi v0.147.0
 	github.com/oapi-codegen/runtime v1.7.0
 	github.com/openbao/openbao/api/v2 v2.6.0
@@ -55,6 +55,7 @@ require (
 	github.com/speakeasy-api/jsonpath v0.6.3 // indirect
 	github.com/speakeasy-api/openapi v1.24.0 // indirect
 	github.com/spf13/pflag v1.0.10 // indirect
+	github.com/veraison/go-cose v1.3.0 // indirect
 	github.com/vmware-labs/yaml-jsonpath v0.3.2 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
@@ -68,9 +69,9 @@ require (
 	golang.org/x/tools v0.48.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 	lukechampine.com/blake3 v1.4.1 // indirect
-	modernc.org/libc v1.75.3 // indirect
+	modernc.org/libc v1.75.5 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
-	modernc.org/memory v1.12.0 // indirect
+	modernc.org/memory v1.12.1 // indirect
 	modernc.org/sqlite v1.57.0 // indirect
 )
 

@@ -119,7 +119,7 @@ func newServingStack(t *testing.T, grants []string) (http.Handler, ranke.Univers
 // unrouted one is the mux's own 404, so the two are told apart by status.
 func TestRoutes(t *testing.T) {
 	h := newTestServer(t)
-	const id = testClaimID
+	id := testClaimID
 
 	for _, tc := range []struct {
 		method, path, body string

@@ -204,5 +204,15 @@ func TestRankeQueryRejects(t *testing.T) {
 	}
 }
 
-// testClaimID is a syntactically valid claim id — the mapping only parses it.
-const testClaimID = "bafyreib2rxk3rybk3aobmv5cjuql3bm2twh4jo5uxgnrmtqjbwmjnzqxvi"
+// testClaimID is a syntactically valid claim id — the mapping only parses it. Minted
+// through the library rather than a literal, so a wire-format change can't leave it
+// unparseable.
+var testClaimID = mustID("test-claim-fixture")
+
+func mustID(seed string) string {
+	id, err := ranke.HashContent([]byte(seed))
+	if err != nil {
+		panic(err)
+	}
+	return id.String()
+}

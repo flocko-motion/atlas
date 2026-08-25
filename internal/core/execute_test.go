@@ -151,9 +151,9 @@ func TestReadArms(t *testing.T) {
 	})
 
 	t.Run("an unknown claim is not found", func(t *testing.T) {
-		id, err := ranke.ParseId("bafyreib2rxk3rybk3aobmv5cjuql3bm2twh4jo5uxgnrmtqjbwmjnzqxvi")
+		id, err := ranke.HashContent([]byte("unknown-claim-fixture"))
 		if err != nil {
-			t.Fatalf("ParseId: %v", err)
+			t.Fatalf("HashContent: %v", err)
 		}
 		_, err = c.Handle(context.Background(), &Request{Op: OpClaimGet, Branch: Universe, ClaimID: id})
 		if !errors.Is(err, ErrNotFound) {
@@ -214,9 +214,9 @@ func TestCanonicalFormReachesTheWireUnaltered(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetClaim(head): %v", err)
 	}
-	want, err := head.EncodeCBOR(ranke.FormOriginal)
+	want, err := head.Envelope()
 	if err != nil {
-		t.Fatalf("EncodeCBOR: %v", err)
+		t.Fatalf("Envelope: %v", err)
 	}
 
 	body, mediaType := serve(t, c, &Request{Op: OpClaimGet, Branch: Universe, ClaimID: archive.Head()})
