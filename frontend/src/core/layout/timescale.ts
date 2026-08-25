@@ -7,22 +7,13 @@
  *          no DOM (-> ui/ticks wordFor, which turns a tag into text, and the render-time stride
  *          that decides how many of these a given zoom actually shows)
  *
- * An archive is historical, so time is the axis a reader wants. Real time will not serve as
- * a coordinate: a year of silence would push everything off screen while a thousand claims
- * within one second piled into a single column, and the same archive holds both.
- *
- * So a gap contributes the logarithm of its duration. Eleven orders of magnitude of time
- * land inside a 46-fold range of distance, ordering is never violated, and nothing needs a
- * threshold or a special case. Two claims at the *same* instant contribute nothing and so
- * coincide, which is what makes stacking mean "simultaneous" and nothing else.
- *
- * A logarithm alone would put two instants a tenth of a millisecond apart within a node's
- * width, which would read as simultaneous when it is not. Hence the floor: a gap that
- * exists at all is at least `minStep` wide.
- *
- * What the axis therefore carries is ordering and the order of magnitude of every gap. It
- * does not carry measurable duration — twice the distance is not twice the elapsed time —
- * and it does not need to, because the ruler above it reads real dates out of `atX`.
+ * Real time will not serve as a coordinate: a year of silence would push everything off
+ * screen while a thousand claims within one second piled into a column. So a gap contributes
+ * the logarithm of its duration — eleven orders of magnitude land inside a 46-fold range of
+ * distance, and two claims at the same instant contribute nothing, so stacking means only
+ * simultaneity. A logarithm alone would still read a tenth-millisecond gap as simultaneous,
+ * hence the floor: an existing gap is at least `minStep` wide. What the axis carries is
+ * ordering and magnitude, not measurable duration — the ruler reads real dates out of `atX`.
  */
 
 /** A stretch of the axis running from one instant to the next. */
@@ -51,10 +42,8 @@ export const UNITS: TimeUnit[] = ['year', 'month', 'day', 'hour', 'minute', 'sec
 
 /**
  * granularityFor is the coarsest unit that still distinguishes an instant from a neighbour this
- * far away — a claim a second from its neighbour reads to the second, one a year away reads to
- * the year. This is what lets a burst of nearby claims earn fine ruler detail and a claim after
- * a long silence settle for a coarse one, each from its own actual spacing rather than a unit
- * chosen once for the whole ruler.
+ * far away — a second-apart claim reads to the second, a year-apart one to the year, each from
+ * its own spacing rather than one unit chosen for the whole ruler.
  */
 export function granularityFor(deltaMs: number): TimeUnit {
   for (const unit of UNITS) if (UNIT_MS[unit] <= deltaMs) return unit;
@@ -69,32 +58,21 @@ export interface TickPosition {
   unit: TimeUnit;
 }
 
-/**
- * How much finer `tickPositions` below walks than a reference view needs, so a reader zooming
- * in past that reference by up to this factor still finds real positions to draw without a
- * rebuild — a rebuild costs nothing when it happens (every load recomputes the whole axis),
- * this only bounds how far a reader can zoom *between* those recomputes before ticks run out.
- */
+/** How much finer `tickPositions` walks than a reference view needs, so zooming in past it by
+ * up to this factor still finds real positions to draw without a rebuild. */
 const TICK_ZOOM_HEADROOM = 4;
 /** The label spacing a first, unstretched view of the whole axis wants. */
 const TICK_REFERENCE_GAP_PX = 66;
-/**
- * The canvas width that reference view is assumed to fill — a documented approximation, not a
- * measurement: this module draws nothing and knows no real viewport, only the axis's own scale.
- * Picking it too small only means slightly more positions get built than a first view strictly
- * needs, which costs nothing since the total is bounded regardless (see `tickPositions`); too
- * large costs some zoom headroom before a rebuild, not correctness.
- */
+/** The canvas width a first view is assumed to fill — a documented approximation, since this
+ * module knows no real viewport. Too small builds a few harmless extra positions (the total
+ * stays bounded regardless); too large costs zoom headroom, not correctness. */
 const TICK_REFERENCE_VIEWPORT_PX = 1200;
 
 /**
- * tickPositions walks every distinct instant once, left to right, keeping one whenever it has
- * advanced far enough past the last kept instant's axis position for the reference view above —
- * a greedy thinning done once at build time, rather than a ruler recomputing calendar
- * boundaries every frame. The count this produces is bounded by the axis width divided by that
- * threshold — roughly `4 · width_px / gap_px`, a small constant regardless of how many claims
- * fed the axis — since the threshold scales with the axis's own width. The first and last
- * instant are always kept, so the true ends of the loaded data are never silently absent.
+ * tickPositions greedily keeps an instant whenever it has advanced past the last kept one by
+ * the reference-view threshold above — bounded by axis width / threshold regardless of claim
+ * count, done once at build time rather than every ruler frame. First and last instant are
+ * always kept, so the true ends of the loaded data are never silently absent.
  */
 function tickPositions(times: readonly number[], toX: (at: number) => number, width: number): TickPosition[] {
   if (times.length === 0) return [];
@@ -124,36 +102,22 @@ export interface TimeScale {
   to: number;
   /** How many distinct instants carry claims. */
   instants: number;
-  /**
-   * The x-range worth opening on by default: the whole axis, less any run of remote outliers
-   * separated from the rest by a gap wide enough to be dropping into vast, genuinely empty
-   * space rather than merely a quiet stretch (-> denseRange). Nothing outside it is hidden —
-   * `toX`/`atX` and the ruler still reach every claim — this only says where a first look
-   * lands, the way a photograph is framed on its subject rather than metered to include a
-   * distant, isolated speck the lens could technically still resolve.
-   */
+  /** Where a first look should open — the whole axis, less a run of remote outliers separated
+   * by vast emptiness (-> denseRange). Nothing outside it is hidden: toX/atX and the ruler
+   * still reach every claim. */
   denseExtent: { x0: number; x1: number };
-  /**
-   * Candidate ruler labels, thinned once at build time and sorted ascending by `at` — a small,
-   * bounded set a reader zooms and pans within rather than the ruler recomputing calendar
-   * boundaries every frame (-> tickPositions, ui/ticks.ts).
-   */
+  /** Candidate ruler labels, thinned once at build time, sorted by `at` — a small bounded set
+   * the ruler zooms/pans within rather than recomputing every frame (-> tickPositions, ui/ticks.ts). */
   tickPositions: readonly TickPosition[];
   /** toX maps an instant onto the axis, clamped to its ends. */
   toX(at: number): number;
   /** atX maps an axis position back to the instant it stands for — what a ruler reads. */
   atX(x: number): number;
-  /**
-   * nearestInstant is the instant closest to `at` that actually carries claims, which is
-   * what a cursor snaps to. Snapping in time rather than in distance keeps the answer the
-   * same however the axis is compressed or the camera zoomed.
-   */
+  /** nearestInstant is the instant closest to `at` that carries claims — what a cursor snaps
+   * to. Snapping in time, not distance, keeps the answer stable under compression or zoom. */
   nearestInstant(at: number): number;
-  /**
-   * stepInstant is the next instant carrying claims after `at`, or the previous one before it.
-   * Distinct from `nearestInstant`, which can answer with the instant you are already on — a
-   * step has to move.
-   */
+  /** stepInstant is the next (or previous) instant carrying claims — distinct from
+   * nearestInstant, which may answer with the instant you're already on; a step must move. */
   stepInstant(at: number, direction: 1 | -1): number;
 }
 
@@ -178,21 +142,16 @@ export function gapWidth(ms: number, options: TimeScaleOptions = {}): number {
   return Math.max(minStep, perLog * Math.log1p(ms));
 }
 
-/**
- * A gap has to claim at least this share of whatever window still holds it before that window
- * is worth trimming past — a threshold on *relative* width because the axis already bounds
- * *absolute* width (a century tops out around 186 units), so only a gap genuinely large next
- * to its own neighbours reads as vast emptiness rather than an ordinary quiet stretch.
- */
+/** A gap must claim at least this share of its window before trimming — relative, since
+ * absolute width is already bounded (a century tops ~186 units), so only a gap genuinely large
+ * next to its neighbours reads as vast emptiness. */
 const OUTLIER_GAP_FRACTION = 0.3;
 
 /**
- * denseRange repeatedly drops the widest gap in the window under consideration, keeping
- * whichever side holds more distinct instants, for as long as that gap still claims more than
- * `OUTLIER_GAP_FRACTION` of the window it would be dropped from. A single remote claim (or a
- * short remote run of them) is what this catches — the gap on its lone side has nothing to
- * compete with, so it wins every comparison until the trim reaches the point where the
- * archive's substance actually begins.
+ * denseRange repeatedly drops the window's widest gap, keeping whichever side has more
+ * instants, while that gap still claims more than `OUTLIER_GAP_FRACTION` of the window. Catches
+ * a lone remote claim: its side has nothing to compete with, so the gap wins every comparison
+ * until the trim reaches the archive's real substance.
  */
 function denseRange(spans: Span[]): { x0: number; x1: number } {
   if (spans.length === 0) return { x0: 0, x1: 0 };
@@ -205,10 +164,8 @@ function denseRange(spans: Span[]): { x0: number; x1: number } {
     if (windowWidth <= 0 || (spans[widest].x1 - spans[widest].x0) / windowWidth < OUTLIER_GAP_FRACTION) break;
     const leftCount = widest - lo;
     const rightCount = hi - (widest + 1);
-    // Dropping the widest gap itself along with whichever side lost: keeping the left side
-    // means the window ends *before* that gap (hi = widest, not widest + 1 — the gap at index
-    // widest is the one being discarded, so it must leave the window on either branch, or a
-    // widest gap sitting last in the window left hi unchanged and looped forever).
+    // hi = widest, not widest + 1: the widest gap must leave the window either way, or one
+    // sitting last would leave hi unchanged and loop forever.
     if (leftCount >= rightCount) hi = widest;
     else lo = widest + 1;
   }

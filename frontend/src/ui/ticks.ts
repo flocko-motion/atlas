@@ -6,15 +6,10 @@
  * limits:  formatting and render-time selection; which instants are candidates at all, and at
  *          what granularity, is core's (-> core/layout/timescale TickPosition, tickPositions)
  *
- * The heavy work — walking every claim once to decide which instants are worth a label and how
- * finely to word each — happens once, at axis build time, in core/layout/timescale.ts: a
- * candidate every so often as the axis is walked left to right, so the total is a small
- * constant regardless of how many claims fed it, each tagged with the coarsest unit that still
- * distinguishes it from its predecessor, so a burst of nearby claims earns fine detail (seconds)
- * and a claim after a long silence settles for whatever its actual distance says (a year). This
- * module only turns the few candidates that fall in view into text and thins them for the
- * current zoom's on-screen spacing — a bounded, per-frame spacing check, not a recomputation of
- * the whole candidate set.
+ * Candidate selection and granularity tagging (a burst of claims reads to the second, an
+ * isolated one to the year) happen once, at axis build time, in core/layout/timescale.ts — a
+ * small, bounded set regardless of claim count. This module only words the ones in view and
+ * thins them for the current zoom, per frame.
  */
 
 import type { TickPosition, TimeUnit } from '../core/layout/timescale.ts';
@@ -44,15 +39,10 @@ export interface TickRequest {
 }
 
 /**
- * timeTicks picks which of the axis's precomputed candidates the current zoom has room to show.
- * The candidates within [from, to] are found by binary search, then all of them run through
- * the same spacing competition (-> select) a reader would get from raw calendar boundaries —
- * cheap here in a way it never was there, because the build-time thinning in
- * core/layout/timescale.ts already bounds how many candidates exist at all (a small constant
- * regardless of how many claims fed the axis), so there is no large set left to stride or
- * sample around: running every visible candidate through the real check is the simple choice
- * once that count is already small, and it is exact for any distribution of density across the
- * visible range rather than an approximation of one.
+ * timeTicks picks which of the axis's precomputed candidates the current zoom has room to
+ * show: binary search finds those within [from, to], then all of them run the spacing
+ * competition (-> select). Affordable because the candidate set is already small and bounded
+ * (-> core/layout/timescale.ts), so checking every visible one beats approximating with a stride.
  */
 export function timeTicks(req: TickRequest): TimeTick[] {
   const { from, to, positions, minGap, xOf } = req;
@@ -97,11 +87,8 @@ function upperBoundAt(positions: readonly TickPosition[], at: number): number {
   return lo;
 }
 
-/**
- * endpointTicks labels the ends of the visible span, for when it holds no precomputed
- * candidate at all — zoomed into a stretch before the first claim, after the last, or between
- * two candidates with nothing of its own. The unit follows the span, so the two labels differ.
- */
+/** endpointTicks labels the ends of a span holding no precomputed candidate at all — before
+ * the first claim, after the last, or between two with nothing of its own. */
 function endpointTicks(req: TickRequest): TimeTick[] {
   const span = req.to - req.from;
   const unit: TimeUnit =
@@ -114,42 +101,29 @@ function endpointTicks(req: TickRequest): TimeTick[] {
 }
 
 /**
- * Rough px per character at the ruler's own font — tabular-nums, so every digit is the same
- * width (-> ui/style.css .time-ruler). An estimate rather than a measurement: this module
- * places and words ticks and knows no DOM or canvas to measure a rendered string with, and an
- * estimate is enough to decide *whether two labels fit*, which is all a spacing decision needs.
+ * Rough px per character at the ruler's tabular-nums font — an estimate, since this module has
+ * no DOM or canvas to measure a rendered string with, but enough to decide whether two labels fit.
  */
 const CHAR_PX = 6;
 const LABEL_PADDING_PX = 6;
 
-/**
- * halfWidth is roughly half a label's rendered width. A tick is drawn centred on its position
- * (`.time-tick { transform: translateX(-50%) }`), so this much clearance on each side is what
- * keeps its text off a neighbour's — a flat minGap alone said nothing about how wide the label
- * actually drawn there was.
- */
+/** halfWidth is roughly half a label's rendered width — a tick draws centred on its position
+ * (`.time-tick { transform: translateX(-50%) }`), so this is the clearance one side needs. */
 function halfWidth(label: string): number {
   return (label.length * CHAR_PX + LABEL_PADDING_PX) / 2;
 }
 
-/**
- * requiredGap is the least distance two ticks may sit at without their (centred) text
- * overlapping: their combined half-widths, or the caller's own minGap, whichever asks for more
- * room — a floor under short labels, not a ceiling over long ones.
- */
+/** requiredGap is the least distance avoiding overlap: combined half-widths, or the caller's
+ * minGap, whichever is more — a floor under short labels, not a ceiling over long ones. */
 function requiredGap(a: TimeTick, b: TimeTick, minGap: number): number {
   return Math.max(minGap, halfWidth(a.label) + halfWidth(b.label));
 }
 
 /**
- * select runs every candidate through one spacing competition, the same shape as the graph's
- * own node-label budget (-> render/labels.ts): ranked coarsest unit first — a year always
- * outranks a month, a month a day, and so on down `UNITS` — so a coarse tick never loses its
- * place to a finer one that merely happened to land nearby, then by position ascending as the
- * tie-breaker within a tier, which is what reading order already is and needs no further one.
- * A candidate is kept only once it clears every tick already kept, not merely the one before
- * it, since two units can interleave in position and a list processed in position order alone
- * would let one crowd the other regardless of rank.
+ * select ranks candidates coarsest unit first (`UNITS` order, so a year always beats a nearby
+ * month or day), then by position, keeping one only once it clears every tick already kept —
+ * not just its predecessor, since two units can interleave in position (-> render/labels.ts
+ * for the graph's matching node-label budget).
  */
 function select(candidates: TimeTick[], minGap: number): TimeTick[] {
   const ranked = [...candidates].sort((a, b) => UNITS.indexOf(a.unit) - UNITS.indexOf(b.unit) || a.x - b.x);
@@ -160,11 +134,8 @@ function select(candidates: TimeTick[], minGap: number): TimeTick[] {
   return kept.sort((a, b) => a.x - b.x);
 }
 
-/**
- * wordFor writes a boundary as the part that distinguishes it. A month tick says "Mar"
- * because the year is on its own tick; a day says "Mar 4" because a bare number would be
- * ambiguous next to an hour.
- */
+/** wordFor writes a boundary as the part that distinguishes it — a month says "Mar" since the
+ * year is its own tick; a day says "Mar 4" since a bare number is ambiguous next to an hour. */
 export function wordFor(at: number, unit: TimeUnit): string {
   const d = new Date(at);
   const iso = d.toISOString();
