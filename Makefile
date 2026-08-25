@@ -41,7 +41,14 @@ PAPERS_DIR       := docs/papers
 # these are the exceptions (its own tooling). Dotdirs never match the glob.
 PAPERS_SKIP      := scripts
 
-.PHONY: all help check-tools generate verify tidy build smoke test dev seed \
+# brokkr, installed on demand rather than assumed present. Cached under bin/ (already
+# gitignored, already this repo's build-output directory) — the installer itself checks
+# the latest release against what is already there and only downloads on a mismatch.
+TOOLS_BIN         := bin/tools
+BROKKR            := $(TOOLS_BIN)/brokkr
+BROKKR_INSTALL_SH := https://raw.githubusercontent.com/flocko-motion/sindri/master/scripts/install-brokkr.sh
+
+.PHONY: all help check check-tools generate verify lint tidy build smoke test dev seed \
         ranke-go-version upgrade release major minor patch breaking feature fix docs docs-clean \
         pull-rql-schema check-rql-schema check-generated release-gate
 
@@ -188,11 +195,26 @@ verify: generate ## Regenerate from the spec, then build, vet, test, gofmt-check
 		fmt=$$(gofmt -l $$(git ls-files '*.go' | grep -v '\.gen\.go$$')); \
 		[ -z "$$fmt" ] || { echo "gofmt needed:"; echo "$$fmt"; exit 1; }; \
 		go test ./...; \
-		if command -v brokkr >/dev/null 2>&1; then brokkr lint; \
-		elif command -v sindri >/dev/null 2>&1; then sindri lint; \
-		else echo ">> lint: neither brokkr nor sindri on PATH; skipping" >&2; fi
+		$(MAKE) --no-print-directory lint
 	@$(MAKE) -s ranke-go-version
 	@$(MAKE) -s ranke-ts-version
+
+lint: ## Run brokkr lint — one already on PATH if there is one, else this repo's cached copy in bin/tools/ (the installer checks GitHub for a newer release every run, skipping the download itself when already current)
+	@if command -v brokkr >/dev/null 2>&1; then bin=brokkr; \
+	else \
+		command -v curl >/dev/null 2>&1 || { echo "ERROR: brokkr not found and curl is not on PATH to install it"; exit 1; }; \
+		curl -fsSL $(BROKKR_INSTALL_SH) | bash -s -- $(BROKKR); \
+		bin=$(BROKKR); \
+	fi; \
+	"$$bin" lint
+
+# `verify` is the Go half's own gate; frontend/ is deliberately not wired into this
+# Makefile's build (its own Makefile builds it standalone). `check` reaches across that
+# boundary only to run both halves' gates in one command — it adds nothing to either
+# side's own build, so frontend/ still builds and verifies on its own exactly as before.
+check: verify ## Whole-repo quality gate: verify (Go), then frontend/'s own check + test
+	@$(MAKE) -C frontend check
+	@$(MAKE) -C frontend test
 
 upgrade: ## Upgrade all deps, tools and ranke-go to latest, tidy, then verify; asks before raising the go directive (GO_VERSION=keep|1.26.5, RANKE_GO_VERSION=vX.Y.Z)
 	@GO_VERSION=$(GO_VERSION) \

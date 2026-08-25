@@ -4,11 +4,17 @@
 # Dependencies install themselves on first use, so a clean checkout needs nothing
 # but node.
 
-.PHONY: all dev build single bench bench-render check test clean help upgrade ranke-ts-version
+.PHONY: all dev build single bench bench-render check lint test clean help upgrade ranke-ts-version
 .DEFAULT_GOAL := all
 
 VITE  := node node_modules/vite/bin/vite.js
 NODE  := node --expose-gc --max-old-space-size=4096
+
+# brokkr, installed on demand rather than assumed present. frontend/ is part of this one
+# repo, not a separate project, so there is one cache for the whole thing — the root
+# Makefile's bin/tools/ (gitignored there) — rather than a second copy of the same tool.
+BROKKR            := ../bin/tools/brokkr
+BROKKR_INSTALL_SH := https://raw.githubusercontent.com/flocko-motion/sindri/master/scripts/install-brokkr.sh
 
 all: build single ## Default: build dist/ and the self-contained explorer.html
 
@@ -39,8 +45,18 @@ bench: node_modules ## Headless performance numbers (build, heap, layout, shape)
 bench-render: node_modules ## Frame timings in a real browser (needs a GPU; skips cleanly)
 	@node src/bench/browser-bench.ts $(ARGS)
 
-check: node_modules ## Type-check without emitting
+check: node_modules ## Type-check without emitting, then lint
 	@node_modules/typescript/bin/tsc --noEmit
+	@$(MAKE) --no-print-directory lint
+
+lint: ## Run brokkr lint over this directory — one already on PATH, else this repo's shared cached copy at ../bin/tools/ (the installer checks GitHub for a newer release every run, skipping the download itself when already current)
+	@if command -v brokkr >/dev/null 2>&1; then bin=brokkr; \
+	else \
+		command -v curl >/dev/null 2>&1 || { echo "ERROR: brokkr not found and curl is not on PATH to install it"; exit 1; }; \
+		curl -fsSL $(BROKKR_INSTALL_SH) | bash -s -- $(BROKKR); \
+		bin=$(BROKKR); \
+	fi; \
+	"$$bin" lint
 
 # Node's own runner, which strips the types — the same way the benches run. Core is
 # headless, so its behaviour is testable without a DOM or a browser.
