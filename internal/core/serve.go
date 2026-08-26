@@ -90,6 +90,22 @@ func (s *queryStream) writeResult(w io.Writer, r ranke.QueryResult) (int64, erro
 			}
 		}
 		return n, nil
+	case ranke.KindClaimEnvelope:
+		// Envelope bytes ride the same fields as an encoded claim (ranke-go's
+		// encodeEach fills ClaimEncoded/PathEncoded regardless of kind) — only the
+		// Kind tag tells a reader it holds the stored envelope, not an assembled
+		// record (R-QCANON, R-QSTREAM).
+		return s.seq.writeRecord(w, r.ClaimEncoded)
+	case ranke.KindPathEnvelope:
+		var n int64
+		for _, claim := range r.PathEncoded {
+			written, err := s.seq.writeRecord(w, claim)
+			n += written
+			if err != nil {
+				return n, err
+			}
+		}
+		return n, nil
 	case ranke.KindClaimId:
 		return s.seq.writeValue(w, r.ClaimId.String())
 	case ranke.KindPathId:

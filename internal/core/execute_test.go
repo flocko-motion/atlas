@@ -237,6 +237,40 @@ func TestCanonicalFormReachesTheWireUnaltered(t *testing.T) {
 	}
 }
 
+// TestQueryDetailEnvelopeReturnsStoredBytes pins detail: envelope end to end, through
+// /query rather than the by-id GET TestCanonicalFormReachesTheWireUnaltered already
+// covers: the result carries the exact stored envelope bytes (R-QCANON), not a
+// re-encoded claim.
+func TestQueryDetailEnvelopeReturnsStoredBytes(t *testing.T) {
+	c := newStack(t)
+	ctx := context.Background()
+
+	archive, err := c.archive(ctx)
+	if err != nil {
+		t.Fatalf("archive: %v", err)
+	}
+	head, err := archive.GetClaim(ctx, archive.Head())
+	if err != nil {
+		t.Fatalf("GetClaim(head): %v", err)
+	}
+	want, err := head.Envelope()
+	if err != nil {
+		t.Fatalf("Envelope: %v", err)
+	}
+
+	q := ranke.Query{
+		Select: ranke.Select{Branch: ranke.BranchArchive},
+		Output: ranke.Output{Detail: ranke.DetailEnvelope, Encoding: ranke.ResultCBOR},
+	}
+	body, mediaType := serve(t, c, &Request{Op: OpClaimQuery, Branch: ranke.BranchArchive, Query: &q})
+	if mediaType != mediaCBORSeq {
+		t.Fatalf("content type = %q, want %q", mediaType, mediaCBORSeq)
+	}
+	if !bytes.Contains(body, want) {
+		t.Fatal("query body does not carry the head's stored envelope bytes verbatim")
+	}
+}
+
 // TestLayersReportNameAndTypeOnly pins that introspection leaks no address, credential
 // or path — the layer list is what config retained, which is a name and a type.
 func TestLayersReportNameAndTypeOnly(t *testing.T) {

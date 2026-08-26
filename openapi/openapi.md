@@ -2299,7 +2299,7 @@ Shapes each result along orthogonal axes. detail: claims with form: original and
 |Name|Type|Required|Restrictions|Description|
 |---|---|---|---|---|
 |shape|string|false|none|single yields the reached endpoints, one element each; path yields routes, each running outward from the frontier claim its walk began at (R-QSHAPE).|
-|detail|string|false|none|What each element carries: id (the id alone) or claims (the claim in full). Under shape: path it applies to every claim in the route (R-QDETAIL).|
+|detail|string|false|none|What each element carries: id (the id alone), claims (a record the engine assembles, shaped by form and content), or envelope (the stored bytes copied out whole, the only output a client can hash against an id; form and content do not apply, and both form: materialized and encoding: json are rejected with it). Under shape: path it applies to every claim in the route (R-QDETAIL, R-QCANON).|
 |form|string|false|none|Which field values a claim carries: original as written, a diff-overlaid claim's delta; materialized with any contribution/diff chain resolved over the predecessor it references, recursively to a base claim. A property of the values, hence orthogonal to detail and encoding (R-QFORM).|
 |content|[OutputContent](#schemaoutputcontent)|false|none|Inline content per claim. Absent, no content is inlined (R-QCONTENT).|
 |encoding|string|false|none|json is text with content base64-encoded, cbor is binary; the same information either way (R-QENCODING).|
@@ -2312,6 +2312,7 @@ Shapes each result along orthogonal axes. detail: claims with form: original and
 |shape|path|
 |detail|id|
 |detail|claims|
+|detail|envelope|
 |form|original|
 |form|materialized|
 |encoding|json|
