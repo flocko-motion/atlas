@@ -8,7 +8,7 @@
  *          that decides how many of these a given zoom actually shows)
  *
  * Real time will not serve as a coordinate: a year of silence would push everything off
- * screen while a thousand claims within one second piled into a column. So a gap contributes
+ * screen while a thousand claims within one second pile into a column. So a gap contributes
  * the logarithm of its duration — eleven orders of magnitude land inside a 46-fold range of
  * distance, and two claims at the same instant contribute nothing, so stacking means only
  * simultaneity. A logarithm alone would still read a tenth-millisecond gap as simultaneous,
@@ -63,35 +63,122 @@ export interface TickPosition {
 const TICK_ZOOM_HEADROOM = 4;
 /** The label spacing a first, unstretched view of the whole axis wants. */
 const TICK_REFERENCE_GAP_PX = 66;
-/** The canvas width a first view is assumed to fill — a documented approximation, since this
- * module knows no real viewport. Too small builds a few harmless extra positions (the total
- * stays bounded regardless); too large costs zoom headroom, not correctness. */
+/** The canvas width a first view is assumed to fill — a documented guess, since this module
+ * knows no real viewport. It feeds `TICK_BUDGET` directly: too small starves it of candidates
+ * (and the zoom headroom they buy); too large spends budget a narrower real viewport won't need. */
 const TICK_REFERENCE_VIEWPORT_PX = 1200;
 
-/**
- * tickPositions greedily keeps an instant whenever it has advanced past the last kept one by
- * the reference-view threshold above — bounded by axis width / threshold regardless of claim
- * count, done once at build time rather than every ruler frame. First and last instant are
- * always kept, so the true ends of the loaded data are never silently absent.
- */
-function tickPositions(times: readonly number[], toX: (at: number) => number, width: number): TickPosition[] {
-  if (times.length === 0) return [];
-  const axisUnitsPerPx = width > 0 ? width / TICK_REFERENCE_VIEWPORT_PX : 0;
-  const threshold = (TICK_REFERENCE_GAP_PX / TICK_ZOOM_HEADROOM) * axisUnitsPerPx;
+/** The main pool `tickPositions` splits by width share (-> budgetsFor) — independent of claim
+ * count, so a run's natural share never grows just because there are more runs elsewhere. */
+const TICK_BUDGET = Math.ceil((TICK_REFERENCE_VIEWPORT_PX / TICK_REFERENCE_GAP_PX) * TICK_ZOOM_HEADROOM);
+/** A boosted run keeps at least this many candidates — see `budgetsFor` below. */
+const MIN_CANDIDATES_PER_RUN = 2;
+/** A second, capped pool an under-share run may draw a boost from, on top of TICK_BUDGET — a
+ * swarm of needy runs draws a fixed total from it, not one growing with how many there are. The
+ * candidate set is bounded overall at roughly TICK_BUDGET + FLOOR_HEADROOM plus a small constant
+ * per run (each force-keeps its own first/last item), not at TICK_BUDGET alone. */
+const FLOOR_HEADROOM = TICK_BUDGET;
 
-  const out: TickPosition[] = [];
-  let lastX = -Infinity;
-  let lastAt: number | null = null;
+/** A maximal, time-ordered stretch of instants that all tag the same unit. */
+interface Run {
+  unit: TimeUnit;
+  items: { at: number; x: number }[];
+}
+
+/** coverageOf is each run's share of RESPONSIBILITY for the axis — from its own first instant to
+ * the next run's first instant (axis end, for the last run), not its own internal span, which
+ * leaves the gap BETWEEN runs credited to nobody. This partition always sums to the full width. */
+function coverageOf(runs: readonly Run[], axisWidth: number): number[] {
+  const starts = runs.map((r) => r.items[0].x);
+  return runs.map((_, i) => (i + 1 < runs.length ? starts[i + 1] : axisWidth) - starts[i]);
+}
+
+/**
+ * budgetsFor splits TICK_BUDGET across runs by each one's own share of the axis (-> coverageOf),
+ * bounded by construction since shares of one pool sum to it. A share rounding below the floor
+ * competes for a slot in `FLOOR_HEADROOM` instead of an unconditional bump (unbounded once many
+ * need it) or a sub-floor fraction (worth zero). Slots go by AXIS POSITION, not share: real
+ * archives rarely tie exactly, so a share-ranked sample draws from an order unrelated to where a
+ * run sits, leaving some stretches bare while others get several.
+ */
+function budgetsFor(runs: readonly Run[], axisWidth: number): number[] {
+  const widths = coverageOf(runs, axisWidth);
+  const totalWidth = widths.reduce((sum, w) => sum + w, 0);
+  const natural = totalWidth > 0 ? widths.map((w) => (w / totalWidth) * TICK_BUDGET) : widths.map(() => 0);
+
+  const budgets = new Array<number>(runs.length).fill(0);
+  const underShare: number[] = [];
+  natural.forEach((share, i) => {
+    if (Math.round(share) >= MIN_CANDIDATES_PER_RUN) budgets[i] = Math.round(share);
+    else underShare.push(i);
+  });
+
+  const affordable = Math.floor(FLOOR_HEADROOM / MIN_CANDIDATES_PER_RUN);
+  const byPosition = underShare.sort((a, b) => runs[a].items[0].x - runs[b].items[0].x);
+  const boosted =
+    byPosition.length <= affordable
+      ? byPosition
+      : Array.from({ length: affordable }, (_, k) => byPosition[Math.floor((k * byPosition.length) / affordable)]);
+  for (const i of boosted) budgets[i] = Math.min(MIN_CANDIDATES_PER_RUN, runs[i].items.length);
+  return budgets;
+}
+
+/**
+ * tickPositions tags every RAW instant by its left-neighbour distance (-> granularityFor) purely
+ * to form and budget RUNS (-> budgetsFor) — that tag describes claim density, not drawn spacing,
+ * so it is provisional: every kept candidate is reworded after (-> retagKept). The true first and
+ * last instant are always kept even where their own run drew no budget.
+ */
+function tickPositions(times: readonly number[], toX: (at: number) => number, axisWidth: number): TickPosition[] {
+  if (times.length === 0) return [];
+  const runs: Run[] = [];
   for (let i = 0; i < times.length; i++) {
     const at = times[i];
-    const x = toX(at);
-    if (x - lastX < threshold && i !== times.length - 1) continue;
-    const neighbour = lastAt ?? times[i + 1] ?? at;
-    out.push({ axisX: x, at, unit: granularityFor(Math.abs(at - neighbour)) });
-    lastX = x;
-    lastAt = at;
+    const neighbour = i > 0 ? times[i - 1] : (times[i + 1] ?? at);
+    const unit = granularityFor(Math.abs(at - neighbour));
+    const item = { at, x: toX(at) };
+    const current = runs[runs.length - 1];
+    if (current && current.unit === unit) current.items.push(item);
+    else runs.push({ unit, items: [item] });
   }
-  return out;
+
+  const budgets = budgetsFor(runs, axisWidth);
+  const out: { at: number; x: number }[] = [];
+  runs.forEach(({ items }, r) => {
+    const budget = budgets[r];
+    if (budget <= 0) return;
+    const width = items[items.length - 1].x - items[0].x;
+    const threshold = width > 0 ? width / budget : 0;
+    let lastX = -Infinity;
+    for (let i = 0; i < items.length; i++) {
+      const g = items[i];
+      if (g.x - lastX < threshold && i !== items.length - 1) continue;
+      out.push(g);
+      lastX = g.x;
+    }
+  });
+
+  const first = times[0];
+  const last = times[times.length - 1];
+  if (!out.some((p) => p.at === first)) out.push({ at: first, x: toX(first) });
+  if (!out.some((p) => p.at === last)) out.push({ at: last, x: toX(last) });
+  out.sort((a, b) => a.at - b.at);
+  return retagKept(out);
+}
+
+/**
+ * retagKept words each surviving candidate by its distance to the PREVIOUS SURVIVING one — the
+ * gap thinning actually drew, once the runs that formed it are gone. The raw-sequence tag (what
+ * run-forming needs) would describe density instead, reading a claim every few hours as an hour
+ * however far its surviving neighbour landed — every tick on a busy whole-axis view a bare time
+ * with no date. A dense stretch surviving thinning at second-or-finer spacing is meant to read
+ * bare even zoomed out: a burst reads to the second because it IS one.
+ */
+function retagKept(kept: readonly { at: number; x: number }[]): TickPosition[] {
+  return kept.map((p, i) => {
+    const neighbour = i > 0 ? kept[i - 1].at : (kept[1]?.at ?? p.at);
+    return { axisX: p.x, at: p.at, unit: granularityFor(Math.abs(p.at - neighbour)) };
+  });
 }
 
 export interface TimeScale {
