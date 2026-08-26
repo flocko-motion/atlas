@@ -1,6 +1,6 @@
 module github.com/flocko-motion/rankedb
 
-go 1.26.6
+go 1.27.0
 
 require (
 	filippo.io/age v1.3.1
