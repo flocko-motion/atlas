@@ -32,6 +32,7 @@ import {
   unionOf,
 } from './instances.ts';
 import { drawNodeLabel } from './labels.ts';
+import { frameStats } from './frame-stats.ts';
 import { pin } from './hold.ts';
 
 /** How long the pointer must rest before the preview updates. */
@@ -426,12 +427,7 @@ function bindEvents(instance: Sigma): void {
   const tick = () => {
     const now = performance.now();
     if (now - lastSample >= 500) {
-      const fps = (frames / (now - lastSample)) * 1000;
-      store.patchStatus({
-        fps,
-        frameMs: frames > 0 ? (now - lastSample) / frames : null,
-        stallMs: worstGap > 0 ? worstGap : null,
-      });
+      store.patchStatus(frameStats(frames, now - lastSample, worstGap));
       frames = 0;
       worstGap = 0;
       lastSample = now;
