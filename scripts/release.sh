@@ -114,7 +114,10 @@ if command -v gh >/dev/null; then
 		sleep 2
 	done
 	if [ -z "$run_id" ] || [ "$run_id" = "null" ]; then
-		echo "  tag pushed, but no release run appeared — check: gh run list --workflow=release.yml" >&2
+		echo "tag pushed, but no release run appeared after 60s — check: gh run list --workflow=release.yml" >&2
+		echo "if none shows up, the tag needs deleting and retrying:" >&2
+		echo "  git tag -d $next && git push origin --delete $next" >&2
+		exit 1
 	elif gh run watch "$run_id" --exit-status; then
 		echo "release ${next} published ✓ (back on '$start')"
 		exit 0
