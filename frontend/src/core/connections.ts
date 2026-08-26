@@ -101,6 +101,31 @@ export function builtInLocalDev(): Connection {
   };
 }
 
+/**
+ * selfOrigin is this page's own origin when a ranke-db instance is what served it — true
+ * only at /explorer, the exact path its embed mounts (-> ../../adapters/endpoints/
+ * rest_http). Vite's dev server never serves that path, so `make -C frontend dev` reaches
+ * this the same as before: null, falling through to the mock/local-dev defaults. `window`
+ * itself is absent under Node's test runner, which is core's — no DOM, no browser globals.
+ */
+export function selfOrigin(): string | null {
+  if (typeof window === 'undefined') return null;
+  return window.location.pathname === '/explorer' ? window.location.origin : null;
+}
+
+/** builtInSelf is the live instance that served this page (-> selfOrigin). */
+function builtInSelf(origin: string): Connection {
+  return {
+    id: 'self',
+    name: 'this server',
+    kind: 'rest',
+    baseUrl: origin,
+    authKind: 'none',
+    remember: false,
+    mock: { ...DEFAULT_MOCK },
+  };
+}
+
 export type ProbeState = 'unknown' | 'probing' | 'ok' | 'failed';
 
 export interface ProbeResult {
@@ -157,9 +182,13 @@ function loadPersisted(): Persisted {
   } catch {
     // A corrupt or unavailable store is not worth failing the app over.
   }
-  // Both built-ins, with the generator active: an explorer that opens against a server
-  // that may not be running would report a failure before the user asked for anything.
+  // The server that served this page, if any, is live by construction — default to it
+  // rather than the generator. Otherwise the same defensive default as before: an
+  // explorer opened some other way, against a server that may not be running, would
+  // report a failure before the user asked for anything.
+  const self = selfOrigin();
   const mock = builtInMock();
+  if (self) return { connections: [builtInSelf(self), mock, builtInLocalDev()], activeId: 'self' };
   return { connections: [mock, builtInLocalDev()], activeId: mock.id };
 }
 
