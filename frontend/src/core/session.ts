@@ -14,6 +14,7 @@ import { CONTENT_LIMIT, sourceFor } from './data/source.ts';
 import { mergeClaimsProgressively, graph, totalContributions } from './graph/universe.ts';
 import { membersOf, setMembers } from './graph/members.ts';
 import { contentOf, rememberContent } from './content.ts';
+import { claimBytesOf, rememberClaimBytes } from './claimBytes.ts';
 import { covers, lensOf, windowAround } from './graph/lens.ts';
 import type { Window } from './graph/lens.ts';
 import type { DirectedGraph } from 'graphology';
@@ -23,8 +24,9 @@ import { degreeStats, sizeByDegree } from './graph/build.ts';
 import { apply } from './layout/layouts.ts';
 import type { LayoutName } from './layout/layouts.ts';
 import { stretchOf, stretchX, timelineContext } from './timeline.ts';
-import { defaultView, useExplorer } from './store.ts';
-import type { ViewState } from './store.ts';
+import { activeView, defaultView, useExplorer } from './store.ts';
+import type { CborTabState, ViewState } from './store.ts';
+import { shortId } from './claims.ts';
 import { ARCHIVE_SCOPE, scopeLabel } from './scope.ts';
 import type { Scope } from './scope.ts';
 
@@ -94,8 +96,7 @@ export async function load(req: LoadRequest = {}): Promise<void> {
   // The scope the picker selected is what a server read is generated from; a generator
   // ignores it. The view's own scope keeps the read and the view in agreement, and a caller
   // that has just chosen one passes it rather than waiting for the patch to land.
-  const scope =
-    req.scope ?? useExplorer.getState().views.find((v) => v.id === view.id)?.scope ?? null;
+  const scope = req.scope ?? activeView(useExplorer.getState())?.scope ?? null;
 
   const expected = scope ? (membersOf(scope.name)?.size ?? 0) : 0;
   let page;
@@ -249,7 +250,7 @@ export async function discoverScopes(): Promise<void> {
 export async function selectScope(scope: Scope | null): Promise<void> {
   const store = useExplorer.getState();
   store.setScopes({ ...store.scopes, selected: scope });
-  const active = store.views.find((v) => v.id === store.activeViewId);
+  const active = activeView(store);
   if (active) store.patchView(active.id, { scope });
   useQuery.getState().patchQuery({ branch: scope ? scope.name : null });
 
@@ -384,8 +385,7 @@ export function setOnLoaded(fn: (framing: Framing) => void): void {
  * measure it, since the height that shows all of them is a fact about the window, not the graph.
  */
 export function showAll(): void {
-  const store = useExplorer.getState();
-  const active = store.views.find((v) => v.id === store.activeViewId);
+  const active = activeView(useExplorer.getState());
   if (active && active.xStretch !== 1) stretchX(1 / active.xStretch);
   // The one caller with framing of its own: the camera reset below is the whole point of it.
   onLoaded?.('keep');
@@ -404,27 +404,40 @@ export function setOnShowAll(fn: () => void): void {
   onShowAll = fn;
 }
 
-/** ensureView returns the view to render into, creating one when needed. */
+/**
+ * ensureView returns the view to render into, creating one when needed. The active tab may be
+ * a CBOR tab, which is not a view to reuse — that takes the same branch as there being no
+ * active tab at all, and the most recently added graph tab is brought forward instead, so
+ * loading with a CBOR tab open does not pile up a fresh view per load.
+ */
 function ensureView(layout?: LayoutName, asNewView?: boolean): ViewState {
   const store = useExplorer.getState();
-  const active = store.views.find((v) => v.id === store.activeViewId);
+  const active = activeView(store);
   if (active && !asNewView) {
     if (layout && layout !== active.layout) store.patchView(active.id, { layout });
     return { ...active, layout: layout ?? active.layout };
+  }
+  if (!asNewView) {
+    const existing = [...store.tabs].reverse().find((t) => t.kind === 'graph');
+    if (existing) {
+      store.activateTab(existing.id);
+      if (layout && layout !== existing.layout) store.patchView(existing.id, { layout });
+      return { ...existing, layout: layout ?? existing.layout };
+    }
   }
   const id = `view-${++viewCounter}`;
   const view = defaultView(id, `view ${viewCounter}`);
   // A view made after a scope was chosen inherits it, or its first read has no scope.
   view.scope = store.scopes.selected;
   if (layout) view.layout = layout;
-  store.addView(view);
+  store.addTab(view);
   return view;
 }
 
 /** relayout re-runs the active view's layout over the whole union. */
 export async function relayout(layout: LayoutName): Promise<void> {
   const store = useExplorer.getState();
-  const active = store.views.find((v) => v.id === store.activeViewId);
+  const active = activeView(store);
   if (!active) return;
   store.patchView(active.id, { layout });
   store.patchStatus({ busy: 'laying out', progress: null });
@@ -494,6 +507,46 @@ export async function fetchContent(id: string): Promise<void> {
       error: err instanceof Error ? err.message : String(err),
     });
   }
+}
+
+let cborTabCounter = 0;
+
+/**
+ * openClaimCbor opens a claim's raw CBOR in its own main-pane tab, or brings an already-open
+ * one forward — a claim is content-addressed, so two tabs for the same one would show the
+ * same bytes twice. The scope recorded is whatever is selected now; any scope that holds the
+ * claim will fetch the same bytes, since that is what content-addressing means.
+ */
+export function openClaimCbor(id: string): void {
+  const store = useExplorer.getState();
+  const existing = store.tabs.find((t) => t.kind === 'cbor' && t.claimId === id);
+  if (existing) {
+    store.activateTab(existing.id);
+    return;
+  }
+  const tab: CborTabState = {
+    kind: 'cbor',
+    id: `cbor-${++cborTabCounter}`,
+    label: shortId(id),
+    claimId: id,
+    scope: store.scopes.selected,
+  };
+  store.addTab(tab);
+}
+
+/**
+ * fetchClaimBytes reads a claim's own signed CBOR for a CBOR tab, caching it the same way
+ * `fetchContent` caches a claim's content — a claim's bytes are what its id hashes, so a read
+ * once done is done for the session. Unlike content there is no size gate: a claim's own
+ * record is bounded by the field caps the ADT already holds it to, not a read-time policy.
+ */
+export async function fetchClaimBytes(id: string, scope: Scope | null): Promise<void> {
+  if (claimBytesOf(id)) return;
+  const connection = activeConnection();
+  if (!connection) throw new Error('no source configured');
+  const source = sourceFor(connection, useConnections.getState().secretOf(connection.id));
+  const bytes = await source.claimBytes(scope, id);
+  rememberClaimBytes(id, bytes);
 }
 
 /**

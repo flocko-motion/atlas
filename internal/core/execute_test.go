@@ -151,9 +151,9 @@ func TestReadArms(t *testing.T) {
 	})
 
 	t.Run("an unknown claim is not found", func(t *testing.T) {
-		id, err := ranke.ParseId("bafyreib2rxk3rybk3aobmv5cjuql3bm2twh4jo5uxgnrmtqjbwmjnzqxvi")
+		id, err := ranke.HashContent([]byte("unknown-claim-fixture"))
 		if err != nil {
-			t.Fatalf("ParseId: %v", err)
+			t.Fatalf("HashContent: %v", err)
 		}
 		_, err = c.Handle(context.Background(), &Request{Op: OpClaimGet, Branch: Universe, ClaimID: id})
 		if !errors.Is(err, ErrNotFound) {
@@ -214,9 +214,9 @@ func TestCanonicalFormReachesTheWireUnaltered(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetClaim(head): %v", err)
 	}
-	want, err := head.EncodeCBOR(ranke.FormOriginal)
+	want, err := head.Envelope()
 	if err != nil {
-		t.Fatalf("EncodeCBOR: %v", err)
+		t.Fatalf("Envelope: %v", err)
 	}
 
 	body, mediaType := serve(t, c, &Request{Op: OpClaimGet, Branch: Universe, ClaimID: archive.Head()})
@@ -234,6 +234,40 @@ func TestCanonicalFormReachesTheWireUnaltered(t *testing.T) {
 	}
 	if !decoded.ID().Equal(archive.Head()) {
 		t.Fatalf("decoded id = %s, want %s", decoded.ID(), archive.Head())
+	}
+}
+
+// TestQueryDetailEnvelopeReturnsStoredBytes pins detail: envelope end to end, through
+// /query rather than the by-id GET TestCanonicalFormReachesTheWireUnaltered already
+// covers: the result carries the exact stored envelope bytes (R-QCANON), not a
+// re-encoded claim.
+func TestQueryDetailEnvelopeReturnsStoredBytes(t *testing.T) {
+	c := newStack(t)
+	ctx := context.Background()
+
+	archive, err := c.archive(ctx)
+	if err != nil {
+		t.Fatalf("archive: %v", err)
+	}
+	head, err := archive.GetClaim(ctx, archive.Head())
+	if err != nil {
+		t.Fatalf("GetClaim(head): %v", err)
+	}
+	want, err := head.Envelope()
+	if err != nil {
+		t.Fatalf("Envelope: %v", err)
+	}
+
+	q := ranke.Query{
+		Select: ranke.Select{Branch: ranke.BranchArchive},
+		Output: ranke.Output{Detail: ranke.DetailEnvelope, Encoding: ranke.ResultCBOR},
+	}
+	body, mediaType := serve(t, c, &Request{Op: OpClaimQuery, Branch: ranke.BranchArchive, Query: &q})
+	if mediaType != mediaCBORSeq {
+		t.Fatalf("content type = %q, want %q", mediaType, mediaCBORSeq)
+	}
+	if !bytes.Contains(body, want) {
+		t.Fatal("query body does not carry the head's stored envelope bytes verbatim")
 	}
 }
 

@@ -26,6 +26,7 @@ const MOCK_PARAMS = { claims: 400, seed: 7, claimsPerContribution: 10 };
 /** viewWith is a view carrying just the predicate under test. */
 function viewWith(scope: Scope | null): ViewState {
   return {
+    kind: 'graph',
     id: 'v1',
     label: 'v1',
     contributionRange: null,

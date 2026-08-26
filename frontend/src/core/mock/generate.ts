@@ -13,14 +13,16 @@
  * same type a read from an instance returns. It buys a generator that cannot drift from the
  * model it stands in for, and it costs ~0.12 ms a claim — an encode and a hash per record, which
  * is what a claim costs (see README.md for where that figure went between library releases).
- * Claims are identity-signed (§5.7): no key is held here, so the contributors publish none.
+ * Every claim is signed (`V-SIG`): each contributor mints a synthetic pubkey/signer pair
+ * from `hashContent`, never a real key, since nothing here ever verifies a signature.
  */
 
 import { hashContent, newClaim } from '@flocko-motion/ranke';
-import type { Claim, Contributor, EdgeInput } from '@flocko-motion/ranke';
+import type { Claim, Contributor, EdgeInput, Signer } from '@flocko-motion/ranke';
 import {
   EdgeTypeBranch,
   EdgeTypeHead,
+  EncodingOctetStream,
   NodeClassDerivation,
   NodeClassEntity,
   NodeClassRelation,
@@ -75,8 +77,35 @@ export interface GenerateOptions {
   claimsPerContribution?: number;
 }
 
-/** A contributor publishing no key: what identity-signed claims are attributed to (§5.7). */
-const KEYLESS = new Uint8Array(0);
+/** concatBytes joins byte arrays, for signing input built from more than one field. */
+function concatBytes(...parts: Uint8Array[]): Uint8Array {
+  const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
+  let at = 0;
+  for (const p of parts) {
+    out.set(p, at);
+    at += p.length;
+  }
+  return out;
+}
+
+/** An Ed25519 signature is exactly this many bytes; the envelope codec rejects any other length. */
+const SIGNATURE_LEN = 64;
+
+/**
+ * mintSigner derives a synthetic identity from `hashContent` rather than a real key: a mock
+ * signature is never verified, only checked against the pubkey a claim declares (`V-SIG`) and
+ * for length, so two hashes of the message under the pubkey, concatenated to the envelope's
+ * expected width, serve as well as a real one.
+ */
+function mintSigner(label: string): Signer {
+  const pubkey = hashContent(new TextEncoder().encode(`mock-pubkey-${label}`)).rawBytes();
+  const sign = (message: Uint8Array): Uint8Array => {
+    const a = hashContent(concatBytes(pubkey, message)).rawBytes();
+    const b = hashContent(concatBytes(message, pubkey)).rawBytes();
+    return concatBytes(a, b).slice(0, SIGNATURE_LEN);
+  };
+  return { pubkey, sign };
+}
 
 /** mulberry32 is a small deterministic PRNG — same seed, same archive. */
 function mulberry32(seed: number): () => number {
@@ -185,6 +214,8 @@ interface Emit {
   size?: number;
   /** Inline content: what this claim says, carried in the record and committed to by its id. */
   text?: string;
+  /** Inline content as raw bytes — a contributor's declared pubkey, which is not text. */
+  bytes?: Uint8Array;
   /**
    * A caption for a claim carrying neither — the structural ones, whose content is their edges.
    * The kind above it is the claim's own subtype, so no caller repeats it (-> core/claims).
@@ -192,6 +223,8 @@ interface Emit {
   detail?: string;
   /** Makes the claim a diff over the revision it names, as a branch table is. */
   diffOf?: string;
+  /** Every claim is signed (`V-SIG`); mintSigner is what mints this one's identity. */
+  signer: Signer;
 }
 
 /**
@@ -231,6 +264,16 @@ export function generate(n: number, seedOrOpts: number | GenerateOptions = 0x5ee
    * stays external: an address and a size, with the blob in the Universe.
    */
   const content = (input: Emit) => {
+    if (input.bytes !== undefined) {
+      return {
+        content: {
+          kind: 'inline' as const,
+          bytes: input.bytes,
+          size: input.bytes.length,
+          encoding: EncodingOctetStream,
+        },
+      };
+    }
     if (input.text !== undefined) {
       const bytes = new TextEncoder().encode(input.text);
       return { content: { kind: 'inline' as const, bytes, size: bytes.length, encoding: CONTENT_ENCODING } };
@@ -271,6 +314,7 @@ export function generate(n: number, seedOrOpts: number | GenerateOptions = 0x5ee
       height: heightOver(input.contributor, edges),
       ...content(input),
       edges,
+      signer: input.signer,
       ...(input.diffOf === undefined ? {} : { diffOf: input.diffOf }),
     });
     claims.push({
@@ -291,15 +335,22 @@ export function generate(n: number, seedOrOpts: number | GenerateOptions = 0x5ee
     return claims.length - 1;
   };
 
+  /** Every contributor's own signer, index-aligned with `contributors`. */
+  const contributorSigners: Signer[] = [];
   for (let i = 0; i < CONTRIBUTORS; i++) {
-    contributors.push(emit({ type: NodeTypeContributor, detail: `#${i}` }));
+    const signer = mintSigner(`${seed}:${i}`);
+    contributorSigners.push(signer);
+    contributors.push(
+      emit({ type: NodeTypeContributor, detail: `#${i}`, bytes: signer.pubkey, signer }),
+    );
   }
 
   /** Every claim names its contributor — the attribution that makes contributors hubs. */
-  const contributorFor = (): Contributor => ({
-    id: claimAt(contributors[(rnd() * contributors.length) | 0]).id,
-    pubkey: KEYLESS,
-  });
+  const contributorFor = (): { contributor: Contributor; signer: Signer } => {
+    const k = (rnd() * contributors.length) | 0;
+    const signer = contributorSigners[k];
+    return { contributor: { id: claimAt(contributors[k]).id, pubkey: signer.pubkey }, signer };
+  };
 
   /** drawInput picks an earlier claim, biased towards recent ones. */
   const drawInput = (from: number[]): number | undefined => {
@@ -325,7 +376,7 @@ export function generate(n: number, seedOrOpts: number | GenerateOptions = 0x5ee
     if (kind === NodeClassDerivation && sources.length > 0) {
       // The contributor is drawn first, before anything the edges draw: one random stream
       // decides the whole archive, so where a draw happens is part of what a seed means.
-      const contributor = contributorFor();
+      const { contributor, signer } = contributorFor();
       const edges: EdgeInput[] = [];
       const inputs = 1 + ((rnd() * 4) | 0);
       for (let k = 0; k < inputs; k++) {
@@ -339,13 +390,14 @@ export function generate(n: number, seedOrOpts: number | GenerateOptions = 0x5ee
         contributor,
         edges,
         text: says(NodeClassDerivation, subtype),
+        signer,
       });
       derivations.push(idx);
       return idx;
     }
 
     if (kind === NodeClassEntity && derivations.length > 0) {
-      const contributor = contributorFor();
+      const { contributor, signer } = contributorFor();
       const edges: EdgeInput[] = [];
       const inputs = 1 + ((rnd() * 3) | 0);
       for (let k = 0; k < inputs; k++) {
@@ -358,6 +410,7 @@ export function generate(n: number, seedOrOpts: number | GenerateOptions = 0x5ee
         contributor,
         edges,
         text: says(NodeClassEntity, subtype),
+        signer,
       });
       entities.push(idx);
       entityPool.push(idx);
@@ -365,7 +418,7 @@ export function generate(n: number, seedOrOpts: number | GenerateOptions = 0x5ee
     }
 
     if (kind === NodeClassRelation && entities.length > 1) {
-      const contributor = contributorFor();
+      const { contributor, signer } = contributorFor();
       const edges: EdgeInput[] = [];
       const arity = rnd() < 0.9 ? 2 : 3;
       const seen = new Set<number>();
@@ -392,19 +445,22 @@ export function generate(n: number, seedOrOpts: number | GenerateOptions = 0x5ee
           contributor,
           edges,
           text: says(NodeClassRelation, subtype),
+          signer,
         });
       }
     }
 
     // Sources are always possible, and are what the archive starts with.
     const subtype = pick(SUBTYPES[NodeClassSource], rnd);
+    const { contributor, signer } = contributorFor();
     const idx = emit({
       type: `${NodeClassSource}/${subtype}`,
-      contributor: contributorFor(),
+      contributor,
       // A source is a document, so its bytes live in the Universe and the claim carries an
       // address; the caption is what a catalogue entry for it would say.
       size: 512 + ((rnd() * 262144) | 0),
       detail: `${pick(THINGS, rnd)}, ${pick(PLACES, rnd)}`,
+      signer,
     });
     sources.push(idx);
     return idx;
@@ -429,7 +485,7 @@ export function generate(n: number, seedOrOpts: number | GenerateOptions = 0x5ee
     for (const idx of added) claims[idx].branch = branch;
 
     // The head consolidates the previous head (all of history) plus what is new.
-    const headContributor = contributorFor();
+    const { contributor: headContributor, signer: headSigner } = contributorFor();
     const headEdges: EdgeInput[] = [];
     const prevHead = branchHeads.get(branch);
     if (prevHead !== undefined) {
@@ -447,16 +503,18 @@ export function generate(n: number, seedOrOpts: number | GenerateOptions = 0x5ee
       contributor: headContributor,
       edges: headEdges,
       detail: `${branch}@${contributions}`,
+      signer: headSigner,
     });
     claims[head].branch = branch;
     branchHeads.set(branch, head);
 
     // The branch table: a diff over its predecessor, naming the branch it moved. The name
     // is what the overlay is keyed by, which is why a diff's edges all carry one.
-    const tableContributor = contributorFor();
+    const { contributor: tableContributor, signer: tableSigner } = contributorFor();
     prevTable = emit({
       type: NodeTypeBranches,
       contributor: tableContributor,
+      signer: tableSigner,
       edges: [
         {
           reference: claimAt(head).id,

@@ -105,7 +105,7 @@ func (c *Core) claim(ctx context.Context, req *Request, archive ranke.Archive) (
 	if err != nil {
 		return nil, err
 	}
-	payload, err := claim.EncodeCBOR(ranke.FormOriginal)
+	payload, err := claim.Envelope()
 	if err != nil {
 		return nil, mapLibError(err)
 	}

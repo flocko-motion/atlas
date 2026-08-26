@@ -15,6 +15,7 @@ import type { Scope } from './scope.ts';
 
 /** A main-pane tab: a named selection over the union graph. */
 export interface ViewState {
+  kind: 'graph';
   id: string;
   label: string;
   /** Contribution range this view admits, or null for everything loaded. */
@@ -44,6 +45,26 @@ export interface ViewState {
   labelsOnMove: boolean;
   sizeByDegree: boolean;
 }
+
+/**
+ * A main-pane tab showing one claim's raw CBOR. It carries only what a CBOR read needs — a
+ * claim has no layout, no strata, none of a graph view's settings — so it is a different
+ * shape entirely rather than a `ViewState` with most of its fields unused. The bytes
+ * themselves stay out of the tab, and out of the store: they are fetched into a module-scope
+ * cache (-> core/claimBytes), which is where content already lives for the same reason — a
+ * claim is content-addressed, so nothing here can go stale.
+ */
+export interface CborTabState {
+  kind: 'cbor';
+  id: string;
+  label: string;
+  claimId: string;
+  /** Scope the claim was reached through — content-addressed, so any scope holding it will do. */
+  scope: Scope | null;
+}
+
+/** A main-pane tab strip holds one kind-tagged list rather than two kept in step. */
+export type MainTab = ViewState | CborTabState;
 
 /**
  * What the explorer knows about the archive's scopes. `unknown` before anything asked,
@@ -150,8 +171,8 @@ export interface HoverPreview {
 }
 
 export interface ExplorerState {
-  views: ViewState[];
-  activeViewId: string | null;
+  tabs: MainTab[];
+  activeTabId: string | null;
   sidePane: SidePane;
   scopes: ScopesState;
   status: StatusState;
@@ -165,9 +186,9 @@ export interface ExplorerState {
   content: ContentState | null;
   log: string[];
 
-  addView: (view: ViewState) => void;
-  closeView: (id: string) => void;
-  activateView: (id: string) => void;
+  addTab: (tab: MainTab) => void;
+  closeTab: (id: string) => void;
+  activateTab: (id: string) => void;
   patchView: (id: string, patch: Partial<ViewState>) => void;
   setSidePane: (pane: SidePane) => void;
   setScopes: (scopes: ScopesState) => void;
@@ -186,6 +207,7 @@ export interface ExplorerState {
 /** DEFAULT_VIEW is the shape a fresh graph tab starts in. */
 export function defaultView(id: string, label: string): ViewState {
   return {
+    kind: 'graph',
     id,
     label,
     contributionRange: null,
@@ -219,8 +241,8 @@ function visited(history: HistoryState, visit: Visit): HistoryState {
 }
 
 export const useExplorer = create<ExplorerState>((set) => ({
-  views: [],
-  activeViewId: null,
+  tabs: [],
+  activeTabId: null,
   sidePane: 'info',
   scopes: { state: 'unknown', scopes: [], selected: null, error: null },
   status: {
@@ -244,20 +266,21 @@ export const useExplorer = create<ExplorerState>((set) => ({
   content: null,
   log: [],
 
-  addView: (view) => set((s) => ({ views: [...s.views, view], activeViewId: view.id })),
+  addTab: (tab) => set((s) => ({ tabs: [...s.tabs, tab], activeTabId: tab.id })),
 
-  closeView: (id) =>
+  closeTab: (id) =>
     set((s) => {
-      const views = s.views.filter((v) => v.id !== id);
-      const activeViewId =
-        s.activeViewId === id ? (views[views.length - 1]?.id ?? null) : s.activeViewId;
-      return { views, activeViewId };
+      const tabs = s.tabs.filter((t) => t.id !== id);
+      const activeTabId = s.activeTabId === id ? (tabs[tabs.length - 1]?.id ?? null) : s.activeTabId;
+      return { tabs, activeTabId };
     }),
 
-  activateView: (id) => set({ activeViewId: id }),
+  activateTab: (id) => set({ activeTabId: id }),
 
   patchView: (id, patch) =>
-    set((s) => ({ views: s.views.map((v) => (v.id === id ? { ...v, ...patch } : v)) })),
+    set((s) => ({
+      tabs: s.tabs.map((t) => (t.id === id && t.kind === 'graph' ? { ...t, ...patch } : t)),
+    })),
 
   setSidePane: (sidePane) => set({ sidePane }),
 
@@ -300,8 +323,13 @@ export const useExplorer = create<ExplorerState>((set) => ({
   appendLog: (line) => set((s) => ({ log: [...s.log, line].slice(-MAX_LOG) })),
 }));
 
-/** activeView is the selector the UI uses; nothing else derives it. */
+/**
+ * activeView is the selector the UI uses; nothing else derives it. Null both when nothing is
+ * active and when the active tab is a CBOR tab — a graph view's settings, camera bound and
+ * reducers all read through this, and none of them apply to a claim's bytes.
+ */
 export function activeView(s: ExplorerState): ViewState | null {
-  return s.views.find((v) => v.id === s.activeViewId) ?? null;
+  const tab = s.tabs.find((t) => t.id === s.activeTabId);
+  return tab?.kind === 'graph' ? tab : null;
 }
 

@@ -1,0 +1,4 @@
+# The client generated from ../openapi/openapi.yaml by `make generate` (root), copied in
+# so frontend/ builds without the root target. Never hand-edited here either — see the
+# root .brokkrignore, which excludes the same file by its own paths.
+src/core/data/openapi.gen.ts

@@ -74,6 +74,8 @@ export interface DataSource {
    * whether the bytes sit inline or in a blob reaches the caller.
    */
   content(scope: Scope | null, id: string): Promise<Uint8Array>;
+  /** claimBytes reads the claim's own signed CBOR — what its id is computed over, not what it declares. */
+  claimBytes(scope: Scope | null, id: string): Promise<Uint8Array>;
 }
 
 /** MockSource generates an archive locally. Its parameters are its server details. */
@@ -145,6 +147,14 @@ export class MockSource implements DataSource {
     throw new Error(
       'a generated source declares an address and a size, not bytes — read content from a ' +
         'connection to a real instance instead.',
+    );
+  }
+
+  /** A generated claim was never encoded as signed CBOR — nothing honest to hand back. */
+  async claimBytes(): Promise<Uint8Array> {
+    throw new Error(
+      'a generated claim was never encoded as signed CBOR — read it from a connection to a ' +
+        'real instance instead.',
     );
   }
 
@@ -303,6 +313,19 @@ export class RestSource implements DataSource {
           ? this.api.archive.getArchiveClaimContent(id)
           : this.api.branches.getBranchClaimContent(segment(branch), id),
       `reading the content of ${id.slice(0, 12)}…`,
+    );
+    return new Uint8Array(await response.arrayBuffer());
+  }
+
+  /** The claim route, not content's — same scope logic, raw `Response` read directly as bytes. */
+  async claimBytes(scope: Scope | null, id: string): Promise<Uint8Array> {
+    const branch = scope === null || scope.name === ARCHIVE_SCOPE ? null : scope.name;
+    const response = await this.answer(
+      () =>
+        branch === null
+          ? this.api.archive.getArchiveClaim(id)
+          : this.api.branches.getBranchClaim(segment(branch), id),
+      `reading the CBOR of ${id.slice(0, 12)}…`,
     );
     return new Uint8Array(await response.arrayBuffer());
   }

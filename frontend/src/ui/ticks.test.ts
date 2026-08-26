@@ -11,6 +11,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { timeTicks, wordFor } from './ticks.ts';
+import { timeScale } from '../core/layout/timescale.ts';
 
 const SECOND = 1000;
 const MINUTE = 60 * SECOND;
@@ -124,4 +125,50 @@ test('a boundary is worded by the part that distinguishes it', () => {
   assert.equal(wordFor(at, 'day'), 'Mar 4');
   assert.equal(wordFor(at, 'hour'), '05:06');
   assert.equal(wordFor(at, 'second'), '05:06:07');
+});
+
+// End to end rather than against a hand-built `positions` array like the rest of this file:
+// sd-b56636 passed 89/89 unit tests while every label a reader actually saw was a bare time
+// with no date at all, because a candidate's tag described claim density (core's business) but
+// nothing checked what that tag then words into on the ruler a ranker actually draws.
+test('a multi-year archive with sub-day spacing still carries dates on its whole-axis ruler', () => {
+  const scale = timeScale(Array.from({ length: 4380 }, (_, i) => i * 4 * HOUR)); // 2 years, every 4h
+  const ticks = timeTicks({
+    from: scale.from,
+    to: scale.to,
+    xOf: scale.toX,
+    minGap: 66,
+    positions: scale.tickPositions,
+  });
+  const bareTime = ticks.filter((t) => t.unit === 'hour' || t.unit === 'minute' || t.unit === 'second' || t.unit === 'ms');
+  assert.equal(
+    bareTime.length,
+    0,
+    `expected every label on a 2-year whole-axis view to carry a date, got: ${bareTime.map((t) => t.label).join(', ')}`,
+  );
+});
+
+// A whole-axis view can read fine while one narrow window a reader actually zooms into is
+// nearly bare — select() draws only ~15 labels regardless of zoom, so a healthy whole-axis
+// count says nothing about any one region. Zooms into the axis's own thinnest tenth, on a
+// jittered archive (an exact grid is the one shape where this bug hid for five review rounds),
+// and asserts the reader lands on more than a token label.
+test('zooming into the thinnest tenth of a jittered archive still draws several labels', () => {
+  const days = 3000;
+  const times: number[] = [];
+  let day = 0;
+  for (let d = 0; d < days; d++) {
+    for (let i = 0; i < 5; i++) times.push(day + i * MINUTE + ((d * 5 + i) * 2654435761) % MINUTE);
+    day += DAY;
+  }
+  const scale = timeScale(times);
+
+  const candidateDeciles = new Array(10).fill(0);
+  for (const p of scale.tickPositions) candidateDeciles[Math.min(9, Math.floor((p.axisX / scale.width) * 10))]++;
+  const thinnest = candidateDeciles.indexOf(Math.min(...candidateDeciles));
+  const from = scale.atX((thinnest / 10) * scale.width);
+  const to = scale.atX(((thinnest + 1) / 10) * scale.width);
+
+  const ticks = timeTicks({ from, to, xOf: scale.toX, minGap: 66, positions: scale.tickPositions });
+  assert.ok(ticks.length >= 3, `thinnest decile (${thinnest}) drew only ${ticks.length} label(s) when zoomed into`);
 });

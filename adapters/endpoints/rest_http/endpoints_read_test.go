@@ -83,8 +83,8 @@ func TestRankeQuery(t *testing.T) {
 		{
 			name: "the output axes stay orthogonal",
 			// Four axes, one each, none of them the default: what the case exists to catch is
-			// an axis read into the wrong field. `detail` is `claims` because the released RQL
-			// schema now offers `id` or `claims` and nothing else.
+			// an axis read into the wrong field. `detail` is `claims` here — the third value,
+			// `envelope`, carries no `form`/`content` of its own (covered separately below).
 			body: `{"select": {"branch": "foo"}, "output": {"shape": "path", "detail": "claims", "form": "original", "encoding": "cbor"}}`,
 			want: func(t *testing.T, q ranke.Query) {
 				want := ranke.Output{
@@ -195,6 +195,9 @@ func TestRankeQueryRejects(t *testing.T) {
 		{"invalid claim id", `{"select": {"branch": "foo", "claim": "not-an-id"}}`},
 		{"unparseable duration", `{"select": {"branch": "foo"}, "limit": {"time": "soon"}}`},
 		{"where neither tree nor leaf", `{"select": {"branch": "foo"}, "where": {"and": []}}`},
+		// R-QDETAIL: envelope carries no form/content of its own.
+		{"envelope with a materialized form", `{"select": {"branch": "foo"}, "output": {"detail": "envelope", "form": "materialized"}}`},
+		{"envelope with json encoding", `{"select": {"branch": "foo"}, "output": {"detail": "envelope", "encoding": "json"}}`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if q, err := ranke.DecodeQuery([]byte(tc.body)); err == nil {
@@ -204,5 +207,15 @@ func TestRankeQueryRejects(t *testing.T) {
 	}
 }
 
-// testClaimID is a syntactically valid claim id — the mapping only parses it.
-const testClaimID = "bafyreib2rxk3rybk3aobmv5cjuql3bm2twh4jo5uxgnrmtqjbwmjnzqxvi"
+// testClaimID is a syntactically valid claim id — the mapping only parses it. Minted
+// through the library rather than a literal, so a wire-format change can't leave it
+// unparseable.
+var testClaimID = mustID("test-claim-fixture")
+
+func mustID(seed string) string {
+	id, err := ranke.HashContent([]byte(seed))
+	if err != nil {
+		panic(err)
+	}
+	return id.String()
+}

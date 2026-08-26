@@ -15,7 +15,7 @@
 
 import { useEffect, useState } from 'react';
 import { timeAxis } from '../../core/timeline.ts';
-import { useExplorer } from '../../core/store.ts';
+import { activeView, useExplorer } from '../../core/store.ts';
 import { graphXAt, viewportXAt } from '../../render/camera.ts';
 import { canvasWidth } from '../../render/instances.ts';
 import { onPointer, onRender } from '../../render/renderer.ts';
@@ -28,7 +28,7 @@ interface CursorAt {
 }
 
 export function TimeCursor() {
-  const layout = useExplorer((s) => s.views.find((v) => v.id === s.activeViewId)?.layout);
+  const layout = useExplorer((s) => activeView(s)?.layout);
   const nodes = useExplorer((s) => s.status.nodes);
   const [at, setAt] = useState<CursorAt | null>(null);
 

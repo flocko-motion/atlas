@@ -112,9 +112,9 @@ func TestContributeMerges(t *testing.T) {
 
 	// And the claim is now readable on the branch it was merged onto.
 	read, _ := serve(t, c, &Request{Op: OpClaimGet, Branch: "main", ClaimID: claim.ID()})
-	want, err := claim.EncodeCBOR(ranke.FormOriginal)
+	want, err := claim.Envelope()
 	if err != nil {
-		t.Fatalf("EncodeCBOR: %v", err)
+		t.Fatalf("Envelope: %v", err)
 	}
 	if !bytes.Equal(read, want) {
 		t.Fatal("the merged claim does not read back as the bytes the client signed")

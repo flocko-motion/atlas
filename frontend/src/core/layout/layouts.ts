@@ -4,9 +4,8 @@
  * job:     position calculators — take a graph, return coordinates
  * limits:  headless; they draw nothing (-> render/renderer)
  *
- * `history` is the default the measurements argued for: 21 ms at 50k, deterministic, one
- * contribution per row. ForceAtlas2 suits drill-downs of a few thousand claims
- * (13–130 ms/iter); at archive scale it is ~1 500 ms/iter.
+ * `history` is the default: 21 ms at 50k, deterministic. ForceAtlas2 suits a few thousand
+ * claims (13–130 ms/iter); at archive scale it runs ~1 500 ms/iter.
  */
 
 import forceAtlas2 from 'graphology-layout-forceatlas2';
@@ -38,28 +37,19 @@ export const LAYOUT_LABELS: Record<LayoutName, string> = {
 };
 
 /**
- * STRATA are the classes a claim may belong to, top of the picture first when reversed for
- * display (-> ui/panes/ViewPane). Every class keeps its own colour (-> core/graph/build.ts
- * CLASS_COLOR) and its own filter toggle; which vertical band it draws in is a separate
- * question BANDS answers below — entity and relation are two classes sharing one band.
+ * STRATA are the classes a claim may belong to — each keeps its own colour (-> core/graph/
+ * build.ts CLASS_COLOR) and filter toggle; which vertical band it draws in is BANDS' question,
+ * not this one (entity and relation share a band).
  */
 export const STRATA = ['contribution', 'source', 'derivation', 'entity', 'relation'] as const;
 
 /**
- * BANDS are the timeline layout's vertical strata, bottom of the screen first. Sigma maps a
- * larger graph y higher up (`y: (1 - y) * height / 2`), so the array index *is* the y ordering.
- *
- * The order follows the ADT: bookkeeping, then what entered, what was concluded, then the
- * semantic layer built from it. It is monotone with provenance, so an edge points down or
- * sideways and almost never up — provenance becomes a direction rather than something to
- * trace. Contribution sits at the edge because it is the band the class filter drops, and
- * dropping the bottom band leaves the picture whole.
- *
- * Entity and relation share the top band as one *semantic layer* — entities and the relations
- * between them are one reading of the graph, not two — while each keeps its own colour and its
- * own filter toggle (-> STRATA); only the height they are allotted is pooled. Left separate, a
- * relation is rare enough in most archives that its own band sits almost empty while the four
- * content bands beneath it are cramped for room they are not given.
+ * BANDS are the timeline layout's vertical strata, bottom first (Sigma draws a larger graph y
+ * higher up, so the array index is the y ordering). The order follows provenance — bookkeeping,
+ * then what entered, what was concluded, then the semantic layer — so an edge points down or
+ * sideways, almost never up. Entity and relation share the top band, each still with its own
+ * colour and filter toggle (-> STRATA): left separate, relation is rare enough in most archives
+ * that its own band sits nearly empty while the rest are cramped for room.
  */
 const BANDS = ['contribution', 'source', 'derivation', 'semantic'] as const;
 
@@ -83,11 +73,8 @@ export interface TimelineContext {
   classOf: (node: string) => string;
   /** The claim's subtype — which subband of its band it sits in (-> HEAD_SUBBAND_FRACTION). */
   subOf: (node: string) => string;
-  /**
-   * How far the strata are stretched, 1 being the height below. It scales the finished
-   * positions rather than the height they are laid out in: a band keeps its lanes and its
-   * neighbours, and only the room between them grows.
-   */
+  /** Stretch on the strata, 1 being the height below — scales finished positions rather than
+   * the layout height, so a band keeps its lanes and neighbours and only the room between grows. */
   yStretch?: number;
 }
 
@@ -98,23 +85,19 @@ export const TIMELINE_HEIGHT = 1000;
 const LANE_UNITS = 16;
 
 /**
- * Room left below the bottom band and above the top one — asymmetric, and more asymmetric than
- * equal canvas-pixel spacing would suggest. The ruler is a hard visual landmark right below
- * graph-y 0 (its own border and background, not just empty pane), so the same gap that reads as
- * spacious above the top band — nothing there but the pane's edge — reads as tight next to it;
- * the bottom margin has to overcompensate for that anchor, not just match the top one's pixels.
- * Sigma draws a larger graph y higher up the screen, so it is graph-y 0 that sits by the ruler.
+ * Room below the bottom band and above the top — asymmetric, since the ruler (its own border
+ * and background, not just empty pane) sits right at graph-y 0, making the same gap read as
+ * tight there and spacious at the top; the bottom margin overcompensates rather than matching
+ * pixels. Sigma draws a larger graph y higher up, so graph-y 0 is the one the ruler sits by.
  */
 const TIMELINE_MARGIN_BOTTOM = LANE_UNITS * 2.5;
 const TIMELINE_MARGIN_TOP = LANE_UNITS / 8;
 
 /**
- * Share of the contribution band given to `contribution/head` claims — the bottom of the band,
- * every other contribution subtype (contributor, branches, delete, expiry) taking the rest
- * above it. A head is one per currently-open line of work, not one per claim the way a
- * contributor or a branch-table revision is, so it is a small, distinctive slice of the band's
- * traffic — set apart in its own strip rather than scattered in among the rest of the
- * bookkeeping, it reads as what it is instead of one more dot among many.
+ * Share of the contribution band given to `contribution/head` claims, at the bottom; every
+ * other subtype (contributor, branches, delete, expiry) fills the rest. A head is one per open
+ * line of work, not one per claim like the others — set apart, it reads as what it is rather
+ * than one more dot among the bookkeeping.
  */
 const HEAD_SUBBAND_FRACTION = 0.3;
 
@@ -132,23 +115,12 @@ function slotOf(base: number, height: number): Slot {
 }
 
 /**
- * assignTimeline puts time on x and class strata on y.
- *
- * Claims sharing an instant share an x, so a stack means "simultaneous" and nothing else.
- * Within a slot, a claim's lane is a hash of its id — not its position in time order. A
- * round-robin by time-sorted index put neighbours in time on consecutive lanes, so as x
- * advanced the lane advanced in lockstep with it: a staircase, not a scatter, and captions
- * collided along the diagonal it drew. A hash gives every claim a lane independent of when its
- * neighbours fall, which is what the round-robin was reaching for — spreading claims apart —
- * without the diagonal that came along with it.
- *
- * Every one of the four bands gets its fixed share of the height, whether or not any of its
- * classes is currently shown: the View tab's stratum toggles hide claims (-> render/renderer
- * admits), never move them, so the band heights are set from the potential four, never from how
- * many happen to be switched on right now — a toggle must not shift anyone else's claims. The
- * contribution band alone further splits into two slots by subtype (-> HEAD_SUBBAND_FRACTION),
- * the same reasoning one level down: a subtype's slot is fixed whether or not that subtype
- * happens to be present in what is loaded.
+ * assignTimeline puts time on x and class strata on y. Claims sharing an instant share an x.
+ * Within a slot, lane is a hash of the claim id, not time order — a time-sorted round-robin put
+ * neighbours in time on consecutive lanes, drawing a diagonal staircase of collisions instead of
+ * a scatter. Every band — and the contribution band's head subband (-> HEAD_SUBBAND_FRACTION) —
+ * gets a fixed share of height regardless of which classes are currently shown, so a View-tab
+ * toggle never moves anyone else's claims.
  */
 export function assignTimeline(graph: DirectedGraph, ctx: TimelineContext): void {
   const bandHeight = (TIMELINE_HEIGHT - TIMELINE_MARGIN_BOTTOM - TIMELINE_MARGIN_TOP) / BANDS.length;
