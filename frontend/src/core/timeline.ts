@@ -16,7 +16,7 @@ import { TIMELINE_HEIGHT, assignTimeline } from './layout/layouts.ts';
 import type { TimelineContext } from './layout/layouts.ts';
 import { timeScale } from './layout/timescale.ts';
 import type { TimeScale } from './layout/timescale.ts';
-import { useExplorer } from './store.ts';
+import { activeView, useExplorer } from './store.ts';
 import type { ViewState } from './store.ts';
 
 /** How far each axis is stretched from the layout's own scale. */
@@ -99,9 +99,8 @@ export function axisWidth(): number | null {
 }
 
 /** active is the view being drawn, which is what every stretch here acts on. */
-function active(): ViewState | undefined {
-  const store = useExplorer.getState();
-  return store.views.find((v) => v.id === store.activeViewId);
+function active(): ViewState | null {
+  return activeView(useExplorer.getState());
 }
 
 /** instantAtX reads the instant under a drawn x, undoing the stretch the layout applied. */

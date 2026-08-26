@@ -312,6 +312,24 @@ select, input[type='text'], input[type='password'], input[type='url'] {
 /* The subtitle of the content it describes, so it sits tight above it. */
 .content-about { margin: 0 0 0.3rem; }
 
+/* --- CBOR tab --- */
+/* Sits where the canvas does — a sibling in .main, shown instead of it rather than in it. */
+.cbor-view { flex: 1; min-height: 0; overflow: auto; padding: 0.75rem 1rem; }
+.cbor-map, .cbor-array {
+  margin: 0.2rem 0 0; padding: 0 0 0 1rem; list-style: none;
+  border-left: 1px solid var(--line);
+}
+.cbor-map > li, .cbor-array > li { padding: 0.1rem 0; }
+.cbor-key { color: var(--dim); margin-right: 0.4rem; font: 11px ui-monospace, monospace; }
+.cbor-nested { display: inline-block; width: 100%; }
+.cbor-int, .cbor-bool, .cbor-null, .cbor-text, .cbor-bytes {
+  font: 11px ui-monospace, monospace; color: var(--ink);
+}
+.cbor-null { color: var(--dim); }
+.cbor-text { color: var(--accent); }
+.cbor-bytes-full { display: block; margin-top: 0.2rem; }
+.cbor-bytes-full summary { color: var(--dim); cursor: pointer; }
+
 /* --- connections --- */
 .connection { margin-bottom: 0.5rem; border: 1px solid var(--line); border-radius: 0.35rem; background: var(--sunken); }
 .connection.is-active { border-color: color-mix(in srgb, var(--accent) 55%, var(--line)); }

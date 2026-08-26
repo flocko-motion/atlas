@@ -36,9 +36,9 @@ function ySpan(g: DirectedGraph): number {
 /** archive lays a generated archive out on the timeline, as a load does. */
 function archive(): number {
   clear();
-  useExplorer.setState({ views: [], activeViewId: null });
+  useExplorer.setState({ tabs: [], activeTabId: null });
   const view = defaultView('v1', 'v1');
-  useExplorer.getState().addView(view);
+  useExplorer.getState().addTab(view);
   mergeClaims(generate(400, 7).claims, 40);
   assignTimeline(graph(), timelineContext());
   return ySpan(graph());

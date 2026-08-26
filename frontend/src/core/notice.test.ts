@@ -30,8 +30,8 @@ function reset() {
   clear();
   forgetMembers();
   useExplorer.setState({
-    views: [],
-    activeViewId: null,
+    tabs: [],
+    activeTabId: null,
     notice: null,
     scopes: { state: 'unknown', scopes: [], selected: null, error: null },
   });
@@ -64,7 +64,7 @@ test('a failed read reports the failure', async () => {
 test('a scope with nothing in it says so rather than drawing blank', async () => {
   smallMock();
   reset();
-  useExplorer.getState().addView(defaultView('v1', 'v1'));
+  useExplorer.getState().addTab(defaultView('v1', 'v1'));
 
   await selectScope({ name: 'no-such-branch', head: 'no-such-head' });
   const notice = useExplorer.getState().notice;

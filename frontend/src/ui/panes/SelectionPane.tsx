@@ -13,12 +13,12 @@
 
 import { useEffect } from 'react';
 import { shortId } from '../../core/claims.ts';
-import { claimDetail, fetchContent } from '../../core/session.ts';
+import { claimDetail, fetchContent, openClaimCbor } from '../../core/session.ts';
 import { CONTENT_LIMIT } from '../../core/data/source.ts';
 import type { Reference } from '../../core/session.ts';
 import { useExplorer } from '../../core/store.ts';
 import { revealClaim } from '../../render/renderer.ts';
-import { Empty, ExtensionFields, KeyValue, PaneTitle } from '../components/Field.tsx';
+import { Button, Empty, ExtensionFields, KeyValue, PaneTitle } from '../components/Field.tsx';
 import { asText, contentSummary, formatBytes, hexDump, inlineLabel, isTextual } from '../format.ts';
 
 /**
@@ -164,6 +164,10 @@ export function SelectionPane() {
       />
 
       <ExtensionFields fields={detail.fields} />
+
+      <div className="row">
+        <Button onClick={() => openClaimCbor(detail.id)}>show claim CBOR</Button>
+      </div>
 
       <ContentBlock />
 

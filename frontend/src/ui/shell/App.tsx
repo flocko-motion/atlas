@@ -49,6 +49,7 @@ import { QueryPane } from '../panes/QueryPane.tsx';
 import { ViewPane } from '../panes/ViewPane.tsx';
 import { InfoPane } from '../panes/InfoPane.tsx';
 import { LogPane } from '../panes/LogPane.tsx';
+import { CborView } from './CborView.tsx';
 import { Footer } from './Footer.tsx';
 import { Header } from './Header.tsx';
 import { TimeCursor } from './TimeCursor.tsx';
@@ -228,13 +229,13 @@ function SideGrip({ onWidth }: { onWidth: (px: number) => void }) {
 export function App() {
   const host = useRef<HTMLDivElement | null>(null);
   const lensHost = useRef<HTMLDivElement | null>(null);
-  const views = useExplorer((s) => s.views);
-  const activeViewId = useExplorer((s) => s.activeViewId);
+  const tabs = useExplorer((s) => s.tabs);
+  const activeTabId = useExplorer((s) => s.activeTabId);
   const view = useExplorer(activeView);
   const sidePane = useExplorer((s) => s.sidePane);
   const setSidePane = useExplorer((s) => s.setSidePane);
-  const activateView = useExplorer((s) => s.activateView);
-  const closeView = useExplorer((s) => s.closeView);
+  const activateTab = useExplorer((s) => s.activateTab);
+  const closeTab = useExplorer((s) => s.closeTab);
   const activeConnectionId = useConnections((s) => s.activeId);
   const [sideWidth, setSideWidth] = useState(SIDE_DEFAULT);
 
@@ -247,8 +248,7 @@ export function App() {
     // The wheel zooms time, shift zooms the strata. The lens below is only what keeps a large
     // graph affordable.
     const stopZoom = onZoom(({ factor, viewportX, viewportY, shift }) => {
-      const state = useExplorer.getState();
-      const view = state.views.find((v) => v.id === state.activeViewId);
+      const view = activeView(useExplorer.getState());
       // Only the timeline has an axis apiece to zoom. Everything else is the camera's classic
       // zoom, which takes both at once.
       if (view?.layout !== 'timeline') return false;
@@ -279,8 +279,7 @@ export function App() {
     // how tall they should be drawn is a fact about the window, which only this layer can measure.
     setOnShowAll(() => resetCamera(fitHeight));
     setOnLoaded((framing) => {
-      const state = useExplorer.getState();
-      const view = state.views.find((v) => v.id === state.activeViewId);
+      const view = activeView(useExplorer.getState());
       const extent = timelineExtent();
       // A stretch is only visible if the renderer stops fitting the graph it is stretching.
       if (view?.layout === 'timeline' && extent) {
@@ -316,17 +315,22 @@ export function App() {
     if (activeConnectionId) void discoverScopes();
   }, [activeConnectionId]);
 
-  // A view switch is a reducer swap plus a refresh — never a rebuild.
+  // A view switch is a reducer swap plus a refresh — never a rebuild. Switching to a CBOR
+  // tab makes `view` null, which both of these already treat as nothing to apply or draw.
   useEffect(() => {
     applyViewSettings(view);
     refreshSelection();
-  }, [activeViewId, view?.layout, view?.edges]);
+  }, [activeTabId, view?.layout, view?.edges]);
 
-  const viewTabs: TabItem[] = views.map((v) => ({
-    id: v.id,
-    label: v.label,
-    hint: v.layout,
-    closable: views.length > 1,
+  const activeTab = tabs.find((t) => t.id === activeTabId) ?? null;
+  // At least one graph tab always stays open; a CBOR tab is a claim looked up in passing and
+  // closes freely.
+  const graphTabCount = tabs.filter((t) => t.kind === 'graph').length;
+  const tabItems: TabItem[] = tabs.map((t) => ({
+    id: t.id,
+    label: t.label,
+    hint: t.kind === 'graph' ? t.layout : 'cbor',
+    closable: t.kind === 'cbor' || graphTabCount > 1,
   }));
 
   return (
@@ -334,18 +338,19 @@ export function App() {
       <Header />
 
       <main className="main">
-        {views.length > 0 ? (
+        {tabs.length > 0 ? (
           <Tabs
-            ariaLabel="Graph views"
-            items={viewTabs}
-            activeId={activeViewId}
-            onSelect={activateView}
-            onClose={closeView}
+            ariaLabel="Main views"
+            items={tabItems}
+            activeId={activeTabId}
+            onSelect={activateTab}
+            onClose={closeTab}
           />
         ) : null}
         {/* The overlays are positioned against the canvas, not the pane, so none of them
-            reaches up over the tab handles. */}
-        <div className="canvas-area">
+            reaches up over the tab handles. Hidden rather than unmounted when a CBOR tab is
+            active: the canvas host is mounted once, and Sigma with it (-> render/renderer). */}
+        <div className="canvas-area" style={activeTab?.kind === 'cbor' ? { display: 'none' } : undefined}>
           <div className="canvas-host" ref={host} />
           {/* The lens's own canvas, hidden until a zoom asks for it. Both are resident, so
               swapping them uploads nothing. */}
@@ -357,6 +362,7 @@ export function App() {
           <LoadingOverlay />
           <EmptyCanvas />
         </div>
+        {activeTab?.kind === 'cbor' ? <CborView tab={activeTab} /> : null}
       </main>
 
       <aside className="side">
