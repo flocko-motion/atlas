@@ -158,13 +158,32 @@ SEED_ARGS = $(strip $(if $(filter big,$(SEED)), \
 # Seeding runs as a client, which is what a contributor is — so the generator goes into
 # the background with --wait, contributes as soon as /health answers, and exits, while
 # the server keeps the foreground and ctrl-c.
-dev: build ## Run a dev server from DEV_CONFIG (SEED=example|release|chain|big to seed it once it answers)
+# -tags explorer here, not in `build`: a dev loop is exactly where clicking through
+# /explorer is wanted, and dist/explorer.html is committed, so this needs no frontend
+# build step. `build`/`smoke`/CI stay untagged — that default is unrelated to this one.
+dev: ## Run a dev server from DEV_CONFIG with /explorer active (SEED=example|release|chain|big to seed it once it answers)
 	@command -v openssl >/dev/null 2>&1 || { echo "ERROR: dev needs openssl to mint a throwaway signing key"; exit 1; }
+	@echo ">> build → $(BIN) (-tags explorer)"
+	@go build -tags explorer -o $(BIN) ./cmd/ranke-db
+	@echo ">> build → $(GEN)"
+	@go build -o $(GEN) ./cmd/generator
 	@addr=$$(grep -o '"addr"[[:space:]]*:[[:space:]]*"[^"]*"' $(DEV_CONFIG) | head -1 | sed -E 's/.*"([^"]*)"$$/\1/'); \
-		url="http://localhost$${addr:-:8080}"; \
+		addr=$${addr:-:8080}; port=$${addr#:}; url="http://localhost$$addr"; \
+		if command -v lsof >/dev/null 2>&1; then \
+			pid=$$(lsof -ti tcp:"$$port" 2>/dev/null | head -1); \
+			if [ -n "$$pid" ]; then \
+				name=$$(ps -p "$$pid" -o comm= 2>/dev/null || echo "?"); \
+				printf ">> port %s is already in use (pid %s, %s) — kill it and continue? [y/N] " "$$port" "$$pid" "$$name"; \
+				read -r ans; \
+				case "$$ans" in \
+					y|Y) kill "$$pid"; sleep 0.3 ;; \
+					*) echo "aborting — free the port yourself, or point DEV_CONFIG at a different addr"; exit 1 ;; \
+				esac; \
+			fi; \
+		fi; \
 		echo ">> $(DEV_CONFIG) — ephemeral signing key, nothing persisted between runs"; \
 		echo ">> serving on  $$url"; \
-		echo ">> try:  curl $$url/health  ·  curl $$url/branches  ·  curl $$url/branches/main/head"; \
+		echo ">> try:  curl $$url/health  ·  curl $$url/branches  ·  curl $$url/branches/main/head  ·  open $$url/explorer"; \
 		echo ">> ctrl-c to stop"; \
 		$(if $(SEED),$(GEN) $(SEED_ARGS) "$$url" --wait 15s &,) \
 		RANKE_SIGNER_KEY="$$(openssl genpkey -algorithm ed25519)" $(BIN) run --dev $(DEV_CONFIG)
