@@ -9,8 +9,8 @@ OPENAPI   := openapi/openapi.yaml
 API_OUT   := openapi
 # The explorer reads an instance through this client, and `frontend/` builds on its own
 # (its Makefile and package.json are not wired into this one). So the generated client is
-# copied in and committed, as `frontend/explorer.html` is: `make -C frontend` needs nothing
-# from here, and `check-generated` notices when the copy goes stale.
+# copied in and committed, as `frontend/dist/explorer.html` is: `make -C frontend` needs
+# nothing from here, and `check-generated` notices when the copy goes stale.
 EXPLORER_CLIENT := frontend/src/core/data/openapi.gen.ts
 # openapi.yaml $refs rql.schema.json, which no generator resolves on its own, so
 # every one of them reads this bundle: the same document with the external schema

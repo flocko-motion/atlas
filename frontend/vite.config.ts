@@ -14,6 +14,7 @@ import { defineConfig } from 'vite';
 export default defineConfig({
   plugins: [react()],
   build: {
+    outDir: '.build', // scratch — never committed, never served; inline.mjs folds it into explorer.html
     target: 'es2022',
     assetsInlineLimit: 1024 * 1024 * 100,
     cssCodeSplit: false,

@@ -7,14 +7,14 @@ generated mock data.
 
 ```sh
 make dev       # dev server — open the URL, then press 'load' in the header
-make           # build dist/ and the self-contained explorer.html
+make           # build dist/explorer.html, the self-contained distributable
 make bench     # the headless performance numbers below
 make help      # the rest
 ```
 
 Dependencies install themselves on first use, so a clean checkout needs only node.
 
-`explorer.html` is committed and self-contained — open it with no npm and no server.
+`dist/explorer.html` is committed and self-contained — open it with no npm and no server.
 
 ## Architecture
 
@@ -508,7 +508,7 @@ the claim model, the codec, the sequence readers, the query type and every route
 | Path | What |
 |---|---|
 | `Makefile` | The entry point — `run`, `build`, `single`, `bench`, `test`, `check` |
-| `explorer.html` | Generated, committed: open it with no npm and no server |
+| `dist/explorer.html` | Generated, committed: open it with no npm and no server |
 | `src/main.tsx` | Mounts React, which renders the shell |
 | `src/core/connections.ts` | The instances this client can talk to, and their credentials |
 | `src/core/data/source.ts` | The data-source port and its two backends: a connection, and the generator |
