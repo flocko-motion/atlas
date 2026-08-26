@@ -1,0 +1,69 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+          - goos: linux
+            goarch: arm64
+          - goos: darwin
+            goarch: amd64
+          - goos: darwin
+            goarch: arm64
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      # Static (CGO_ENABLED=0): the server has no cgo dependency, and a static
+      # binary is what a downloader can run without matching the build host's libc.
+      - name: Build ranke-db
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: 0
+        run: |
+          out="ranke-db-${{ matrix.goos }}-${{ matrix.goarch }}"
+          go build -o "$out" ./cmd/ranke-db
+          mkdir -p dist
+          mv "$out" "dist/$out"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ranke-db-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/*
+          retention-days: 1
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      # A tag carrying a hyphen is a release candidate (`make release pre`), and
+      # says so: unmarked it would take the repo's "latest release", which is
+      # what a downloader's `/releases/latest` resolves to.
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          files: dist/*
