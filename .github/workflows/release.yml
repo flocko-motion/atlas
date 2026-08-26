@@ -9,7 +9,29 @@ permissions:
   contents: write
 
 jobs:
+  # Built once, not once per Go build leg: every leg embeds the same explorer.html.
+  # -tags explorer is release-only — a plain `go build` (dev, tests) needs neither
+  # Node nor the file (-> frontend/embed.go).
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Build dist/explorer.html
+        run: make -C frontend single
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: explorer-html
+          path: frontend/dist/explorer.html
+          retention-days: 1
+
   build:
+    needs: frontend
     strategy:
       matrix:
         include:
@@ -29,6 +51,11 @@ jobs:
         with:
           go-version-file: go.mod
 
+      - uses: actions/download-artifact@v4
+        with:
+          name: explorer-html
+          path: frontend/dist
+
       # Static (CGO_ENABLED=0): the server has no cgo dependency, and a static
       # binary is what a downloader can run without matching the build host's libc.
       - name: Build ranke-db
@@ -38,7 +65,7 @@ jobs:
           CGO_ENABLED: 0
         run: |
           out="ranke-db-${{ matrix.goos }}-${{ matrix.goarch }}"
-          go build -o "$out" ./cmd/ranke-db
+          go build -tags explorer -o "$out" ./cmd/ranke-db
           mkdir -p dist
           mv "$out" "dist/$out"
 

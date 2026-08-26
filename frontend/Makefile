@@ -3,6 +3,14 @@
 # `make` builds the distributable artifacts; `make dev` starts the dev server.
 # Dependencies install themselves on first use, so a clean checkout needs nothing
 # but node.
+#
+# The pipeline: src/ --[vite build]--> .build/ --[inline.mjs]--> dist/explorer.html.
+# .build/ is vite's own scratch output (gitignored, rebuilt by `make build`) — never
+# committed, never served, never referenced from outside this Makefile. dist/ holds the
+# one artifact that matters past this directory: explorer.html, single-file and
+# self-contained, committed (like the repo's other generated artifacts) precisely
+# because a built artifact never shares a directory with source. `ranke-db` embeds it
+# into its release binary (-> ../adapters/endpoints/rest_http).
 
 .PHONY: all dev build single bench bench-render check lint test clean help upgrade ranke-ts-version
 .DEFAULT_GOAL := all
@@ -16,7 +24,7 @@ NODE  := node --expose-gc --max-old-space-size=4096
 BROKKR            := ../bin/tools/brokkr
 BROKKR_INSTALL_SH := https://raw.githubusercontent.com/flocko-motion/sindri/master/scripts/install-brokkr.sh
 
-all: build single ## Default: build dist/ and the self-contained explorer.html
+all: build single ## Default: .build/ (scratch) and dist/explorer.html (the distributable)
 
 help: ## Show this help
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -33,10 +41,10 @@ dev: node_modules ## Start the dev server (open the URL it prints, then press 'l
 	@echo ">> sources live in the Server tab: a mock archive, or a ranke-db instance"
 	@$(VITE) --host
 
-build: node_modules ## Bundle to dist/ — the static artifact to serve
+build: node_modules ## Bundle to .build/ — vite's own scratch output, input to `single`
 	@$(VITE) build
 
-single: build ## Fold dist/ into one self-contained explorer.html
+single: build ## Fold .build/ into dist/explorer.html, one self-contained file
 	@node scripts/inline.mjs
 
 bench: node_modules ## Headless performance numbers (build, heap, layout, shape)
@@ -49,6 +57,11 @@ check: node_modules ## Type-check without emitting, then lint
 	@node_modules/typescript/bin/tsc --noEmit
 	@$(MAKE) --no-print-directory lint
 
+# deadcode excluded: it needs a main package to trace reachability from, and this
+# directory (JS-first, with two incidental Go embed shims for ranke-db's explorer
+# route) has none in its own scope. The root `make check` already covers it correctly
+# — real main packages in scope there, frontend.Explorer reachable through the real
+# call chain — so running it again scoped to just here adds nothing and only breaks.
 lint: ## Run brokkr lint over this directory — one already on PATH, else this repo's shared cached copy at ../bin/tools/ (the installer checks GitHub for a newer release every run, skipping the download itself when already current)
 	@if command -v brokkr >/dev/null 2>&1; then bin=brokkr; \
 	else \
@@ -56,7 +69,7 @@ lint: ## Run brokkr lint over this directory — one already on PATH, else this 
 		curl -fsSL $(BROKKR_INSTALL_SH) | bash -s -- $(BROKKR); \
 		bin=$(BROKKR); \
 	fi; \
-	"$$bin" lint
+	for l in loc comments comment-length gofmt js openspec; do "$$bin" lint "$$l" || exit 1; done
 
 # Node's own runner, which strips the types — the same way the benches run. Core is
 # headless, so its behaviour is testable without a DOM or a browser.
@@ -68,7 +81,7 @@ test: node_modules ## Run the headless core tests
 	@node --experimental-transform-types --disable-warning=ExperimentalWarning --test 'src/**/*.test.ts'
 
 clean: ## Remove build output (explorer.html is committed, so it stays)
-	@rm -rf dist
+	@rm -rf .build
 
 # --- Dependencies ----------------------------------------------------------
 

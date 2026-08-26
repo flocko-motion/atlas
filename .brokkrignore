@@ -5,3 +5,5 @@ openapi/openapi.gen.ts
 # The same client, copied into the explorer by `make generate` so `frontend/` builds
 # without the root target. It lives under a linted tree where the original does not.
 frontend/src/core/data/openapi.gen.ts
+# vite's scratch output — gitignored, never hand-edited, and minified besides.
+frontend/.build/**

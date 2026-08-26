@@ -46,11 +46,26 @@ func New(ctx context.Context, cfg scope.Section, c *core.Core) (*Server, error) 
 	if err != nil {
 		return nil, err
 	}
+	// "explorer" opts out of a build's embedded UI (default: served) — ignored, either
+	// way, on a binary built without -tags explorer, which has nothing to serve regardless.
+	explorer := true
+	if cfg.HasValue("explorer") {
+		v, err := cfg.Get(ctx, "explorer")
+		if err != nil {
+			return nil, fmt.Errorf("rest_http: explorer: %w", err)
+		}
+		explorer = v != "false"
+	}
 
 	s := &Server{core: c}
+	// /explorer sits outside the generated router: it's a static asset, not part of the
+	// OpenAPI contract, and the generated handler owns "/" as its own catch-all.
+	mux := http.NewServeMux()
+	mux.Handle("/explorer", explorerHandler(explorer))
+	mux.Handle("/", openapi.Handler(s))
 	// CORS outermost: a preflight carries no credential and must be answered before the
 	// credential is extracted, since a browser sends it without one.
-	handler := cors.withCORS(s.withCredential(openapi.Handler(s)))
+	handler := cors.withCORS(s.withCredential(mux))
 	s.srv = &http.Server{Addr: addr, Handler: handler, ReadHeaderTimeout: 5 * time.Second}
 	return s, nil
 }

@@ -192,6 +192,34 @@ func TestNoCypherRoute(t *testing.T) {
 	}
 }
 
+// TestExplorerConfigGate pins config's "explorer" wiring rather than the embed itself —
+// this build carries no explorer.html (-tags explorer is release-only), so every case
+// 404s; what the two messages tell apart is whether config's own switch was consulted
+// before ever reaching frontend.Explorer.
+func TestExplorerConfigGate(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		cfg  map[string]string
+		want string
+	}{
+		{"absent defaults to enabled", map[string]string{"addr": ":0"}, "not embedded"},
+		{"true is enabled", map[string]string{"addr": ":0", "explorer": "true"}, "not embedded"},
+		{"false is disabled", map[string]string{"addr": ":0", "explorer": "false"}, "disabled by config"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newServerWith(t, everyReadRight, tc.cfg, nil, nil)
+			rec := httptest.NewRecorder()
+			h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/explorer", nil))
+			if rec.Code != http.StatusNotFound {
+				t.Fatalf("status = %d, want 404", rec.Code)
+			}
+			if !strings.Contains(rec.Body.String(), tc.want) {
+				t.Fatalf("body = %q, want it to mention %q", rec.Body.String(), tc.want)
+			}
+		})
+	}
+}
+
 // TestVerificationHeaders pins the headers the contract promises on the run API: a 202
 // names where to poll and how soon, and a running report repeats the hint. Without these
 // a client has to guess a URL it was told it would be given.
