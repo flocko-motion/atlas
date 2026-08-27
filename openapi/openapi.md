@@ -2339,7 +2339,7 @@ Shapes each result along orthogonal axes. detail: claims with form: original and
 |Name|Type|Required|Restrictions|Description|
 |---|---|---|---|---|
 |field|string|true|none|The field sorted on — any field a claim carries, height included.|
-|compare|string|false|none|How the values compare (R-QSORT).|
+|compare|string|false|none|How the values compare (R-QSORT). temporal reads each value as the span of time it denotes and orders by that span's midpoint in nanoseconds, so EDTF dates and instants compare on one axis (R-QTEMPORAL).|
 |dir|string|false|none|Sort direction (R-QSORT).|
 
 #### Enumerated Values
@@ -2348,6 +2348,7 @@ Shapes each result along orthogonal axes. detail: claims with form: original and
 |---|---|
 |compare|numeric|
 |compare|lexical|
+|compare|temporal|
 |dir|asc|
 |dir|desc|
 

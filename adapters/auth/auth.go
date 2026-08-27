@@ -15,14 +15,19 @@ import (
 	"fmt"
 
 	"github.com/flocko-motion/rankedb/adapters/auth/apikey"
+	"github.com/flocko-motion/rankedb/adapters/auth/autherr"
+	"github.com/flocko-motion/rankedb/adapters/auth/jwt"
+	"github.com/flocko-motion/rankedb/adapters/auth/macaroon"
 	"github.com/flocko-motion/rankedb/adapters/auth/noauth"
 	"github.com/flocko-motion/rankedb/config/scope"
 	"github.com/flocko-motion/rankedb/internal/core/access"
 )
 
-// ErrUnauthenticated reports that a credential was required but missing or
-// invalid — an endpoint maps it to 401.
-var ErrUnauthenticated = errors.New("auth: unauthenticated")
+// ErrUnauthenticated reports that a credential was required but missing or invalid —
+// an endpoint maps it to 401. The value lives in autherr, which a backend returns
+// directly to avoid importing this package back (auth.go already imports it to
+// dispatch New); this is that same value under the name callers outside auth use.
+var ErrUnauthenticated = autherr.ErrUnauthenticated
 
 // ErrAmbiguousCredentials reports more than one auth scheme on one request. An
 // endpoint raises it while extracting, before core runs, and maps it to 400.
@@ -70,6 +75,10 @@ func New(ctx context.Context, cfg scope.Section) (Auth, error) {
 		return noauth.New(ctx, cfg)
 	case "apikey":
 		return apikey.New(ctx, cfg)
+	case "jwt":
+		return jwt.New(ctx, cfg)
+	case "macaroon":
+		return macaroon.New(ctx, cfg)
 	default:
 		return nil, fmt.Errorf("auth: unknown backend type %q", t)
 	}

@@ -238,8 +238,8 @@
         },
         "compare": {
           "type": "string",
-          "enum": ["numeric", "lexical"],
-          "description": "How the values compare (R-QSORT)."
+          "enum": ["numeric", "lexical", "temporal"],
+          "description": "How the values compare (R-QSORT). temporal reads each value as the span of time it denotes and orders by that span's midpoint in nanoseconds, so EDTF dates and instants compare on one axis (R-QTEMPORAL)."
         },
         "dir": {
           "type": "string",

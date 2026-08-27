@@ -406,8 +406,8 @@ export interface OrderKey {
    * @minLength 1
    */
   field: string;
-  /** How the values compare (R-QSORT). */
-  compare?: "numeric" | "lexical";
+  /** How the values compare (R-QSORT). temporal reads each value as the span of time it denotes and orders by that span's midpoint in nanoseconds, so EDTF dates and instants compare on one axis (R-QTEMPORAL). */
+  compare?: "numeric" | "lexical" | "temporal";
   /** Sort direction (R-QSORT). */
   dir?: "asc" | "desc";
 }

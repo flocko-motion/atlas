@@ -1,2 +1,7 @@
 node_modules/
 .build/
+
+# A plain `vite build` (rather than `make`) writes straight into dist/ alongside
+# the one committed distributable, dist/explorer.html — ignore that raw output.
+dist/index.html
+dist/assets/

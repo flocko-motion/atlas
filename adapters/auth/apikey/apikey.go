@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/flocko-motion/rankedb/adapters/auth/autherr"
 	"github.com/flocko-motion/rankedb/config/scope"
 	"github.com/flocko-motion/rankedb/internal/core/access"
 )
@@ -24,10 +25,6 @@ import (
 // minKeyLength guards against a mistakenly configured "1234". Not an entropy claim:
 // strength is the operator's to get right at generation.
 const minKeyLength = 16
-
-// errUnauthenticated covers every credential this backend declines. Package-local to
-// avoid an import cycle; the endpoint maps it to 401.
-var errUnauthenticated = errors.New("apikey: unauthenticated")
 
 // Auth is the API-key backend: key digests mapped to accounts.
 type Auth struct {
@@ -69,12 +66,12 @@ func New(ctx context.Context, cfg scope.Section) (*Auth, error) {
 // Authenticate hashes the presented key and returns the account it maps to.
 func (a *Auth) Authenticate(_ context.Context, token string) (access.Principal, error) {
 	if len(token) < minKeyLength {
-		return access.Principal{}, errUnauthenticated
+		return access.Principal{}, autherr.ErrUnauthenticated
 	}
 	sum := sha256.Sum256([]byte(token))
 	account, ok := a.byDigest[hex.EncodeToString(sum[:])]
 	if !ok {
-		return access.Principal{}, errUnauthenticated
+		return access.Principal{}, autherr.ErrUnauthenticated
 	}
 	return access.Principal{Account: account}, nil
 }
