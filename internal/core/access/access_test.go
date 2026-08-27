@@ -83,6 +83,28 @@ func TestAllowCaveats(t *testing.T) {
 	}
 }
 
+// TestAllowCaveatsIntersect covers successive attenuation: a bearer holding "R
+// foo-*" narrows further to "R foo-bar" before handing the token on, and the two
+// caveats must intersect (AND), not union (OR) — otherwise the second narrowing
+// step would hand the recipient back the first caveat's wider authority.
+func TestAllowCaveatsIntersect(t *testing.T) {
+	c, err := New(map[string][]string{"webapp": {"CR foo-*"}})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	narrowedTwice := Principal{
+		Account: "webapp",
+		Caveats: []Grant{mustGrant(t, "R foo-*"), mustGrant(t, "R foo-bar")},
+	}
+
+	if !c.Allow(narrowedTwice, Read, "foo-bar") {
+		t.Fatal("both caveats permit foo-bar, want allowed")
+	}
+	if c.Allow(narrowedTwice, Read, "foo-other") {
+		t.Fatal("second caveat withholds foo-other, want denied — caveats must intersect, not union")
+	}
+}
+
 func mustGrant(t *testing.T, spec string) Grant {
 	t.Helper()
 	g, err := ParseGrant(spec)

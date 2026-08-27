@@ -149,14 +149,17 @@ func New(accounts map[string][]string) (*Checker, error) {
 
 // Allow reports whether the principal may exercise right on branch: the account's
 // grants and any caveats must both allow it. Unknown or ungranted is denied.
+//
+// Caveats are successive attenuation steps, each a predicate the request must
+// still satisfy — not alternatives, or a second narrowing would fail to narrow.
+// A bearer can always attenuate further before passing a token on, so a flat
+// []Grant can only represent one grant per step: to carry more than one right in
+// a single step, list them on one Grant ("RIGHTS glob"), never as siblings.
 func (c *Checker) Allow(p Principal, right Right, branch string) bool {
 	if !anyAllows(c.accounts[p.Account], right, branch) {
 		return false
 	}
-	if len(p.Caveats) == 0 {
-		return true
-	}
-	return anyAllows(p.Caveats, right, branch)
+	return allAllows(p.Caveats, right, branch)
 }
 
 // anyAllows reports whether any grant in the set allows the action.
@@ -167,6 +170,17 @@ func anyAllows(grants []Grant, right Right, branch string) bool {
 		}
 	}
 	return false
+}
+
+// allAllows reports whether every grant in the set allows the action — vacuously
+// true with no caveats, since an absent caveat withholds nothing.
+func allAllows(grants []Grant, right Right, branch string) bool {
+	for _, g := range grants {
+		if !g.Allows(right, branch) {
+			return false
+		}
+	}
+	return true
 }
 
 // matchBranch matches a grant glob against a branch. A "$..." name needs an exact

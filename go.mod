@@ -6,11 +6,13 @@ require (
 	filippo.io/age v1.3.1
 	github.com/flocko-motion/ranke-go v0.24.0
 	github.com/getkin/kin-openapi v0.147.0
+	github.com/go-jose/go-jose/v4 v4.1.4
 	github.com/oapi-codegen/runtime v1.7.0
 	github.com/openbao/openbao/api/v2 v2.6.0
 	github.com/spf13/cobra v1.10.2
 	github.com/stretchr/testify v1.12.1
 	golang.org/x/term v0.45.0
+	gopkg.in/macaroon.v2 v2.1.0
 )
 
 require (
@@ -20,7 +22,6 @@ require (
 	github.com/dprotaso/go-yit v0.0.0-20220510233725-9ba8df137936 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/fxamacker/cbor/v2 v2.9.3 // indirect
-	github.com/go-jose/go-jose/v4 v4.1.4 // indirect
 	github.com/go-openapi/jsonpointer v1.0.0 // indirect
 	github.com/go-viper/mapstructure/v2 v2.5.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
