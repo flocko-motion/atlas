@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	ranke "github.com/flocko-motion/ranke-go"
+	ranke "github.com/rankegraph/ranke-go"
 
 	"github.com/flocko-motion/rankedb/openapi"
 )

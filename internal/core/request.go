@@ -15,7 +15,7 @@ import (
 	"io"
 	"time"
 
-	"github.com/flocko-motion/ranke-go"
+	"github.com/rankegraph/ranke-go"
 
 	"github.com/flocko-motion/rankedb/adapters/auth"
 	"github.com/flocko-motion/rankedb/internal/core/access"

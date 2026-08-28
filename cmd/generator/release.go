@@ -17,7 +17,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/flocko-motion/ranke-go"
+	"github.com/rankegraph/ranke-go"
 )
 
 // The schedule a release actually keeps: minutes to build and test, then days quiet before

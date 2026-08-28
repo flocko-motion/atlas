@@ -12,7 +12,7 @@ here — compose the library.
 
 ## Library: ranke-go (a versioned GitHub module)
 
-Depend on ranke-go as a normal module: `require github.com/flocko-motion/ranke-go vX.Y.Z`,
+Depend on ranke-go as a normal module: `require github.com/rankegraph/ranke-go vX.Y.Z`,
 bumped via semver. **ranke-go and ranke-ts mirror each other**, so the two pins move together:
 `go.mod`'s ranke-go and `frontend/package.json`'s `@flocko-motion/ranke` implement one wire
 format, and bumping only one can leave the explorer computing ids no server agrees with — a

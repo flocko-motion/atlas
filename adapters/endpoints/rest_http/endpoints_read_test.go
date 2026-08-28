@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	ranke "github.com/flocko-motion/ranke-go"
+	ranke "github.com/rankegraph/ranke-go"
 )
 
 // The codec is ranke-go's, so these cases pin the version bound here: every axis of

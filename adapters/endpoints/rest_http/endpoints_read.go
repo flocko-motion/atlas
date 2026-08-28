@@ -8,7 +8,7 @@ import (
 	"io"
 	"net/http"
 
-	ranke "github.com/flocko-motion/ranke-go"
+	ranke "github.com/rankegraph/ranke-go"
 
 	"github.com/flocko-motion/rankedb/internal/core"
 )

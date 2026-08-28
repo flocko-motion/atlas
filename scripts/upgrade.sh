@@ -18,7 +18,7 @@
 #   RANKE_GO_VERSION=v0.3.0 make upgrade
 set -eu
 
-RANKE_GO_MOD="${RANKE_GO_MOD:-github.com/flocko-motion/ranke-go}"
+RANKE_GO_MOD="${RANKE_GO_MOD:-github.com/rankegraph/ranke-go}"
 RANKE_GO_VERSION="${RANKE_GO_VERSION:-latest}"
 GO_VERSION="${GO_VERSION:-ask}"
 

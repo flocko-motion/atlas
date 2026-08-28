@@ -14,11 +14,11 @@ import (
 	"io"
 	"time"
 
-	"github.com/flocko-motion/ranke-go"
-	historyfile "github.com/flocko-motion/ranke-go/adapter/history/file"
-	historymem "github.com/flocko-motion/ranke-go/adapter/history/mem"
-	"github.com/flocko-motion/ranke-go/adapter/sequencer/concurrent"
-	"github.com/flocko-motion/ranke-go/adapter/sequencer/dev"
+	"github.com/rankegraph/ranke-go"
+	historyfile "github.com/rankegraph/ranke-go/adapter/history/file"
+	historymem "github.com/rankegraph/ranke-go/adapter/history/mem"
+	"github.com/rankegraph/ranke-go/adapter/sequencer/concurrent"
+	"github.com/rankegraph/ranke-go/adapter/sequencer/dev"
 
 	"github.com/flocko-motion/rankedb/adapters/signer"
 	"github.com/flocko-motion/rankedb/config/scope"

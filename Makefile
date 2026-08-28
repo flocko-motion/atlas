@@ -23,7 +23,7 @@ OPENAPI_GEN := openapi/openapi.gen.yaml
 REDOCLY     := @redocly/cli@2.44.1
 SWAGGER_TS  := swagger-typescript-api@13.12.6
 WIDDERSHINS := widdershins@4.0.1
-RANKE_GO_MOD ?= github.com/flocko-motion/ranke-go
+RANKE_GO_MOD ?= github.com/rankegraph/ranke-go
 # The library's other half. frontend/ keeps its own report, but nothing invokes it, so a
 # stale pin sat unseen for eleven days while the two halves disagreed about the wire format.
 # The pin is read straight out of package.json rather than delegated to that target, which

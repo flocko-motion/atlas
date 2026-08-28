@@ -1,7 +1,7 @@
 // package: core / orchestration
 // type:    logic
 // job:     put the library's bytes on the wire — a switch on kind, plus its separator
-// limits:  transport only; it encodes no claim and shapes no result (-> github.com/flocko-motion/ranke-go)
+// limits:  transport only; it encodes no claim and shapes no result (-> github.com/rankegraph/ranke-go)
 //
 // The engine answers a query already shaped and serialised to every output axis, and
 // tags each result with the one field carrying its payload. So serving is a switch and
@@ -19,7 +19,7 @@ import (
 	"fmt"
 	"io"
 
-	ranke "github.com/flocko-motion/ranke-go"
+	ranke "github.com/rankegraph/ranke-go"
 )
 
 // Media types the streams below produce.

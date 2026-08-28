@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/flocko-motion/ranke-go"
+	"github.com/rankegraph/ranke-go"
 )
 
 // TestBuildStorageStack assembles a two-layer stack (mem over fs) from a single

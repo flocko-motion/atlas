@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	ranke "github.com/flocko-motion/ranke-go"
+	ranke "github.com/rankegraph/ranke-go"
 
 	"github.com/flocko-motion/rankedb/adapters/auth"
 	"github.com/flocko-motion/rankedb/adapters/sequencer"

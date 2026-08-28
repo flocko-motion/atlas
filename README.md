@@ -7,7 +7,7 @@ A provenance-first foundation for knowledge systems.
 Please visit [github.com/flocko-motion/ranke-graph](https://github.com/flocko-motion/ranke-graph) to learn about the underlying concepts - this repo focusses on the implementation.
 
 RankeDB is the **server**: a hexagonal wrapper around the
-[`ranke-go`](https://github.com/flocko-motion/ranke-go) library, which owns the graph
+[`ranke-go`](https://github.com/rankegraph/ranke-go) library, which owns the graph
 model and verification. One process serves exactly one Ranke-Archive, assembled from
 exactly one configuration supplied at launch.
 

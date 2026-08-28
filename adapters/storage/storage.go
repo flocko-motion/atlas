@@ -1,7 +1,7 @@
 // package: storage / composition
 // type:    factory
 // job:     build one ranke.Universe from a storage section — a leaf, or a composite
-// limits:  wiring only; the persistence logic is ranke-go's adapters (-> github.com/flocko-motion/ranke-go)
+// limits:  wiring only; the persistence logic is ranke-go's adapters (-> github.com/rankegraph/ranke-go)
 //
 // A composed stack or partition is itself a Universe, so the whole store is one
 // recursive descriptor: a "type" selects a leaf or a composite, and composites recurse.
@@ -16,13 +16,22 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/flocko-motion/ranke-go"
-	"github.com/flocko-motion/ranke-go/adapter/storage/fs"
-	"github.com/flocko-motion/ranke-go/adapter/storage/mem"
-	"github.com/flocko-motion/ranke-go/adapter/storage/minimal"
-	"github.com/flocko-motion/ranke-go/adapter/storage/partition"
-	"github.com/flocko-motion/ranke-go/adapter/storage/sqlite"
-	"github.com/flocko-motion/ranke-go/adapter/storage/stack"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/credentials"
+	awss3 "github.com/aws/aws-sdk-go-v2/service/s3"
+	neo4jdriver "github.com/neo4j/neo4j-go-driver/v5/neo4j"
+	goredis "github.com/redis/go-redis/v9"
+
+	"github.com/rankegraph/ranke-go"
+	"github.com/rankegraph/ranke-go/adapter/storage/fs"
+	"github.com/rankegraph/ranke-go/adapter/storage/mem"
+	"github.com/rankegraph/ranke-go/adapter/storage/minimal"
+	storageneo4j "github.com/rankegraph/ranke-go/adapter/storage/neo4j"
+	"github.com/rankegraph/ranke-go/adapter/storage/partition"
+	storageredis "github.com/rankegraph/ranke-go/adapter/storage/redis"
+	storages3 "github.com/rankegraph/ranke-go/adapter/storage/s3"
+	"github.com/rankegraph/ranke-go/adapter/storage/sqlite"
+	"github.com/rankegraph/ranke-go/adapter/storage/stack"
 
 	"github.com/flocko-motion/rankedb/config/scope"
 )
@@ -117,9 +126,11 @@ func build(ctx context.Context, sec scope.Section) (ranke.Universe, error) {
 	case "minimal":
 		return minimal.New(), nil
 	case "s3":
-		// ranke-go's s3 adapter takes a constructed *s3.Client; wiring the AWS
-		// SDK (region/endpoint/credentials from the section) is a dedicated pass.
-		return nil, fmt.Errorf("storage: s3 backend not yet wired")
+		return buildS3(ctx, sec)
+	case "redis":
+		return buildRedis(ctx, sec)
+	case "neo4j":
+		return buildNeo4j(ctx, sec)
 	case "":
 		return nil, fmt.Errorf("storage: missing type")
 	default:
@@ -191,6 +202,116 @@ func checkLayer(ctx context.Context, l scope.Section, u ranke.Universe) error {
 		}
 	}
 	return nil
+}
+
+// buildRedis builds a redis-backed Universe: addr is required, password and db
+// select the target instance's auth and database index. The client is
+// constructed here since ranke-go's adapter takes one already configured.
+func buildRedis(ctx context.Context, sec scope.Section) (ranke.Universe, error) {
+	addr, err := sec.Get(ctx, "addr")
+	if err != nil {
+		return nil, fmt.Errorf("storage: redis: %w", err)
+	}
+	opts := &goredis.Options{Addr: addr}
+	if sec.HasValue("password") {
+		if opts.Password, err = sec.Get(ctx, "password"); err != nil {
+			return nil, fmt.Errorf("storage: redis: %w", err)
+		}
+	}
+	if sec.HasValue("db") {
+		raw, err := sec.Get(ctx, "db")
+		if err != nil {
+			return nil, fmt.Errorf("storage: redis: %w", err)
+		}
+		if opts.DB, err = strconv.Atoi(raw); err != nil {
+			return nil, fmt.Errorf("storage: redis: db: %w", err)
+		}
+	}
+	return storageredis.New(goredis.NewClient(opts))
+}
+
+// buildS3 builds an S3-backed Universe: bucket, region, accessKeyId and
+// secretAccessKey are required — credentials come from this config (as a
+// literal, env(), or vault() reference), never an ambient credential chain, so
+// a deployment's secrets live in one place. endpoint and usePathStyle target an
+// S3-compatible service (e.g. MinIO) in place of AWS.
+func buildS3(ctx context.Context, sec scope.Section) (ranke.Universe, error) {
+	bucket, err := sec.Get(ctx, "bucket")
+	if err != nil {
+		return nil, fmt.Errorf("storage: s3: %w", err)
+	}
+	region, err := sec.Get(ctx, "region")
+	if err != nil {
+		return nil, fmt.Errorf("storage: s3: %w", err)
+	}
+	accessKeyID, err := sec.Get(ctx, "accessKeyId")
+	if err != nil {
+		return nil, fmt.Errorf("storage: s3: %w", err)
+	}
+	secretAccessKey, err := sec.Get(ctx, "secretAccessKey")
+	if err != nil {
+		return nil, fmt.Errorf("storage: s3: %w", err)
+	}
+	var endpoint string
+	if sec.HasValue("endpoint") {
+		if endpoint, err = sec.Get(ctx, "endpoint"); err != nil {
+			return nil, fmt.Errorf("storage: s3: %w", err)
+		}
+	}
+	pathStyle := false
+	if sec.HasValue("usePathStyle") {
+		v, err := sec.Get(ctx, "usePathStyle")
+		if err != nil {
+			return nil, fmt.Errorf("storage: s3: %w", err)
+		}
+		pathStyle = v == "true"
+	}
+	awsCfg := aws.Config{
+		Region:      region,
+		Credentials: credentials.NewStaticCredentialsProvider(accessKeyID, secretAccessKey, ""),
+	}
+	client := awss3.NewFromConfig(awsCfg, func(o *awss3.Options) {
+		if endpoint != "" {
+			o.BaseEndpoint = aws.String(endpoint)
+		}
+		o.UsePathStyle = pathStyle
+	})
+	return storages3.New(client, bucket)
+}
+
+// buildNeo4j builds a graph-native cache Universe over a neo4j driver: uri is
+// required; username and password are required together, else the driver
+// connects with no auth; database selects a non-default database.
+func buildNeo4j(ctx context.Context, sec scope.Section) (ranke.Universe, error) {
+	uri, err := sec.Get(ctx, "uri")
+	if err != nil {
+		return nil, fmt.Errorf("storage: neo4j: %w", err)
+	}
+	auth := neo4jdriver.NoAuth()
+	if sec.HasValue("username") || sec.HasValue("password") {
+		user, err := sec.Get(ctx, "username")
+		if err != nil {
+			return nil, fmt.Errorf("storage: neo4j: %w", err)
+		}
+		pass, err := sec.Get(ctx, "password")
+		if err != nil {
+			return nil, fmt.Errorf("storage: neo4j: %w", err)
+		}
+		auth = neo4jdriver.BasicAuth(user, pass, "")
+	}
+	driver, err := neo4jdriver.NewDriverWithContext(uri, auth)
+	if err != nil {
+		return nil, fmt.Errorf("storage: neo4j: %w", err)
+	}
+	var opts []storageneo4j.Option
+	if sec.HasValue("database") {
+		db, err := sec.Get(ctx, "database")
+		if err != nil {
+			return nil, fmt.Errorf("storage: neo4j: %w", err)
+		}
+		opts = append(opts, storageneo4j.WithDatabase(db))
+	}
+	return storageneo4j.New(driver, opts...), nil
 }
 
 // buildPartition routes content by id mod shard-count. Shards are bare universes.
