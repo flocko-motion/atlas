@@ -4,15 +4,16 @@ An admin endpoint is already expressible, and it still has to sit on a reachable
 Each entry in `endpoints` carries its own authenticators and its own access checker built
 from the accounts it admits alone (`config/config.go:245-268`), and every configured
 endpoint mounts concurrently, so an exposure that recognises one service account and
-nothing else is a matter of configuration today. What no configuration can say is that such an exposure
-should be unreachable from the network.
+nothing else is a matter of configuration today. What no configuration can say is that such an
+exposure should be unreachable from the network.
 
 `rest_http` builds an `http.Server` around a configured `addr` and serves it with
 `ListenAndServe`, which is fixed to TCP (`rest_http.go:69-76`). No other place in the
 repository opens a listener. A socket path in `addr` is therefore accepted by `verify`,
 which checks the field as an unconstrained string, and then fails at launch inside
 `ListenAndServe` with `missing port in address` — a configuration that validates and
-cannot run.
+cannot run. Under this change that same value is refused offline, naming the `unix://` it
+needs.
 
 The use this answers: bind the admin endpoint to a socket, forward it over ssh
 (`ssh -L 8080:/run/rankedb/admin.sock host`), and read the instance from the Ranke Explorer
@@ -21,9 +22,10 @@ at `http://127.0.0.1:8080`. OpenSSH has forwarded a local port to a remote socke
 
 ## What Changes
 
-- The **form of the address decides the network**: a value beginning `/` or `./` binds a
-  Unix domain socket, and every other value stays a TCP address. One field, and the
-  configuration that fails at launch today starts working.
+- The **`unix://` scheme declares a socket**: `unix:///run/rankedb.sock` binds that path,
+  every address without the scheme stays a TCP address, and `unix://` alone is refused. One
+  field, the family declared in it, and the syntax Docker and gRPC already use for the same
+  purpose.
 - The socket file's permissions become the endpoint's access boundary, declared on the
   transport section: **`mode`**, octal, defaulting to `0600`, and an optional **`group`**
   owning the socket. A server and the user who forwards its socket are rarely the same

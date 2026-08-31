@@ -1,28 +1,22 @@
-## The address form decides, not a second field
+## The scheme declares the socket
 
-The alternative was a `network` field taking `tcp` or `unix`, with `addr` read according to
-it. It was rejected because the two address forms do not overlap: a TCP address carries a
-port after a colon and a socket path begins at the root or at `./`. A second field
-therefore adds no information the first does not already hold, while adding a pair of
-fields that can disagree — and a config saying `"network": "tcp", "addr": "/run/x.sock"` is
-a new way to be wrong that nobody needs.
+`unix://` followed by the path names a socket, and every other address stays a TCP address
+as it always was. `unix:///run/rankedb.sock` therefore binds `/run/rankedb.sock`, and
+`unix://` alone is refused for naming nothing.
 
-Inference also repairs the present failure directly. `"addr": "/run/rankedb.sock"` is a
-configuration someone writes expecting it to work; today it validates and dies at launch.
-Under inference that same text is the feature.
+The scheme is what Docker, gRPC, and a good deal of Go server configuration already use for
+exactly this, so an operator writing a bind address has met it before. It also puts the
+choice in the config rather than in the adapter's reading of it: a value either carries
+`unix://` or it does not, and no path has to be interpreted to find out.
 
-What inference costs is one gap, and it is worth naming rather than discovering later. That
-a socket path begins at `/` or `./` is a convention this change imposes; it is not a fact
-about paths, and `run/rankedb.sock` is a value someone will write. Widening the rule to any
-value containing a slash was considered and rejected, since it would read a TCP address of
-the form `host/…` as a path where no such address exists today but might. So the rule stands
-and the error carries the convention: a value parsing as neither form is reported as
-malformed, naming the leading `/` or `./` a socket path needs. The writer gets the correction
-rather than a bare complaint about a network address they never meant.
+What it costs is that `/run/rankedb.sock` on its own does not bind, and that is a value
+someone will write. So `verify` reports it as malformed and names the `unix://` it needs,
+which turns the one failure this syntax invites into a correction.
 
-A scheme prefix (`unix:/run/x.sock`) was the third option. It keeps one field and stays
-explicit, at the price of a URL-shaped syntax that appears nowhere else in the
-configuration, so it was dropped for consistency.
+A `network` field taking `tcp` or `unix`, with `addr` read according to it, was the
+alternative and is rejected. Two fields can disagree where one cannot, and
+`"network": "tcp", "addr": "unix:///run/x.sock"` is a way to be wrong that the scheme makes
+impossible.
 
 ## The mode is configuration, and closed by default
 

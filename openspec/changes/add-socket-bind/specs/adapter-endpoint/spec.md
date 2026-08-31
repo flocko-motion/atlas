@@ -1,18 +1,23 @@
 ## ADDED Requirements
 
 ### Requirement: An endpoint binds either a network address or a local socket
-The system SHALL bind an endpoint to a Unix domain socket when its configured address is a
-filesystem path, and to a TCP address otherwise, the form of the address alone deciding
-which. A path SHALL be recognised by a leading `/` or `./`, and every other address SHALL
-bind as it does today.
+The system SHALL bind an endpoint to a Unix domain socket when its configured address
+carries the `unix://` scheme, and to a TCP address otherwise. The socket path SHALL be the
+remainder of the address as written, so `unix:///run/rankedb/admin.sock` names
+`/run/rankedb/admin.sock`. An address of `unix://` alone SHALL be refused, naming no socket
+to bind. Every address without the scheme SHALL bind as it does today.
 
 A socket endpoint SHALL carry the same surface over the same protocol as a network one, so a
 client reaching it through a forwarded port SHALL need no knowledge that a socket carries
 it, and no part of the wire contract SHALL change.
 
-#### Scenario: A path binds a socket
-- **WHEN** an endpoint is configured with `"addr": "/run/rankedb/admin.sock"`
-- **THEN** it listens on that Unix domain socket and on no network port
+#### Scenario: A scheme-prefixed address binds a socket
+- **WHEN** an endpoint is configured with `"addr": "unix:///run/rankedb/admin.sock"`
+- **THEN** it listens on the Unix domain socket at `/run/rankedb/admin.sock` and on no network port
+
+#### Scenario: A scheme naming no path is refused
+- **WHEN** an endpoint is configured with `"addr": "unix://"`
+- **THEN** the endpoint refuses to build, the address naming no socket
 
 #### Scenario: A network address is unaffected
 - **WHEN** an endpoint is configured with `"addr": ":8080"`
@@ -77,14 +82,13 @@ a listener or touching the filesystem. A socket path exceeding the length the op
 system admits for a socket path SHALL be reported by `verify`, this being the one
 misconfiguration a config file cannot show and a launch cannot survive.
 
-A value that parses as neither form SHALL be reported as a malformed address naming the
-convention this change imposes — that a socket path begins at `/` or `./` — since a relative
-path such as `run/rankedb.sock` is plainly meant as a socket and would otherwise be reported
-only as an invalid network address.
+A filesystem path carrying no scheme SHALL be reported as a malformed address naming the
+`unix://` the address needs, since a value such as `/run/rankedb.sock` is plainly meant as a
+socket and would otherwise be reported only as an invalid network address.
 
-#### Scenario: A relative socket path is answered with the convention
-- **WHEN** `verify` runs against an endpoint address of `run/rankedb.sock`
-- **THEN** it reports the address as malformed and names the leading `/` or `./` that a socket path requires
+#### Scenario: A bare socket path is answered with the scheme it needs
+- **WHEN** `verify` runs against an endpoint address of `/run/rankedb.sock`
+- **THEN** it reports the address as malformed and names the `unix://` scheme a socket requires
 
 #### Scenario: An overlong socket path fails verification
 - **WHEN** `verify` runs against a configuration whose endpoint address is a socket path longer than the platform admits
