@@ -6,10 +6,17 @@ import (
 	"crypto/rand"
 	"crypto/x509"
 	"encoding/pem"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"os/user"
+	"path/filepath"
+	"strconv"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
 
 	ranke "github.com/rankegraph/ranke-go"
 
@@ -269,4 +276,353 @@ func TestBusyCarriesRetryAfter(t *testing.T) {
 	if got := other.Header().Get("Retry-After"); got != "" {
 		t.Fatalf("Retry-After = %q on 404, want none", got)
 	}
+}
+
+// TestParseAddr pins the "unix://" convention: it names a socket path, and anything
+// else is read as a TCP address exactly as before.
+func TestParseAddr(t *testing.T) {
+	for _, tc := range []struct {
+		name, addr, network, address string
+	}{
+		{"bare tcp address", ":8080", "tcp", ":8080"},
+		{"host:port", "127.0.0.1:9090", "tcp", "127.0.0.1:9090"},
+		{"absolute socket path", "unix:///run/rankedb.sock", "unix", "/run/rankedb.sock"},
+		{"relative socket path", "unix://./rankedb.sock", "unix", "./rankedb.sock"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			network, address, err := parseAddr(tc.addr)
+			if err != nil {
+				t.Fatalf("parseAddr(%q): %v", tc.addr, err)
+			}
+			if network != tc.network || address != tc.address {
+				t.Fatalf("parseAddr(%q) = (%q, %q), want (%q, %q)", tc.addr, network, address, tc.network, tc.address)
+			}
+		})
+	}
+	if _, _, err := parseAddr("unix://"); err == nil {
+		t.Fatal(`parseAddr("unix://") = nil error, want one — no socket path given`)
+	}
+}
+
+// TestNewRefusesSchemeWithNoPath pins the endpoint-level scenario: "unix://" alone
+// fails New itself, not just parseAddr in isolation.
+func TestNewRefusesSchemeWithNoPath(t *testing.T) {
+	ctx := context.Background()
+	cfg := scope.Literal(map[string]string{"addr": "unix://"})
+	if _, err := New(ctx, cfg, core.New(nil, nil, nil, nil)); err == nil {
+		t.Fatal(`New with "addr": "unix://" = nil error, want a build-time refusal`)
+	}
+}
+
+// TestValidateAddr pins what the offline check catches: an overlong socket path, and a
+// bare filesystem path missing the "unix://" scheme it needs to be read as one. A bare
+// TCP address is unconstrained, exactly as before this change.
+func TestValidateAddr(t *testing.T) {
+	if err := ValidateAddr(":8080"); err != nil {
+		t.Fatalf("ValidateAddr(bare tcp): %v", err)
+	}
+	if err := ValidateAddr("unix:///run/rankedb.sock"); err != nil {
+		t.Fatalf("ValidateAddr(socket path): %v", err)
+	}
+	if err := ValidateAddr("/run/rankedb.sock"); err == nil {
+		t.Fatal(`ValidateAddr("/run/rankedb.sock") = nil, want the "unix://" scheme correction`)
+	}
+	if err := ValidateAddr("unix://" + strings.Repeat("a", maxSocketPathLen+1)); err == nil {
+		t.Fatal("ValidateAddr on an overlong socket path = nil, want an error")
+	}
+}
+
+// builtServer builds a Server over the same no-op auth/access wiring newGrantedServer
+// uses for TCP, for a case that needs the *Server itself rather than just its Handler.
+func builtServer(t *testing.T, transport map[string]string) *Server {
+	t.Helper()
+	ctx := context.Background()
+
+	a, err := auth.New(ctx, scope.Literal(map[string]string{"type": "noauth", "subject": "ops"}))
+	if err != nil {
+		t.Fatalf("auth.New: %v", err)
+	}
+	set, err := auth.NewSet([]auth.Auth{a})
+	if err != nil {
+		t.Fatalf("auth.NewSet: %v", err)
+	}
+	chk, err := access.New(map[string][]string{"ops": everyReadRight})
+	if err != nil {
+		t.Fatalf("access.New: %v", err)
+	}
+	s, err := New(ctx, scope.Literal(transport), core.New(set, chk, nil, nil))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	return s
+}
+
+// unixTestServer builds a Server bound to a Unix domain socket path.
+func unixTestServer(t *testing.T, sock string, transport map[string]string) *Server {
+	t.Helper()
+	cfg := map[string]string{"addr": "unix://" + sock}
+	for k, v := range transport {
+		cfg[k] = v
+	}
+	return builtServer(t, cfg)
+}
+
+// TestServeTCP pins that the TCP path still binds and serves for real after the switch
+// to net.Listen + srv.Serve(ln) — the default path an address-form check must not move.
+func TestServeTCP(t *testing.T) {
+	reserved, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("reserve a port: %v", err)
+	}
+	addr := reserved.Addr().String()
+	_ = reserved.Close()
+
+	s := builtServer(t, map[string]string{"addr": addr})
+	sctx, cancel := context.WithCancel(context.Background())
+	servec := make(chan error, 1)
+	go func() { servec <- s.Serve(sctx) }()
+
+	var resp *http.Response
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if resp, err = http.Get("http://" + addr + "/health"); err == nil {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if err != nil {
+		t.Fatalf("GET /health over tcp: %v", err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+
+	cancel()
+	if err := <-servec; err != nil {
+		t.Fatalf("Serve: %v", err)
+	}
+}
+
+// TestServeUnixSocket pins that the endpoint can bind and serve a real request over a
+// Unix domain socket, not just TCP, that its default mode admits only the server's own
+// user, and that a clean shutdown unlinks the socket file behind it.
+func TestServeUnixSocket(t *testing.T) {
+	sock := filepath.Join(t.TempDir(), "rankedb.sock")
+	s := unixTestServer(t, sock, nil)
+
+	sctx, cancel := context.WithCancel(context.Background())
+	servec := make(chan error, 1)
+	go func() { servec <- s.Serve(sctx) }()
+	waitForSocket(t, sock)
+
+	fi, err := os.Stat(sock)
+	if err != nil {
+		t.Fatalf("stat socket: %v", err)
+	}
+	if perm := fi.Mode().Perm(); perm != 0o600 {
+		t.Fatalf("socket mode = %o, want 0600 (closed by default)", perm)
+	}
+
+	client := &http.Client{Transport: &http.Transport{
+		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+			return net.Dial("unix", sock)
+		},
+	}}
+	resp, err := client.Get("http://unix/health")
+	if err != nil {
+		t.Fatalf("GET /health over unix socket: %v", err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+
+	cancel()
+	if err := <-servec; err != nil {
+		t.Fatalf("Serve: %v", err)
+	}
+	if _, err := os.Stat(sock); !os.IsNotExist(err) {
+		t.Fatalf("socket file survived a clean shutdown: %v", err)
+	}
+}
+
+// TestServeUnixSocketMode pins that a declared "mode" is what the socket file
+// actually carries, not just what was asked for.
+func TestServeUnixSocketMode(t *testing.T) {
+	sock := filepath.Join(t.TempDir(), "rankedb.sock")
+	s := unixTestServer(t, sock, map[string]string{"mode": "0660"})
+
+	sctx, cancel := context.WithCancel(context.Background())
+	servec := make(chan error, 1)
+	go func() { servec <- s.Serve(sctx) }()
+	waitForSocket(t, sock)
+	defer func() {
+		cancel()
+		<-servec
+	}()
+
+	fi, err := os.Stat(sock)
+	if err != nil {
+		t.Fatalf("stat socket: %v", err)
+	}
+	if perm := fi.Mode().Perm(); perm != 0o660 {
+		t.Fatalf("socket mode = %o, want 0660", perm)
+	}
+}
+
+// TestServeUnixSocketGroup pins that a declared "group" is the gid the socket file
+// actually carries — the process's own primary group, resolved by name, not by gid.
+func TestServeUnixSocketGroup(t *testing.T) {
+	me, err := user.Current()
+	if err != nil {
+		t.Fatalf("user.Current: %v", err)
+	}
+	g, err := user.LookupGroupId(me.Gid)
+	if err != nil {
+		t.Fatalf("LookupGroupId(%s): %v", me.Gid, err)
+	}
+
+	sock := filepath.Join(t.TempDir(), "rankedb.sock")
+	s := unixTestServer(t, sock, map[string]string{"mode": "0660", "group": g.Name})
+
+	sctx, cancel := context.WithCancel(context.Background())
+	servec := make(chan error, 1)
+	go func() { servec <- s.Serve(sctx) }()
+	waitForSocket(t, sock)
+	defer func() {
+		cancel()
+		<-servec
+	}()
+
+	fi, err := os.Stat(sock)
+	if err != nil {
+		t.Fatalf("stat socket: %v", err)
+	}
+	stat, ok := fi.Sys().(*syscall.Stat_t)
+	if !ok {
+		t.Fatal("Sys() is not *syscall.Stat_t on this platform")
+	}
+	if gotGid := strconv.Itoa(int(stat.Gid)); gotGid != me.Gid {
+		t.Fatalf("socket gid = %s, want %s (%s)", gotGid, me.Gid, g.Name)
+	}
+}
+
+// TestUnknownGroupFailsAtLaunch pins that a "group" naming nobody on the host is
+// reported clearly rather than left to fail obscurely at bind.
+func TestUnknownGroupFailsAtLaunch(t *testing.T) {
+	ctx := context.Background()
+	a, err := auth.New(ctx, scope.Literal(map[string]string{"type": "noauth", "subject": "ops"}))
+	if err != nil {
+		t.Fatalf("auth.New: %v", err)
+	}
+	set, err := auth.NewSet([]auth.Auth{a})
+	if err != nil {
+		t.Fatalf("auth.NewSet: %v", err)
+	}
+	chk, err := access.New(map[string][]string{"ops": everyReadRight})
+	if err != nil {
+		t.Fatalf("access.New: %v", err)
+	}
+	cfg := scope.Literal(map[string]string{"addr": "unix:///run/rankedb.sock", "group": "no-such-group-on-this-host"})
+	if _, err := New(ctx, cfg, core.New(set, chk, nil, nil)); err == nil {
+		t.Fatal("New with an unknown group = nil error, want one")
+	}
+}
+
+// TestServeUnixSocketRemovesStaleFile pins that a leftover socket file from an
+// unclean prior shutdown does not block a rebind — the situation an operator's
+// process manager restarts into after a crash — while a live one refuses instead of
+// being displaced, per design.md's "a stale socket is replaced; a live one is refused".
+func TestServeUnixSocketRemovesStaleFile(t *testing.T) {
+	sock := filepath.Join(t.TempDir(), "rankedb.sock")
+
+	ln, err := net.Listen("unix", sock)
+	if err != nil {
+		t.Fatalf("net.Listen: %v", err)
+	}
+	ln.(*net.UnixListener).SetUnlinkOnClose(false)
+	if err := ln.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+	if _, err := os.Stat(sock); err != nil {
+		t.Fatalf("stale socket file missing before the test even starts: %v", err)
+	}
+
+	s := unixTestServer(t, sock, nil)
+	sctx, cancel := context.WithCancel(context.Background())
+	servec := make(chan error, 1)
+	go func() { servec <- s.Serve(sctx) }()
+	waitForSocket(t, sock)
+
+	cancel()
+	if err := <-servec; err != nil {
+		t.Fatalf("Serve: %v", err)
+	}
+}
+
+// TestServeUnixSocketRefusesALiveOne pins the blocker case: a path where another
+// instance is actually listening must refuse rather than unlink the running
+// instance's socket out from under it.
+func TestServeUnixSocketRefusesALiveOne(t *testing.T) {
+	sock := filepath.Join(t.TempDir(), "rankedb.sock")
+
+	first := unixTestServer(t, sock, nil)
+	firstCtx, firstCancel := context.WithCancel(context.Background())
+	firstServec := make(chan error, 1)
+	go func() { firstServec <- first.Serve(firstCtx) }()
+	waitForSocket(t, sock)
+	defer func() {
+		firstCancel()
+		<-firstServec
+	}()
+
+	second := unixTestServer(t, sock, nil)
+	if err := second.Serve(context.Background()); err == nil {
+		t.Fatal("Serve against a live socket = nil error, want a refusal")
+	}
+	if _, err := os.Stat(sock); err != nil {
+		t.Fatalf("the first instance's socket was removed: %v", err)
+	}
+
+	client := &http.Client{Transport: &http.Transport{
+		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+			return net.Dial("unix", sock)
+		},
+	}}
+	resp, err := client.Get("http://unix/health")
+	if err != nil {
+		t.Fatalf("the first instance stopped answering after the refused second one: %v", err)
+	}
+	_ = resp.Body.Close()
+}
+
+// TestClaimSocketRefusesANonSocket pins the safety rail: a regular file sitting at
+// the configured path is left alone rather than deleted out from under whatever put
+// it there.
+func TestClaimSocketRefusesANonSocket(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "not-a-socket")
+	if err := os.WriteFile(path, []byte("hi"), 0o600); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+	if err := claimSocket(path); err == nil {
+		t.Fatal("claimSocket on a regular file = nil error, want one")
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("file was removed: %v", err)
+	}
+}
+
+// waitForSocket polls until a socket file exists at path, or fails the test —
+// binding happens in Serve's own goroutine, racing the test's own dial.
+func waitForSocket(t *testing.T, path string) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(path); err == nil {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatalf("socket %s never appeared", path)
 }

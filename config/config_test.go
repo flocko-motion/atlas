@@ -255,6 +255,18 @@ func TestVerify(t *testing.T) {
 	if err := Verify(context.Background(), strings.NewReader(danglingAdmit), nil, LevelSyntax); err == nil {
 		t.Fatal("Verify syntax accepted an admit naming an undefined account")
 	}
+	const bareSocketPath = `{"endpoints": [{"transport": {"type": "rest", "addr": "/run/rankedb.sock"}, "auth": [], "admit": []}]}`
+	if err := Verify(context.Background(), strings.NewReader(bareSocketPath), nil, LevelSyntax); err == nil {
+		t.Fatal(`Verify syntax accepted an addr plainly meant as a socket path but missing its "unix://" scheme`)
+	}
+	overlongSocketPath := `{"endpoints": [{"transport": {"type": "rest", "addr": "unix://` + strings.Repeat("a", 200) + `"}, "auth": [], "admit": []}]}`
+	if err := Verify(context.Background(), strings.NewReader(overlongSocketPath), nil, LevelSyntax); err == nil {
+		t.Fatal("Verify syntax accepted a socket path over the platform's sun_path limit")
+	}
+	const validSocketPath = `{"endpoints": [{"transport": {"type": "rest", "addr": "unix:///run/rankedb.sock"}, "auth": [], "admit": []}]}`
+	if err := Verify(context.Background(), strings.NewReader(validSocketPath), nil, LevelSyntax); err != nil {
+		t.Fatalf("Verify syntax rejected a well-formed socket path: %v", err)
+	}
 	if err := Verify(context.Background(), strings.NewReader(good), nil, LevelResolve); err == nil {
 		t.Fatal("Verify resolve accepted an unset env reference")
 	}

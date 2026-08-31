@@ -181,6 +181,7 @@ dev: ## Run a dev server from DEV_CONFIG with /explorer active (SEED=example|rel
 				esac; \
 			fi; \
 		fi; \
+		mkdir -p -m 0700 run; \
 		echo ">> $(DEV_CONFIG) — ephemeral signing key, nothing persisted between runs"; \
 		echo ">> serving on  $$url"; \
 		echo ">> try:  curl $$url/health  ·  curl $$url/branches  ·  curl $$url/branches/main/head  ·  open $$url/explorer"; \

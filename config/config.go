@@ -21,6 +21,7 @@ import (
 
 	"github.com/flocko-motion/rankedb/adapters/auth"
 	"github.com/flocko-motion/rankedb/adapters/endpoints"
+	"github.com/flocko-motion/rankedb/adapters/endpoints/rest_http"
 	"github.com/flocko-motion/rankedb/adapters/sequencer"
 	"github.com/flocko-motion/rankedb/adapters/signer"
 	"github.com/flocko-motion/rankedb/adapters/storage"
@@ -156,6 +157,16 @@ func load(r io.Reader) (*Config, error) {
 		for _, name := range ec.Admit {
 			if _, ok := c.Accounts[name]; !ok {
 				return nil, fmt.Errorf("config: endpoints[%d]: admit names undefined account %q", i, name)
+			}
+		}
+		// The transport's address form, also offline: an overlong socket path, or one
+		// missing its "unix://" scheme, fails the syntax check rather than the launch after it.
+		if raw, ok := ec.Transport["addr"]; ok {
+			var addr string
+			if err := json.Unmarshal(raw, &addr); err == nil {
+				if err := rest_http.ValidateAddr(addr); err != nil {
+					return nil, fmt.Errorf("config: endpoints[%d].transport.addr: %w", i, err)
+				}
 			}
 		}
 	}

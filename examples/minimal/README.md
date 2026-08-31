@@ -59,8 +59,9 @@ API, read the graph back, shut down.
 
 ## What a running instance answers today
 
-The stack assembles fully — storage, sequencer, signer, and one REST endpoint — and
-`verify --level connect` proves it. The read and write surface is live:
+The stack assembles fully — storage, sequencer, signer, and two REST endpoints, one on
+a port and one on a socket — and `verify --level connect` proves it. The read and
+write surface is live:
 
 | Route | Answers |
 |---|---|
@@ -80,6 +81,29 @@ proxy. It is a comma-separated list and `*` admits any; omitting it leaves the i
 unreachable from any page but its own origin, which is the right default for a server nobody
 browses. Admitting an origin grants it nothing: every request still authenticates and is
 authorized as before.
+
+### The admin endpoint, on a socket
+
+The second endpoint binds `unix://./run/admin.sock` instead of a port, admitting
+`admin` rather than `ops`. `mode: "0660"` makes group membership the admission check; the
+default (`mode` absent) admits only the user the server runs as. Either way, the
+socket's containing directory carries the boundary too, for the instant between bind
+and chmod — create it closed before launch:
+
+```sh
+mkdir -m 0700 run
+```
+
+Reach it from a workstation by forwarding a local port over ssh (OpenSSH 6.7+; give
+the socket's absolute path, since a forwarded path is resolved on the remote host, not
+against the server's own working directory):
+
+```sh
+ssh -L 8080:/run/rankedb/admin.sock host
+```
+
+and open the Ranke Explorer at `http://127.0.0.1:8080` — it never learns the instance
+is behind a socket rather than a port.
 
 ### The sequencer section
 

@@ -23,10 +23,12 @@ RANKE_SIGNER_KEY="$(openssl genpkey -algorithm ed25519)"
 export RANKE_SIGNER_KEY
 
 # The configuration is the composition root: an endpoint listens where its own
-# section says, so the smoke port is set by editing the config, not by a flag.
+# section says, so the smoke port is set by editing the config, not by a flag. The
+# admin socket moves under $WORK too, so smoke touches nothing outside its own tmpdir.
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
-sed "s/\":8080\"/\"$ADDR\"/" "$CONFIG" > "$WORK/config.json"
+mkdir -m 0700 "$WORK/run"
+sed -e "s/\":8080\"/\"$ADDR\"/" -e "s#\"unix://./run/admin.sock\"#\"unix://$WORK/run/admin.sock\"#" "$CONFIG" > "$WORK/config.json"
 
 echo ">> launching: $BIN run <minimal example on $ADDR>"
 "$BIN" run "$WORK/config.json" &
