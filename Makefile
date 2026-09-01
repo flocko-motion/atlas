@@ -34,12 +34,17 @@ RANKE_GO_VERSION ?= latest
 # ask = prompt before raising the go directive; keep = leave it; or a version.
 GO_VERSION ?= ask
 
-RANKE_GRAPH_REPO ?= https://github.com/rankegraph/ranke-graph
-RANKE_GRAPH_REF  ?= main
-PAPERS_DIR       := docs/papers
-DOCS_DIR         := docs
-DIST_DIR         := dist
-DOCS_PDF         := $(DIST_DIR)/docs.pdf
+RANKE_GRAPH_REPO    ?= https://github.com/rankegraph/ranke-graph
+RANKE_GRAPH_REF     ?= main
+# The ranke-graph release docs-release traces its documents to — bumped
+# deliberately, the same discipline RANKE_GO_VERSION's pin holds ranke-go to,
+# never "latest": a floating pin would make `make docs-release` non-reproducible
+# between two runs that happen to straddle a ranke-graph release.
+RANKE_GRAPH_RELEASE ?= v0.23.3
+PAPERS_DIR          := docs/papers
+DOCS_DIR            := docs
+DIST_DIR            := dist
+DOCS_PDF            := $(DIST_DIR)/docs.pdf
 # What this repo publishes for a consumer to read or render itself — the chapters
 # and the two machine-readable contracts. The website and any client generator
 # take one tarball per repo instead of cloning four.
@@ -53,7 +58,11 @@ DOCS_VERSION     ?= dev
 # downloaded rather than vendored — a change to how documents are fetched is made
 # once, upstream. Cached under bin/ (gitignored) like brokkr below.
 RANKE_FETCHER     := bin/fetch-ranke-docs.sh
-RANKE_FETCHER_URL ?= https://raw.githubusercontent.com/rankegraph/ranke-graph/refs/heads/$(RANKE_GRAPH_REF)/scripts/fetch-ranke-docs.sh
+# Bare $(RANKE_GRAPH_REF), not refs/heads/$(RANKE_GRAPH_REF): raw.githubusercontent.com
+# resolves a branch or a tag alike here, and refs/heads/ would 404 were this ever
+# pointed at a tag — matching the canonical form fetch-ranke-docs.sh's own header
+# documents.
+RANKE_FETCHER_URL ?= https://raw.githubusercontent.com/rankegraph/ranke-graph/$(RANKE_GRAPH_REF)/scripts/fetch-ranke-docs.sh
 
 # The typst release ranke-graph's own release.yml builds its papers with, installed
 # exactly by the release job so a published handbook is one ranke-graph would have
@@ -77,7 +86,7 @@ BROKKR_INSTALL_SH := https://raw.githubusercontent.com/flocko-motion/sindri/mast
 
 .PHONY: all help check check-tools generate verify lint tidy build smoke test dev seed \
         ranke-go-version upgrade release major minor patch breaking feature fix \
-        docs docs-papers docs-current docs-check docs-pdf docs-bundle docs-clean print-typst-version \
+        docs docs-papers docs-current docs-release docs-check docs-pdf docs-bundle docs-clean print-typst-version \
         pull-rql-schema check-rql-schema check-generated release-gate
 
 BIN := bin/ranke-db
@@ -372,6 +381,14 @@ docs-papers: $(RANKE_FETCHER) ## Pull papers, spec, glossary into docs/papers/, 
 docs-current: $(RANKE_FETCHER) ## Re-place docs/{vocabulary,handbook}.typ, refetching only if ranke-graph moved (one git ls-remote) — what verify depends on
 	@RANKE_GRAPH_REPO=$(RANKE_GRAPH_REPO) RANKE_GRAPH_REF=$(RANKE_GRAPH_REF) \
 		PAPERS_DIR=$(PAPERS_DIR) DOCS_DIR=$(DOCS_DIR) $(RANKE_FETCHER) --if-moved
+
+# docs-papers/docs-current deliberately track main — verify wants the LATEST spec, so
+# a drift shows up the moment it happens rather than at ranke-graph's next release
+# (see verify's own note). docs-release is the other case: a build with no git, or one
+# that wants documents traced to a released version rather than main's tip. Separate
+# targets because the two want opposite things from "which ranke-graph".
+docs-release: $(RANKE_FETCHER) ## Pull documents from ranke-graph's RANKE_GRAPH_RELEASE release tarball — no git needed
+	@PAPERS_DIR=$(PAPERS_DIR) DOCS_DIR=$(DOCS_DIR) $(RANKE_FETCHER) --release $(RANKE_GRAPH_RELEASE)
 
 docs-check: docs-current ## Hold docs/ to the Ranke Documentation Format — compiling proves nothing about it
 	@PAPERS_DIR=$(PAPERS_DIR) DOCS_DIR=$(DOCS_DIR) ./scripts/check-docs.sh
