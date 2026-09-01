@@ -17,7 +17,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/flocko-motion/rankedb/config/scope"
+	"github.com/rankegraph/ranke-db/config/scope"
 )
 
 // Signer holds an ed25519 private key in memory; it implements signer.Signer.

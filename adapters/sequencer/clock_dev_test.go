@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/flocko-motion/rankedb/adapters/sequencer"
+	"github.com/rankegraph/ranke-db/adapters/sequencer"
 )
 
 // TestSteerableClockReadsEpochUntilAdvanced pins the default: a fresh clock reads the

@@ -96,7 +96,7 @@ clean: ## Remove build output (explorer.html is committed, so it stays)
 #   RANKE_TS_VERSION=0.5.0 make upgrade  # take that version instead
 #
 # Revert with: git checkout package.json package-lock.json
-RANKE_TS         := @flocko-motion/ranke
+RANKE_TS         := @rankegraph/ranke
 RANKE_TS_VERSION ?= latest
 
 upgrade: node_modules ## Upgrade every dependency and ranke-ts, then check, test and build (RANKE_TS_VERSION=x.y.z)

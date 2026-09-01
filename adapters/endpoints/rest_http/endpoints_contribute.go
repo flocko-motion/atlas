@@ -7,7 +7,7 @@ package rest_http
 import (
 	"net/http"
 
-	"github.com/flocko-motion/rankedb/internal/core"
+	"github.com/rankegraph/ranke-db/internal/core"
 )
 
 // Contribute serves POST /contribute. The body names the branch each claim joins, so

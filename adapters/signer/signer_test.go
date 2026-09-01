@@ -6,9 +6,9 @@ import (
 	"encoding/base64"
 	"testing"
 
-	"github.com/flocko-motion/rankedb/adapters/signer/inmemory/inmemorytest"
-	"github.com/flocko-motion/rankedb/adapters/signer/openbao/openbaotest"
-	"github.com/flocko-motion/rankedb/config/scope"
+	"github.com/rankegraph/ranke-db/adapters/signer/inmemory/inmemorytest"
+	"github.com/rankegraph/ranke-db/adapters/signer/openbao/openbaotest"
+	"github.com/rankegraph/ranke-db/config/scope"
 )
 
 // backend is one signer backend under conformance. setup is its hook: it builds

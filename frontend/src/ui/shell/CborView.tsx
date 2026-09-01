@@ -9,7 +9,7 @@
  */
 
 import { useEffect, useMemo, useState } from 'react';
-import { NodeKeyEdges } from '@flocko-motion/ranke';
+import { NodeKeyEdges } from '@rankegraph/ranke';
 import { claimBytesOf } from '../../core/claimBytes.ts';
 import { inspectClaimBytes } from '../../core/cbor.ts';
 import type { CborNode, RenderedRecord, RenderedSlot } from '../../core/cbor.ts';

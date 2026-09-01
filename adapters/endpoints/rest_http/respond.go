@@ -12,8 +12,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/flocko-motion/rankedb/internal/core"
-	"github.com/flocko-motion/rankedb/openapi"
+	"github.com/rankegraph/ranke-db/internal/core"
+	"github.com/rankegraph/ranke-db/openapi"
 )
 
 // respond writes the stream's content-type, the route's status, then the body. Framing

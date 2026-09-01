@@ -7,7 +7,7 @@ package rest_http
 import (
 	"net/http"
 
-	"github.com/flocko-motion/rankedb/frontend"
+	"github.com/rankegraph/ranke-db/frontend"
 )
 
 // explorerHandler serves the embedded explorer.html when enabled allows it, 404

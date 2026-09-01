@@ -70,7 +70,7 @@ write surface is live:
 | `GET /branches/{branch}/head`, `…/claims/{id}` | the branch head, a claim in its closure |
 | `GET /archive/claims/{id}`, `GET /universe/claims/{id}` | a claim by the scope it is read in |
 | `POST /contribute` | merges a contribution, returns the new head and the ids |
-| `POST /query` | the branch's closure, as `native`, `json` or `cbor` |
+| `POST /query` | the branch's closure, as `json` or `cbor` |
 | `GET /system/layers`, `POST /system/verifications` | storage introspection, verification |
 
 ### Reaching it from a browser
@@ -109,6 +109,7 @@ is behind a socket rather than a port.
 
 `"sequencer": {"type": "dev", "history": {"type": "mem"}}` binds ranke-go's serial
 reference writer with an in-memory head timeline — right for a dev server that
-persists nothing. `"concurrent"` selects the optimistic-concurrency writer, and
+persists nothing. `"concurrent"` selects the writer that prepares contributions in parallel and
+folds a batch into one head advance, and
 `"history": {"type": "file", "path": "..."}` persists the head timeline, which is
 what lets a restart reopen an archive rather than bootstrap a fresh one.

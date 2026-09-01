@@ -20,8 +20,8 @@ import (
 	"github.com/rankegraph/ranke-go/adapter/sequencer/concurrent"
 	"github.com/rankegraph/ranke-go/adapter/sequencer/dev"
 
-	"github.com/flocko-motion/rankedb/adapters/signer"
-	"github.com/flocko-motion/rankedb/config/scope"
+	"github.com/rankegraph/ranke-db/adapters/signer"
+	"github.com/rankegraph/ranke-db/config/scope"
 )
 
 // Sequencer is the sequencer port's product: ranke-go's Sequencer contract. The

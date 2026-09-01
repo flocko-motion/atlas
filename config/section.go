@@ -22,8 +22,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/flocko-motion/rankedb/adapters/vault"
-	"github.com/flocko-motion/rankedb/config/scope"
+	"github.com/rankegraph/ranke-db/adapters/vault"
+	"github.com/rankegraph/ranke-db/config/scope"
 )
 
 // vaultTTL caches a resolved secret long enough to spare a hot path, briefly enough

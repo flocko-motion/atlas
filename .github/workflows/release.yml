@@ -30,6 +30,40 @@ jobs:
           path: frontend/dist/explorer.html
           retention-days: 1
 
+  # Built once, alongside the binaries: the handbook and the chapter sources join
+  # them in the same directory the release job publishes whole, so no second glob
+  # is needed there.
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # One pin, kept in the Makefile, so bumping it there moves this install too.
+      - name: Read the typst pin
+        id: pin
+        run: echo "version=$(make -s print-typst-version)" >> "$GITHUB_OUTPUT"
+
+      - name: Install Typst
+        uses: typst-community/setup-typst@v3
+        with:
+          typst-version: ${{ steps.pin.outputs.version }}
+
+      - name: Build dist/docs.pdf
+        run: make docs-pdf DOCS_VERSION=${{ github.ref_name }}
+
+      # The chapters and the two contracts, so a website or a client generator
+      # takes one asset per repository rather than cloning each of them.
+      - name: Pack the docs bundle
+        run: make docs-bundle
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: docs
+          path: |
+            dist/docs.pdf
+            dist/ranke-db-docs.tar.gz
+          retention-days: 1
+
   build:
     needs: frontend
     strategy:
@@ -76,7 +110,7 @@ jobs:
           retention-days: 1
 
   release:
-    needs: build
+    needs: [build, docs]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4

@@ -9,7 +9,7 @@
  */
 
 import { activeConnection, useConnections } from '../../core/connections.ts';
-import { NodeClasses } from '@flocko-motion/ranke';
+import { NodeClasses } from '@rankegraph/ranke';
 import { useQuery } from '../../core/query.ts';
 import { load } from '../../core/session.ts';
 import { useExplorer } from '../../core/store.ts';

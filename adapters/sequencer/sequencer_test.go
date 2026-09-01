@@ -13,9 +13,9 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/flocko-motion/rankedb/adapters/sequencer"
-	"github.com/flocko-motion/rankedb/adapters/signer"
-	"github.com/flocko-motion/rankedb/config/scope"
+	"github.com/rankegraph/ranke-db/adapters/sequencer"
+	"github.com/rankegraph/ranke-db/adapters/signer"
+	"github.com/rankegraph/ranke-db/config/scope"
 	"github.com/rankegraph/ranke-go"
 )
 

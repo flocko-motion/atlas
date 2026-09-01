@@ -24,9 +24,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/flocko-motion/rankedb/config/scope"
-	"github.com/flocko-motion/rankedb/internal/core"
-	"github.com/flocko-motion/rankedb/openapi"
+	"github.com/rankegraph/ranke-db/config/scope"
+	"github.com/rankegraph/ranke-db/internal/core"
+	"github.com/rankegraph/ranke-db/openapi"
 )
 
 // maxSocketPathLen is sun_path's usable length on Linux (108 bytes, minus the NUL).

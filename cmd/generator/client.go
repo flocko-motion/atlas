@@ -18,7 +18,7 @@ import (
 
 	"github.com/rankegraph/ranke-go"
 
-	"github.com/flocko-motion/rankedb/openapi"
+	"github.com/rankegraph/ranke-db/openapi"
 )
 
 // mediaCBORSeq is what POST /contribute reads: an RFC 8742 CBOR sequence, self-framing

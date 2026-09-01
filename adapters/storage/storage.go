@@ -33,7 +33,7 @@ import (
 	"github.com/rankegraph/ranke-go/adapter/storage/sqlite"
 	"github.com/rankegraph/ranke-go/adapter/storage/stack"
 
-	"github.com/flocko-motion/rankedb/config/scope"
+	"github.com/rankegraph/ranke-db/config/scope"
 )
 
 // Storage is the storage port's product: a ranke.Universe. A composed stack or partition

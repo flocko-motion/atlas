@@ -13,7 +13,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/flocko-motion/rankedb/config/scope"
+	"github.com/rankegraph/ranke-db/config/scope"
 )
 
 // Vault is the Azure Key Vault backend (scaffold).

@@ -4,12 +4,12 @@
 // limits:  types only; the generator that uses them is generate.ts
 //
 // The ADT is the library's: claims, edges, the node classes and the content declaration all
-// come from `@flocko-motion/ranke`. What is left here is what a generator invents — plausible
+// come from `@rankegraph/ranke`. What is left here is what a generator invents — plausible
 // subtypes — and the archive a generation returns, which is a mock's answer to a read rather
 // than a thing the ADT names.
 
-import { NodeClassDerivation, NodeClassEntity, NodeClassRelation, NodeClassSource } from '@flocko-motion/ranke';
-import type { NodeClass } from '@flocko-motion/ranke';
+import { NodeClassDerivation, NodeClassEntity, NodeClassRelation, NodeClassSource } from '@rankegraph/ranke';
+import type { NodeClass } from '@rankegraph/ranke';
 import type { DrawnClaim } from '../claims.ts';
 
 /**

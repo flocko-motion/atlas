@@ -7,7 +7,7 @@ package rest_http
 import (
 	"net/http"
 
-	"github.com/flocko-motion/rankedb/internal/core"
+	"github.com/rankegraph/ranke-db/internal/core"
 )
 
 // Health serves GET /health.

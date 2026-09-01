@@ -21,9 +21,9 @@ import (
 	jose "github.com/go-jose/go-jose/v4"
 	"github.com/go-jose/go-jose/v4/jwt"
 
-	"github.com/flocko-motion/rankedb/adapters/auth/autherr"
-	"github.com/flocko-motion/rankedb/config/scope"
-	"github.com/flocko-motion/rankedb/internal/core/access"
+	"github.com/rankegraph/ranke-db/adapters/auth/autherr"
+	"github.com/rankegraph/ranke-db/config/scope"
+	"github.com/rankegraph/ranke-db/internal/core/access"
 )
 
 // defaultAccountClaim is "sub" (RFC 7519's subject), unless config names a different

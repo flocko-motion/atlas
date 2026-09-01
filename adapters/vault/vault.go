@@ -14,9 +14,9 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/flocko-motion/rankedb/adapters/vault/azure"
-	"github.com/flocko-motion/rankedb/adapters/vault/openbao"
-	"github.com/flocko-motion/rankedb/config/scope"
+	"github.com/rankegraph/ranke-db/adapters/vault/azure"
+	"github.com/rankegraph/ranke-db/adapters/vault/openbao"
+	"github.com/rankegraph/ranke-db/config/scope"
 )
 
 // Vault resolves secret references to their plaintext values. Backends: OpenBao

@@ -4,7 +4,7 @@
 
 The explorer SHALL take its claim and edge types, its type vocabulary, its content
 handling and its wire decoding from the published TypeScript ADT library
-(`@flocko-motion/ranke`), and SHALL declare no type of its own that restates any part of
+(`@rankegraph/ranke`), and SHALL declare no type of its own that restates any part of
 the ADT. The library mirrors `ranke-go`, which owns the model; a second reading of the
 model inside a client is a second implementation of it, and the two disagree as soon as
 either moves.

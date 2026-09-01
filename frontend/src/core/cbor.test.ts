@@ -9,8 +9,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { generateKeyPairSync, sign } from 'node:crypto';
-import { CborWriter, contributorFrom, encodeEnvelope, newClaim } from '@flocko-motion/ranke';
-import type { Contributor, Signer } from '@flocko-motion/ranke';
+import { CborWriter, contributorFrom, encodeEnvelope, newClaim } from '@rankegraph/ranke';
+import type { Contributor, Signer } from '@rankegraph/ranke';
 
 import { inspectClaimBytes } from './cbor.ts';
 import type { CborNode, RenderedRecord } from './cbor.ts';

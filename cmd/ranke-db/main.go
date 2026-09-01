@@ -25,7 +25,7 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 
-	"github.com/flocko-motion/rankedb/config"
+	"github.com/rankegraph/ranke-db/config"
 )
 
 func main() {

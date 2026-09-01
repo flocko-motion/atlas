@@ -5,9 +5,9 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/flocko-motion/rankedb/adapters/auth"
-	"github.com/flocko-motion/rankedb/config/scope"
-	"github.com/flocko-motion/rankedb/internal/core/access"
+	"github.com/rankegraph/ranke-db/adapters/auth"
+	"github.com/rankegraph/ranke-db/config/scope"
+	"github.com/rankegraph/ranke-db/internal/core/access"
 )
 
 // newTestCore assembles a core with a NoAuth backend authenticating as "ops" and

@@ -13,8 +13,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/flocko-motion/rankedb/adapters/auth"
-	"github.com/flocko-motion/rankedb/internal/core"
+	"github.com/rankegraph/ranke-db/adapters/auth"
+	"github.com/rankegraph/ranke-db/internal/core"
 )
 
 // testKeyPEM generates a throwaway Ed25519 private key as PKCS#8 PEM. Tests

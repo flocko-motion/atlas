@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/flocko-motion/rankedb/config/scope"
+	"github.com/rankegraph/ranke-db/config/scope"
 )
 
 // TestParseSize covers the human-readable size suffixes the maxContentSize field

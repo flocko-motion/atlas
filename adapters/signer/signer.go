@@ -17,9 +17,9 @@ import (
 	"encoding/base64"
 	"fmt"
 
-	"github.com/flocko-motion/rankedb/adapters/signer/inmemory"
-	"github.com/flocko-motion/rankedb/adapters/signer/openbao"
-	"github.com/flocko-motion/rankedb/config/scope"
+	"github.com/rankegraph/ranke-db/adapters/signer/inmemory"
+	"github.com/rankegraph/ranke-db/adapters/signer/openbao"
+	"github.com/rankegraph/ranke-db/config/scope"
 )
 
 // Signer is the server's signing identity: Sign is the paper's Sign(H(S(v))), Public the

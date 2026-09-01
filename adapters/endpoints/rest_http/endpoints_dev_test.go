@@ -12,10 +12,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/flocko-motion/rankedb/adapters/auth"
-	"github.com/flocko-motion/rankedb/config/scope"
-	"github.com/flocko-motion/rankedb/internal/core"
-	"github.com/flocko-motion/rankedb/internal/core/access"
+	"github.com/rankegraph/ranke-db/adapters/auth"
+	"github.com/rankegraph/ranke-db/config/scope"
+	"github.com/rankegraph/ranke-db/internal/core"
+	"github.com/rankegraph/ranke-db/internal/core/access"
 )
 
 // devServerFor builds the endpoint over a core with the given extra options — this

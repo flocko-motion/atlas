@@ -16,7 +16,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/flocko-motion/rankedb/config/scope"
+	"github.com/rankegraph/ranke-db/config/scope"
 )
 
 // The cross-origin answers. Requests carry a credential in a header rather than a cookie,

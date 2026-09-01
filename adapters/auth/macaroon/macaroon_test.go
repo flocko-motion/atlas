@@ -9,9 +9,9 @@ import (
 
 	joemacaroon "gopkg.in/macaroon.v2"
 
-	"github.com/flocko-motion/rankedb/adapters/auth/autherr"
-	"github.com/flocko-motion/rankedb/adapters/auth/macaroon/macaroontest"
-	"github.com/flocko-motion/rankedb/config/scope"
+	"github.com/rankegraph/ranke-db/adapters/auth/autherr"
+	"github.com/rankegraph/ranke-db/adapters/auth/macaroon/macaroontest"
+	"github.com/rankegraph/ranke-db/config/scope"
 )
 
 // newAuth builds the backend under test against macaroontest.RootKey — every case

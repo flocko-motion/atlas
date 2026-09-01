@@ -17,11 +17,11 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/flocko-motion/rankedb/adapters/auth"
-	"github.com/flocko-motion/rankedb/adapters/sequencer"
-	"github.com/flocko-motion/rankedb/adapters/signer"
-	"github.com/flocko-motion/rankedb/adapters/storage"
-	"github.com/flocko-motion/rankedb/internal/core/access"
+	"github.com/rankegraph/ranke-db/adapters/auth"
+	"github.com/rankegraph/ranke-db/adapters/sequencer"
+	"github.com/rankegraph/ranke-db/adapters/signer"
+	"github.com/rankegraph/ranke-db/adapters/storage"
+	"github.com/rankegraph/ranke-db/internal/core/access"
 )
 
 // Sentinel errors the pipeline returns, with the status an endpoint maps each to. A

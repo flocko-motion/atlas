@@ -1,4 +1,4 @@
-module github.com/flocko-motion/rankedb
+module github.com/rankegraph/ranke-db
 
 go 1.27.0
 

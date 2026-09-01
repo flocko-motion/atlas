@@ -9,7 +9,8 @@ the composition root, the content/policy razor that decides what belongs where, 
 the ADT guarantees the server inherits rather than re-proves.
 
 The two reference papers that define this architecture and the underlying data
-structure live in the repository under `docs/papers/`:
+structure are read under `docs/papers/`, where `make docs-papers` clones them from
+ranke-graph — a fetched copy, gitignored, never edited here:
 
 - **`docs/papers/02-ranke-db/ranke-db.typ`** — *RankeDB: Serving the Ranke-Graph*,
   the architecture this capability and its siblings specify.

@@ -20,13 +20,13 @@ import (
 
 	ranke "github.com/rankegraph/ranke-go"
 
-	"github.com/flocko-motion/rankedb/adapters/auth"
-	"github.com/flocko-motion/rankedb/adapters/sequencer"
-	"github.com/flocko-motion/rankedb/adapters/signer"
-	"github.com/flocko-motion/rankedb/adapters/storage"
-	"github.com/flocko-motion/rankedb/config/scope"
-	"github.com/flocko-motion/rankedb/internal/core"
-	"github.com/flocko-motion/rankedb/internal/core/access"
+	"github.com/rankegraph/ranke-db/adapters/auth"
+	"github.com/rankegraph/ranke-db/adapters/sequencer"
+	"github.com/rankegraph/ranke-db/adapters/signer"
+	"github.com/rankegraph/ranke-db/adapters/storage"
+	"github.com/rankegraph/ranke-db/config/scope"
+	"github.com/rankegraph/ranke-db/internal/core"
+	"github.com/rankegraph/ranke-db/internal/core/access"
 )
 
 // newTestServer builds the endpoint over a core with no driven ports: every request

@@ -28,18 +28,45 @@ RANKE_GO_MOD ?= github.com/rankegraph/ranke-go
 # stale pin sat unseen for eleven days while the two halves disagreed about the wire format.
 # The pin is read straight out of package.json rather than delegated to that target, which
 # would drag node_modules into `verify` and wire frontend/ into a build it stays out of.
-RANKE_TS_PKG ?= @flocko-motion/ranke
+RANKE_TS_PKG ?= @rankegraph/ranke
 FRONTEND_PKG := frontend/package.json
 RANKE_GO_VERSION ?= latest
 # ask = prompt before raising the go directive; keep = leave it; or a version.
 GO_VERSION ?= ask
 
-RANKE_GRAPH_REPO ?= https://github.com/flocko-motion/ranke-graph
+RANKE_GRAPH_REPO ?= https://github.com/rankegraph/ranke-graph
 RANKE_GRAPH_REF  ?= main
 PAPERS_DIR       := docs/papers
-# Everything at the top of the paper repo is reference material and gets pulled;
-# these are the exceptions (its own tooling). Dotdirs never match the glob.
-PAPERS_SKIP      := scripts
+DOCS_DIR         := docs
+DIST_DIR         := dist
+DOCS_PDF         := $(DIST_DIR)/docs.pdf
+# What this repo publishes for a consumer to read or render itself — the chapters
+# and the two machine-readable contracts. The website and any client generator
+# take one tarball per repo instead of cloning four.
+DOCS_BUNDLE_NAME := ranke-db-docs
+DOCS_BUNDLE      := $(DIST_DIR)/$(DOCS_BUNDLE_NAME).tar.gz
+# "dev" locally; a release build overrides it so the printed handbook names its tag
+# rather than saying "dev" (-> shared/handbook.typ's own version input).
+DOCS_VERSION     ?= dev
+
+# fetch-ranke-docs.sh lives in ranke-graph and serves every consumer repo, so it is
+# downloaded rather than vendored — a change to how documents are fetched is made
+# once, upstream. Cached under bin/ (gitignored) like brokkr below.
+RANKE_FETCHER     := bin/fetch-ranke-docs.sh
+RANKE_FETCHER_URL ?= https://raw.githubusercontent.com/rankegraph/ranke-graph/refs/heads/$(RANKE_GRAPH_REF)/scripts/fetch-ranke-docs.sh
+
+# The typst release ranke-graph's own release.yml builds its papers with, installed
+# exactly by the release job so a published handbook is one ranke-graph would have
+# built. check-tools and docs-pdf hold a local toolchain to the SERIES: typst is
+# pre-1.0, so the minor is what changes a layout and the patch is a bug fix.
+TYPST         := typst
+TYPST_VERSION := 0.15.0
+TYPST_SERIES  := $(basename $(TYPST_VERSION))
+TYPST_URL     := https://github.com/typst/typst/releases/tag/v$(TYPST_VERSION)
+
+# The oldest Node the generation tools run on, checked by check-tools rather than
+# only named in its install hint.
+NODE_MIN      := 18
 
 # brokkr, installed on demand rather than assumed present. Cached under bin/ (already
 # gitignored, already this repo's build-output directory) — the installer itself checks
@@ -49,7 +76,8 @@ BROKKR            := $(TOOLS_BIN)/brokkr
 BROKKR_INSTALL_SH := https://raw.githubusercontent.com/flocko-motion/sindri/master/scripts/install-brokkr.sh
 
 .PHONY: all help check check-tools generate verify lint tidy build smoke test dev seed \
-        ranke-go-version upgrade release major minor patch breaking feature fix docs docs-clean \
+        ranke-go-version upgrade release major minor patch breaking feature fix \
+        docs docs-papers docs-current docs-check docs-pdf docs-bundle docs-clean print-typst-version \
         pull-rql-schema check-rql-schema check-generated release-gate
 
 BIN := bin/ranke-db
@@ -76,7 +104,7 @@ help: ## Show this help
 # was cut — which is how this contract came to require `output.content.overflow` for a day
 # after R-QCONTENT made it optional. Point RQL_SCHEMA_URL at a release to pin one instead.
 RQL_SCHEMA     := $(API_OUT)/rql.schema.json
-RQL_SCHEMA_URL ?= https://raw.githubusercontent.com/flocko-motion/ranke-graph/refs/heads/$(RANKE_GRAPH_REF)/spec/rql.schema.json
+RQL_SCHEMA_URL ?= https://raw.githubusercontent.com/rankegraph/ranke-graph/refs/heads/$(RANKE_GRAPH_REF)/spec/rql.schema.json
 
 pull-rql-schema: ## Pull rql.schema.json from the ranke-graph spec into openapi/
 	@command -v curl > /dev/null || { echo "curl not found"; exit 1; }
@@ -92,15 +120,26 @@ pull-rql-schema: ## Pull rql.schema.json from the ranke-graph spec into openapi/
 
 # --- Code/doc generation from the OpenAPI spec -----------------------------
 
-check-tools: ## Verify the generation toolchain is installed (reports all missing at once)
+check-tools: ## Verify the toolchain is installed at the versions this repo pins (reports all missing at once)
 	@missing=0; \
 	check() { command -v "$$1" >/dev/null 2>&1 || { printf "  missing: %-6s → %s\n" "$$1" "$$2"; missing=1; }; }; \
 	check go  "https://go.dev/dl/"; \
-	check npx "Node.js 18+ — https://nodejs.org (provides npx; the TS client and API docs run via npx)"; \
+	check npx "Node.js $(NODE_MIN)+ — https://nodejs.org (provides npx; the TS client and API docs run via npx)"; \
+	check $(TYPST) "$(TYPST_URL) (builds the handbook; pin v$(TYPST_VERSION))"; \
 	if [ "$$missing" -ne 0 ]; then \
 		echo "ERROR: install the tool(s) above, then re-run. (npx fetches swagger-typescript-api, @redocly/cli, and widdershins on first use.)"; exit 1; \
 	fi; \
-	echo "generation toolchain OK (go + node)"
+	major=$$(node -v 2>/dev/null | sed 's/^v//; s/\..*//'); \
+	case "$$major" in ''|*[!0-9]*) major= ;; esac; \
+	if [ -n "$$major" ] && [ "$$major" -lt $(NODE_MIN) ]; then \
+		echo "  node $$(node -v), below the $(NODE_MIN)+ the generation tools need → https://nodejs.org"; exit 1; \
+	fi; \
+	have=$$($(TYPST) --version 2>/dev/null | awk 'NR==1 {print $$2}'); have=$${have:-unknown}; \
+	if [ "$$(echo "$$have" | cut -d. -f1,2)" != "$(TYPST_SERIES)" ]; then \
+		echo "  typst $$have, but the handbook is built with the $(TYPST_SERIES) series → $(TYPST_URL)"; \
+		echo "ERROR: typst series mismatch — a minor release lays the page out its own way, so only $(TYPST_SERIES) reproduces ranke-graph's handbook (its releases install $(TYPST_VERSION))."; exit 1; \
+	fi; \
+	echo "toolchain OK (go + node + typst $$have)"
 
 generate: check-tools ## Generate every artifact from the spec into openapi/ (Go server, TS client, HTML, Markdown) + the explorer's copy of the client + docs/openapi/ symlinks
 	@echo ">> bundle   → $(OPENAPI_GEN)"
@@ -208,7 +247,7 @@ test/%:
 	@echo ">> go test -v ./$*/..."
 	@go test -v ./$*/...
 
-verify: generate ## Regenerate from the spec, then build, vet, test, gofmt-check, and lint the module
+verify: generate docs-pdf ## Regenerate from the spec, then build, vet, test, gofmt-check, lint, and build the handbook
 	@set -e; \
 		go build ./...; \
 		go vet ./...; \
@@ -314,20 +353,54 @@ release: release-gate ## Release: clean → merge to default via PR → tag merg
 major minor patch breaking feature fix:
 	@:
 
-docs: ## Pull the latest ranke-graph documents (papers, spec, glossary) into docs/papers/
-	@echo ">> fetching ranke-graph documents into $(PAPERS_DIR)/"
-	@tmp=$$(mktemp -d) && \
-		git clone --depth 1 --branch $(RANKE_GRAPH_REF) $(RANKE_GRAPH_REPO) $$tmp >/dev/null 2>&1 && \
-		rm -rf $(PAPERS_DIR) && mkdir -p $(PAPERS_DIR) && \
-		for d in $$tmp/*/; do \
-			name=$$(basename $$d); \
-			case " $(PAPERS_SKIP) " in *" $$name "*) continue ;; esac; \
-			cp -r $$d $(PAPERS_DIR)/; \
-		done && \
-		cp $$tmp/LICENSE $(PAPERS_DIR)/LICENSE 2>/dev/null || true; \
-		rm -rf $$tmp; \
-		echo ">> pulled $$(find $(PAPERS_DIR) -name '*.typ' | wc -l | tr -d ' ') document(s):"; \
-		find $(PAPERS_DIR) -name '*.typ' | sort | sed 's|^|     |'
+$(RANKE_FETCHER): ## Cache fetch-ranke-docs.sh from ranke-graph (bin/ is gitignored — infra, never vendored)
+	@mkdir -p $(dir $(RANKE_FETCHER))
+	@curl -fsSL $(RANKE_FETCHER_URL) -o $(RANKE_FETCHER)
+	@chmod +x $(RANKE_FETCHER)
 
-docs-clean: ## Remove the pulled paper references
-	rm -rf $(PAPERS_DIR)
+# Read by the release workflow, so bumping TYPST_VERSION here moves CI's install with it.
+print-typst-version:
+	@[ -n "$(TYPST_VERSION)" ] || { echo "TYPST_VERSION is empty — CI would install whatever typst is latest" >&2; exit 1; }
+	@echo $(TYPST_VERSION)
+
+docs: docs-papers docs-pdf ## Pull the ranke-graph documents, then build this repo's handbook (dist/docs.pdf)
+
+docs-papers: $(RANKE_FETCHER) ## Pull papers, spec, glossary into docs/papers/, and place docs/{vocabulary,handbook}.typ (needs git)
+	@RANKE_GRAPH_REPO=$(RANKE_GRAPH_REPO) RANKE_GRAPH_REF=$(RANKE_GRAPH_REF) \
+		PAPERS_DIR=$(PAPERS_DIR) DOCS_DIR=$(DOCS_DIR) $(RANKE_FETCHER)
+
+docs-current: $(RANKE_FETCHER) ## Re-place docs/{vocabulary,handbook}.typ, refetching only if ranke-graph moved (one git ls-remote) — what verify depends on
+	@RANKE_GRAPH_REPO=$(RANKE_GRAPH_REPO) RANKE_GRAPH_REF=$(RANKE_GRAPH_REF) \
+		PAPERS_DIR=$(PAPERS_DIR) DOCS_DIR=$(DOCS_DIR) $(RANKE_FETCHER) --if-moved
+
+docs-check: docs-current ## Hold docs/ to the Ranke Documentation Format — compiling proves nothing about it
+	@PAPERS_DIR=$(PAPERS_DIR) DOCS_DIR=$(DOCS_DIR) ./scripts/check-docs.sh
+
+docs-pdf: docs-check ## Build dist/docs.pdf from docs/ through shared/handbook.typ (needs typst; DOCS_VERSION prints in place of "dev")
+	@command -v $(TYPST) >/dev/null 2>&1 || { echo "missing: typst → $(TYPST_URL) (pin v$(TYPST_VERSION))"; exit 1; }
+	@have=$$($(TYPST) --version | awk 'NR==1 {print $$2}'); have=$${have:-unknown}; \
+		[ "$$(echo "$$have" | cut -d. -f1,2)" = "$(TYPST_SERIES)" ] || \
+		{ echo "typst $$have, but the handbook is built with the $(TYPST_SERIES) series → $(TYPST_URL)"; exit 1; }
+	@mkdir -p $(DIST_DIR)
+	@$(TYPST) compile --root . --input version=$(DOCS_VERSION) $(DOCS_DIR)/index.typ $(DOCS_PDF)
+	@echo ">> wrote $(DOCS_PDF)"
+
+# What this repo AUTHORED and nothing else: the chapters, and the REST contract
+# generated from this repo's own openapi.yaml. Anything fetched from ranke-graph
+# — the templates, the papers, rql.schema.json — is published by ranke-graph,
+# and a second copy here would be a second source of truth.
+#
+# The generated spec is committed and held by check-generated, so a plain checkout
+# has the contract this ships without running the generation toolchain.
+docs-bundle: docs-check ## Pack this repo's own chapters and REST contract into dist/ (nothing fetched or supplied)
+	@rm -rf $(DIST_DIR)/$(DOCS_BUNDLE_NAME)
+	@mkdir -p $(DIST_DIR)/$(DOCS_BUNDLE_NAME)/openapi
+	@cp $(DOCS_DIR)/index.typ $(DOCS_DIR)/[0-9]*.typ $(DIST_DIR)/$(DOCS_BUNDLE_NAME)/
+	@if [ -d $(DOCS_DIR)/assets ]; then cp -R $(DOCS_DIR)/assets $(DIST_DIR)/$(DOCS_BUNDLE_NAME)/; fi
+	@cp $(OPENAPI_GEN) $(DIST_DIR)/$(DOCS_BUNDLE_NAME)/openapi/
+	@tar -C $(DIST_DIR) -czf $(DOCS_BUNDLE) $(DOCS_BUNDLE_NAME)
+	@rm -rf $(DIST_DIR)/$(DOCS_BUNDLE_NAME)
+	@echo ">> wrote $(DOCS_BUNDLE) — $$(tar -tzf $(DOCS_BUNDLE) | grep -cv '/$$') file(s)"
+
+docs-clean: ## Remove the pulled paper references, the built handbook and the packed chapters
+	rm -rf $(PAPERS_DIR) $(DOCS_DIR)/vocabulary.typ $(DOCS_DIR)/handbook.typ $(DOCS_PDF) $(DOCS_BUNDLE)

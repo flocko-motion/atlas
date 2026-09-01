@@ -18,8 +18,8 @@ import (
 
 	ranke "github.com/rankegraph/ranke-go"
 
-	"github.com/flocko-motion/rankedb/adapters/signer"
-	"github.com/flocko-motion/rankedb/internal/core/access"
+	"github.com/rankegraph/ranke-db/adapters/signer"
+	"github.com/rankegraph/ranke-db/internal/core/access"
 )
 
 // execute runs the operation against the ports and returns its response stream.
