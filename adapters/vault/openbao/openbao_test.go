@@ -7,8 +7,8 @@ import (
 
 	openbao "github.com/openbao/openbao/api/v2"
 
-	"github.com/flocko-motion/rankedb/config/scope"
-	"github.com/flocko-motion/rankedb/tools/podman"
+	"github.com/rankegraph/ranke-db/config/scope"
+	"github.com/rankegraph/ranke-db/tools/podman"
 )
 
 const testToken = "root-token-for-test"

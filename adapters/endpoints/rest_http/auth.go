@@ -9,8 +9,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/flocko-motion/rankedb/adapters/auth"
-	"github.com/flocko-motion/rankedb/internal/core"
+	"github.com/rankegraph/ranke-db/adapters/auth"
+	"github.com/rankegraph/ranke-db/internal/core"
 )
 
 type ctxKey int

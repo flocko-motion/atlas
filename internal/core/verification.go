@@ -1,7 +1,7 @@
 // package: core / orchestration
 // type:    registry
 // job:     give verification runs the identity, history and lifecycle the library's live handle has none of
-// limits:  operational state only; the walk itself is ranke-go's (-> github.com/flocko-motion/ranke-go)
+// limits:  operational state only; the walk itself is ranke-go's (-> github.com/rankegraph/ranke-go)
 //
 // The library hands back a live in-process handle — Verified, Failures, Done, Err, Wait —
 // with no id, no persistence and no cancellation beyond the context it was started
@@ -21,7 +21,7 @@ import (
 	"sync"
 	"time"
 
-	ranke "github.com/flocko-motion/ranke-go"
+	ranke "github.com/rankegraph/ranke-go"
 )
 
 // defaultMaxActiveRuns bounds concurrent runs when the configuration names no limit.

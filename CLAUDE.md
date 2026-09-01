@@ -12,12 +12,15 @@ here — compose the library.
 
 ## Library: ranke-go (a versioned GitHub module)
 
-Depend on ranke-go as a normal module: `require github.com/flocko-motion/ranke-go vX.Y.Z`,
+Depend on ranke-go as a normal module: `require github.com/rankegraph/ranke-go vX.Y.Z`,
 bumped via semver. **ranke-go and ranke-ts mirror each other**, so the two pins move together:
-`go.mod`'s ranke-go and `frontend/package.json`'s `@flocko-motion/ranke` implement one wire
+`go.mod`'s ranke-go and `frontend/package.json`'s `@rankegraph/ranke` implement one wire
 format, and bumping only one can leave the explorer computing ids no server agrees with — a
-failure with no build error. Their version numbers are independent, so there is nothing
-mechanical to catch it. **NEVER** wire it as a sibling path, `go.work use`, or `replace` — and
+failure with no build error. Since the move to the `@rankegraph` scope, ranke-ts carries the
+version of the ranke-go it translates, so the two pins share a minor and a divergence is
+visible by reading them side by side — today `ranke-go v0.26.0` against `@rankegraph/ranke
+0.26.1`, the patch levels moving on their own.
+**NEVER** wire it as a sibling path, `go.work use`, or `replace` — and
 never edit a sibling `ranke-go` checkout. It provides the data model (claims, Universe,
 BranchTableHead, Archive), verification, and the **Storage** + **Sequencer** adapters.
 
@@ -25,19 +28,21 @@ BranchTableHead, Archive), verification, and the **Storage** + **Sequencer** ada
 
 The source of truth is the **`ranke-graph`** paper repo (Typst `.typ`). **Read it before
 designing — do not reconstruct the model from memory or from this file.** Fetch the raw
-sources directly (WebFetch), or `make docs` to pull copies into `docs/papers/` (gitignored):
+sources directly (WebFetch), or `make docs-papers` to pull copies into `docs/papers/`
+(gitignored; `make docs` pulls them and then builds this repo's own handbook):
 
 - **normative specification — the rules an implementation FOLLOWS** (cite rule ids like `R-CEIL`):
-  `https://raw.githubusercontent.com/flocko-motion/ranke-graph/refs/heads/main/spec/ranke-spec.typ`
+  `https://raw.githubusercontent.com/rankegraph/ranke-graph/refs/heads/main/spec/ranke-spec.typ`
 - **ranke-db — architecture & data model** (read this for the server):
-  `https://raw.githubusercontent.com/flocko-motion/ranke-graph/refs/heads/main/02-ranke-db/ranke-db.typ`
+  `https://raw.githubusercontent.com/rankegraph/ranke-graph/refs/heads/main/02-ranke-db/ranke-db.typ`
 - **ranke-graph — foundational model & philosophy**:
-  `https://raw.githubusercontent.com/flocko-motion/ranke-graph/refs/heads/main/01-ranke-graph/ranke-graph.typ`
+  `https://raw.githubusercontent.com/rankegraph/ranke-graph/refs/heads/main/01-ranke-graph/ranke-graph.typ`
 - **glossary — series-wide terminology**:
-  `https://raw.githubusercontent.com/flocko-motion/ranke-graph/refs/heads/main/glossary/ranke-glossary.typ`
+  `https://raw.githubusercontent.com/rankegraph/ranke-graph/refs/heads/main/glossary/ranke-glossary.typ`
 
 The papers govern meaning; the spec must never contradict them (Paper 01 wins for ADT rules,
-Paper 02 for RankeDB rules). `make docs` pulls **all** of them — papers, spec, glossary, shared.
+Paper 02 for RankeDB rules). `make docs-papers` pulls **all** of them — papers, spec,
+glossary, shared.
 
 **Never diverge from the papers** — to change a concept, get consensus and update the paper
 first. The paper is the user's to write; do not edit it.
@@ -118,23 +123,46 @@ Never hand-edit `*.gen.*` or the generated client/references — change the spec
 - **`make`** (default) = `generate` then `verify` — the full build (regenerate from the
   spec, then check it).
 - **`make verify`** is the green-gate: it first runs `generate`, then builds, vets,
-  gofmt-checks, tests, and lints (`brokkr lint`, falling back to `sindri lint`). Run it after
-  changes instead of hand-rolled `go build`/`go test` chains. (`generate` shells out to
+  gofmt-checks, tests, lints (`brokkr lint`, falling back to `sindri lint`), and builds the
+  handbook (`docs-pdf`) — so a vocabulary change upstream breaks the gate here too. Run it
+  after changes instead of hand-rolled `go build`/`go test` chains. (`generate` shells out to
   `npx`, so the first run fetches the doc/client tools.)
 - **`make generate`** regenerates everything from the OpenAPI spec into `openapi/` (Go server,
   TS client, HTML + Markdown references) and refreshes the `docs/openapi/` symlinks.
-- **`make check-tools`** reports any missing generation tool (go + node) with install hints.
+- **`make check-tools`** reports any missing tool (go + node + typst) with install hints, holds
+  node to the floor the generation tools need and typst to the pinned series (`TYPST_SERIES`, the
+  minor being what changes a layout) — `verify` needs typst now, since `docs-pdf` is behind the
+  gate. A release installs `TYPST_VERSION` exactly.
 - **`make upgrade`** bumps the dependencies in one shot — every dep (`go get -u -t ./...`), the
   tool deps, then **ranke-go last** so a pin sticks — tidies, and runs `verify`, so a breaking
   upstream change surfaces here. The **`go` directive is not swept along**: it asks first and
   puts back what `go get -u` raises on its own (`GO_VERSION=keep` / `=1.26.5` to skip the
   prompt). Pin the library with `RANKE_GO_VERSION=vX.Y.Z`; revert with
   `git checkout go.mod go.sum`.
-- **`make docs`** pulls the upstream papers, spec and glossary into `docs/papers/`.
+- **`make docs`** = `docs-papers` (pulls the upstream papers, spec and glossary into
+  `docs/papers/`, and places `docs/vocabulary.typ`/`docs/handbook.typ` for `docs/`'s own
+  chapters) then `docs-pdf` (builds `dist/docs.pdf` via typst, pinned to the version
+  ranke-graph's own release.yml uses). `make docs-current` refreshes the placed files only if
+  ranke-graph moved (one `git ls-remote`) — the freshness check `verify` runs before
+  `docs-pdf`. The format a chapter follows is ranke-graph's **`docs-spec/ranke-docs-spec.typ`**,
+  with `docs-spec/examples/docs-tree/` as the tree to copy — `docs-spec/` is outside the fetched
+  set, so read both at
+  `https://raw.githubusercontent.com/rankegraph/ranke-graph/refs/heads/main/docs-spec/`. A chapter
+  imports `vocabulary.typ` and nothing else, and reaches for the constructs rather than raw
+  markup: `item` for a flag/key/field, `listing` for a code block, `note`/`warning`, `example`,
+  `gls`/`glspl` for glossary terms (`G-GLS`). The construct list is `shared/constructs.typ`,
+  which the fetch does bring in — **`make docs-check`** reads the groups from it and holds
+  `docs/` to `G-CHAPTER`, `G-IMPORT`, `G-CONSTRUCTS` and `G-NOLAYOUT`, since compiling proves
+  none of them. It runs ahead of `docs-pdf`, so `verify` covers it. **`make docs-bundle`** packs what
+  this repo AUTHORED — root, chapters, `assets/`, and `openapi/openapi.gen.yaml` — into
+  `dist/ranke-db-docs.tar.gz`, which the release carries beside `docs.pdf`, so a consumer takes
+  one asset instead of cloning. Nothing fetched goes in: the templates, the papers and
+  `rql.schema.json` are ranke-graph's to publish, and a second copy here would be a second
+  source of truth.
 
 ## Layout
 
-Classical single-module Go repo at the repo root (module `github.com/flocko-motion/rankedb`).
+Classical single-module Go repo at the repo root (module `github.com/rankegraph/ranke-db`).
 
 - `openapi/` — the API spec (source of truth) **and** its generated artifacts (Go server `openapi.gen.go`, TS client `openapi.gen.ts`, `openapi.html`, `openapi.md`; the two references symlinked under `docs/openapi/`)
 - `cmd/ranke-db/` — the server binary (`run <config>`, `verify <config>`; later `tui`/config edit)

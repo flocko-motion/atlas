@@ -8,8 +8,8 @@
  * act: one data path, not a real and a test one.
  */
 
-import { EncodeQuery, newSeqReader, readIds } from '@flocko-motion/ranke';
-import type { Query as RankeQuery } from '@flocko-motion/ranke';
+import { EncodeQuery, newSeqReader, readIds } from '@rankegraph/ranke';
+import type { Query as RankeQuery } from '@rankegraph/ranke';
 import { contributionUnknown, drawn } from '../claims.ts';
 import type { DrawnClaim } from '../claims.ts';
 import { generate } from '../mock/generate.ts';

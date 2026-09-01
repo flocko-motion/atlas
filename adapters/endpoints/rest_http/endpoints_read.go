@@ -8,9 +8,9 @@ import (
 	"io"
 	"net/http"
 
-	ranke "github.com/flocko-motion/ranke-go"
+	ranke "github.com/rankegraph/ranke-go"
 
-	"github.com/flocko-motion/rankedb/internal/core"
+	"github.com/rankegraph/ranke-db/internal/core"
 )
 
 // Query serves POST /query: it runs the declarative query and streams the results.

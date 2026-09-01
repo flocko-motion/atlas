@@ -13,9 +13,9 @@ import (
 	jose "github.com/go-jose/go-jose/v4"
 	josejwt "github.com/go-jose/go-jose/v4/jwt"
 
-	"github.com/flocko-motion/rankedb/adapters/auth/autherr"
-	"github.com/flocko-motion/rankedb/adapters/auth/jwt/jwttest"
-	"github.com/flocko-motion/rankedb/config/scope"
+	"github.com/rankegraph/ranke-db/adapters/auth/autherr"
+	"github.com/rankegraph/ranke-db/adapters/auth/jwt/jwttest"
+	"github.com/rankegraph/ranke-db/config/scope"
 )
 
 // jsonWebKeySet is the one-key JWKS document mutableJWKSServer serves.

@@ -15,9 +15,9 @@ import (
 
 	joemacaroon "gopkg.in/macaroon.v2"
 
-	"github.com/flocko-motion/rankedb/adapters/auth/autherr"
-	"github.com/flocko-motion/rankedb/config/scope"
-	"github.com/flocko-motion/rankedb/internal/core/access"
+	"github.com/rankegraph/ranke-db/adapters/auth/autherr"
+	"github.com/rankegraph/ranke-db/config/scope"
+	"github.com/rankegraph/ranke-db/internal/core/access"
 )
 
 // Auth is the macaroon backend: the root key its signature chains verify

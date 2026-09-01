@@ -19,7 +19,7 @@ import (
 	"encoding/pem"
 	"testing"
 
-	"github.com/flocko-motion/rankedb/config/scope"
+	"github.com/rankegraph/ranke-db/config/scope"
 )
 
 // Setup returns the inmemory signer's conformance config — a freshly generated

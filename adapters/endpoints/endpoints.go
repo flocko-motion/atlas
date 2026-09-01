@@ -17,9 +17,9 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/flocko-motion/rankedb/adapters/endpoints/rest_http"
-	"github.com/flocko-motion/rankedb/config/scope"
-	"github.com/flocko-motion/rankedb/internal/core"
+	"github.com/rankegraph/ranke-db/adapters/endpoints/rest_http"
+	"github.com/rankegraph/ranke-db/config/scope"
+	"github.com/rankegraph/ranke-db/internal/core"
 )
 
 // Endpoints is one configured transport listener carrying the full read-and-

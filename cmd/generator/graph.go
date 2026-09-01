@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/flocko-motion/ranke-go"
+	"github.com/rankegraph/ranke-go"
 )
 
 // batch is one contribution: the branch it lands on and the claims it carries.

@@ -26,6 +26,15 @@
         "R $archive",
         "R $universe"
       ]
+    },
+    "admin": {
+      "grants": [
+        "CR *",
+        "C $branches",
+        "R $branches",
+        "R $archive",
+        "R $universe"
+      ]
     }
   },
   "endpoints": [
@@ -43,6 +52,22 @@
       ],
       "admit": [
         "ops"
+      ]
+    },
+    {
+      "transport": {
+        "type": "rest",
+        "addr": "unix://./run/admin.sock",
+        "mode": "0660"
+      },
+      "auth": [
+        {
+          "type": "noauth",
+          "subject": "admin"
+        }
+      ],
+      "admit": [
+        "admin"
       ]
     }
   ]

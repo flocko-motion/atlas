@@ -59,8 +59,9 @@ API, read the graph back, shut down.
 
 ## What a running instance answers today
 
-The stack assembles fully — storage, sequencer, signer, and one REST endpoint — and
-`verify --level connect` proves it. The read and write surface is live:
+The stack assembles fully — storage, sequencer, signer, and two REST endpoints, one on
+a port and one on a socket — and `verify --level connect` proves it. The read and
+write surface is live:
 
 | Route | Answers |
 |---|---|
@@ -69,7 +70,7 @@ The stack assembles fully — storage, sequencer, signer, and one REST endpoint 
 | `GET /branches/{branch}/head`, `…/claims/{id}` | the branch head, a claim in its closure |
 | `GET /archive/claims/{id}`, `GET /universe/claims/{id}` | a claim by the scope it is read in |
 | `POST /contribute` | merges a contribution, returns the new head and the ids |
-| `POST /query` | the branch's closure, as `native`, `json` or `cbor` |
+| `POST /query` | the branch's closure, as `json` or `cbor` |
 | `GET /system/layers`, `POST /system/verifications` | storage introspection, verification |
 
 ### Reaching it from a browser
@@ -81,10 +82,34 @@ unreachable from any page but its own origin, which is the right default for a s
 browses. Admitting an origin grants it nothing: every request still authenticates and is
 authorized as before.
 
+### The admin endpoint, on a socket
+
+The second endpoint binds `unix://./run/admin.sock` instead of a port, admitting
+`admin` rather than `ops`. `mode: "0660"` makes group membership the admission check; the
+default (`mode` absent) admits only the user the server runs as. Either way, the
+socket's containing directory carries the boundary too, for the instant between bind
+and chmod — create it closed before launch:
+
+```sh
+mkdir -m 0700 run
+```
+
+Reach it from a workstation by forwarding a local port over ssh (OpenSSH 6.7+; give
+the socket's absolute path, since a forwarded path is resolved on the remote host, not
+against the server's own working directory):
+
+```sh
+ssh -L 8080:/run/rankedb/admin.sock host
+```
+
+and open the Ranke Explorer at `http://127.0.0.1:8080` — it never learns the instance
+is behind a socket rather than a port.
+
 ### The sequencer section
 
 `"sequencer": {"type": "dev", "history": {"type": "mem"}}` binds ranke-go's serial
 reference writer with an in-memory head timeline — right for a dev server that
-persists nothing. `"concurrent"` selects the optimistic-concurrency writer, and
+persists nothing. `"concurrent"` selects the writer that prepares contributions in parallel and
+folds a batch into one head advance, and
 `"history": {"type": "file", "path": "..."}` persists the head timeline, which is
 what lets a restart reopen an archive rather than bootstrap a fresh one.

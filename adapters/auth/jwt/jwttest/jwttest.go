@@ -21,7 +21,7 @@ import (
 	jose "github.com/go-jose/go-jose/v4"
 	"github.com/go-jose/go-jose/v4/jwt"
 
-	"github.com/flocko-motion/rankedb/config/scope"
+	"github.com/rankegraph/ranke-db/config/scope"
 )
 
 // Setup returns a jwt config verifying EdDSA tokens against a freshly generated key, a

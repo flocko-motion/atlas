@@ -6,7 +6,7 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/flocko-motion/ranke-go"
+	"github.com/rankegraph/ranke-go"
 )
 
 // TestIdentityIsReproducible pins what makes a fixture a fixture: the same name always

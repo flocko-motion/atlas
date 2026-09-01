@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/flocko-motion/rankedb/adapters/vault"
+	"github.com/rankegraph/ranke-db/adapters/vault"
 )
 
 // stubVault is an in-memory vault.Vault double: config depends only on the vault

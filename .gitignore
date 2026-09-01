@@ -10,4 +10,8 @@
 .sidecar-base
 .td-root
 bin/
+/dist/
 docs/papers/
+docs/vocabulary.typ
+docs/handbook.typ
+/run/

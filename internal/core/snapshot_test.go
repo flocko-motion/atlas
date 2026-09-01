@@ -7,7 +7,7 @@ import (
 	"sync"
 	"testing"
 
-	ranke "github.com/flocko-motion/ranke-go"
+	ranke "github.com/rankegraph/ranke-go"
 )
 
 // countingSequencer records how often a request opened a snapshot.

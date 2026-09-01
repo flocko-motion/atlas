@@ -4,10 +4,10 @@
 
 A provenance-first foundation for knowledge systems.
 
-Please visit [github.com/flocko-motion/ranke-graph](https://github.com/flocko-motion/ranke-graph) to learn about the underlying concepts - this repo focusses on the implementation.
+Please visit [github.com/rankegraph/ranke-graph](https://github.com/rankegraph/ranke-graph) to learn about the underlying concepts - this repo focusses on the implementation.
 
 RankeDB is the **server**: a hexagonal wrapper around the
-[`ranke-go`](https://github.com/flocko-motion/ranke-go) library, which owns the graph
+[`ranke-go`](https://github.com/rankegraph/ranke-go) library, which owns the graph
 model and verification. One process serves exactly one Ranke-Archive, assembled from
 exactly one configuration supplied at launch.
 
@@ -22,7 +22,7 @@ exactly one configuration supplied at launch.
 | `config/` | Configuration — the composition root |
 | `adapters/` | One directory per adapter port: `storage`, `sequencer`, `signer`, `vault`, `auth`, `endpoints` |
 | `examples/` | Launchable example configurations |
-| `docs/`, `openspec/` | Documentation and capability specs |
+| `docs/`, `openspec/` | The operator's manual (built as `dist/docs.pdf`) and the capability specs |
 | `frontend/` | Ranke Explorer — the browser client (see [`frontend/README.md`](frontend/README.md)) |
 
 ## Building
@@ -59,15 +59,30 @@ See [`examples/minimal/`](examples/minimal/) for the smallest launchable stack.
 produces the Go server interface, the TS client and the HTML + Markdown references from
 it; the references are browsable under [`docs/openapi/`](docs/openapi/).
 
+## Handbook
+
+`docs/` is the operator's manual: running an instance, and every field of the launch
+artifact — the adapter sections and their backends, the endpoints and their
+authenticators, and the account roster that decides what a request may do. `make docs`
+fetches the shared ranke-graph typography and builds it to `dist/docs.pdf`, which each
+release carries alongside the binaries. It needs [typst](https://github.com/typst/typst) from the
+series the repo pins — `make check-tools` reports whether you have it.
+
+The release also carries `ranke-db-docs.tar.gz` (`make docs-bundle`) — the chapter sources plus
+`openapi/openapi.gen.yaml`, the self-contained REST contract. One download gives a website its
+pages and a client generator its contract, with no clone. It holds what this repository wrote
+and nothing fetched: the templates, the papers and `rql.schema.json` are ranke-graph's, and
+ranke-graph publishes them.
+
 ## Papers
 
-The theory lives in the separate [`ranke-graph`](https://github.com/flocko-motion/ranke-graph)
+The theory lives in the separate [`ranke-graph`](https://github.com/rankegraph/ranke-graph)
 repository as Typst (`.typ`) sources — **not in this repo**. Read the `.typ` source directly,
-or run `make docs` to pull copies into `docs/papers/`:
+or run `make docs-papers` to pull copies into `docs/papers/`:
 
-1. [`01-ranke-graph/ranke-graph.typ`](https://github.com/flocko-motion/ranke-graph/blob/main/01-ranke-graph/ranke-graph.typ)
+1. [`01-ranke-graph/ranke-graph.typ`](https://github.com/rankegraph/ranke-graph/blob/main/01-ranke-graph/ranke-graph.typ)
    — foundational model and design philosophy. **Required reading.**
-2. [`02-ranke-db/ranke-db.typ`](https://github.com/flocko-motion/ranke-graph/blob/main/02-ranke-db/ranke-db.typ)
+2. [`02-ranke-db/ranke-db.typ`](https://github.com/rankegraph/ranke-graph/blob/main/02-ranke-db/ranke-db.typ)
    — the RankeDB architecture paper. **Read it before implementation work.**
 
 ## License

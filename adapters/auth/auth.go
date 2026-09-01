@@ -14,13 +14,13 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/flocko-motion/rankedb/adapters/auth/apikey"
-	"github.com/flocko-motion/rankedb/adapters/auth/autherr"
-	"github.com/flocko-motion/rankedb/adapters/auth/jwt"
-	"github.com/flocko-motion/rankedb/adapters/auth/macaroon"
-	"github.com/flocko-motion/rankedb/adapters/auth/noauth"
-	"github.com/flocko-motion/rankedb/config/scope"
-	"github.com/flocko-motion/rankedb/internal/core/access"
+	"github.com/rankegraph/ranke-db/adapters/auth/apikey"
+	"github.com/rankegraph/ranke-db/adapters/auth/autherr"
+	"github.com/rankegraph/ranke-db/adapters/auth/jwt"
+	"github.com/rankegraph/ranke-db/adapters/auth/macaroon"
+	"github.com/rankegraph/ranke-db/adapters/auth/noauth"
+	"github.com/rankegraph/ranke-db/config/scope"
+	"github.com/rankegraph/ranke-db/internal/core/access"
 )
 
 // ErrUnauthenticated reports that a credential was required but missing or invalid —

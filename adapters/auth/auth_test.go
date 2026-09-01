@@ -7,11 +7,11 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/flocko-motion/rankedb/adapters/auth/apikey/apikeytest"
-	"github.com/flocko-motion/rankedb/adapters/auth/jwt/jwttest"
-	"github.com/flocko-motion/rankedb/adapters/auth/macaroon/macaroontest"
-	"github.com/flocko-motion/rankedb/adapters/auth/noauth/noauthtest"
-	"github.com/flocko-motion/rankedb/config/scope"
+	"github.com/rankegraph/ranke-db/adapters/auth/apikey/apikeytest"
+	"github.com/rankegraph/ranke-db/adapters/auth/jwt/jwttest"
+	"github.com/rankegraph/ranke-db/adapters/auth/macaroon/macaroontest"
+	"github.com/rankegraph/ranke-db/adapters/auth/noauth/noauthtest"
+	"github.com/rankegraph/ranke-db/config/scope"
 )
 
 // conformanceAccount is the one identity every backend's setup provisions its own

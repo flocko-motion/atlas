@@ -19,13 +19,14 @@ import (
 	"io"
 	"time"
 
-	"github.com/flocko-motion/rankedb/adapters/auth"
-	"github.com/flocko-motion/rankedb/adapters/endpoints"
-	"github.com/flocko-motion/rankedb/adapters/sequencer"
-	"github.com/flocko-motion/rankedb/adapters/signer"
-	"github.com/flocko-motion/rankedb/adapters/storage"
-	"github.com/flocko-motion/rankedb/internal/core"
-	"github.com/flocko-motion/rankedb/internal/core/access"
+	"github.com/rankegraph/ranke-db/adapters/auth"
+	"github.com/rankegraph/ranke-db/adapters/endpoints"
+	"github.com/rankegraph/ranke-db/adapters/endpoints/rest_http"
+	"github.com/rankegraph/ranke-db/adapters/sequencer"
+	"github.com/rankegraph/ranke-db/adapters/signer"
+	"github.com/rankegraph/ranke-db/adapters/storage"
+	"github.com/rankegraph/ranke-db/internal/core"
+	"github.com/rankegraph/ranke-db/internal/core/access"
 )
 
 // Config is the parsed launch artifact: driven ports and accounts shared by the
@@ -156,6 +157,16 @@ func load(r io.Reader) (*Config, error) {
 		for _, name := range ec.Admit {
 			if _, ok := c.Accounts[name]; !ok {
 				return nil, fmt.Errorf("config: endpoints[%d]: admit names undefined account %q", i, name)
+			}
+		}
+		// The transport's address form, also offline: an overlong socket path, or one
+		// missing its "unix://" scheme, fails the syntax check rather than the launch after it.
+		if raw, ok := ec.Transport["addr"]; ok {
+			var addr string
+			if err := json.Unmarshal(raw, &addr); err == nil {
+				if err := rest_http.ValidateAddr(addr); err != nil {
+					return nil, fmt.Errorf("config: endpoints[%d].transport.addr: %w", i, err)
+				}
 			}
 		}
 	}

@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	ranke "github.com/flocko-motion/ranke-go"
+	ranke "github.com/rankegraph/ranke-go"
 )
 
 // TestVerificationRunLifecycle drives a run through the registry against the real

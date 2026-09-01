@@ -16,7 +16,7 @@ import (
 
 	openbao "github.com/openbao/openbao/api/v2"
 
-	"github.com/flocko-motion/rankedb/config/scope"
+	"github.com/rankegraph/ranke-db/config/scope"
 )
 
 // Vault reads secrets from an OpenBao KV v2 engine.

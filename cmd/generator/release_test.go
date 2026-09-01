@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/flocko-motion/ranke-go"
+	"github.com/rankegraph/ranke-go"
 )
 
 // TestReleaseSignsAsFourIdentities pins the addition the scenario exists for: claims that

@@ -17,8 +17,8 @@
  * from `hashContent`, never a real key, since nothing here ever verifies a signature.
  */
 
-import { hashContent, newClaim } from '@flocko-motion/ranke';
-import type { Claim, Contributor, EdgeInput, Signer } from '@flocko-motion/ranke';
+import { hashContent, newClaim } from '@rankegraph/ranke';
+import type { Claim, Contributor, EdgeInput, Signer } from '@rankegraph/ranke';
 import {
   EdgeTypeBranch,
   EdgeTypeHead,
@@ -30,7 +30,7 @@ import {
   NodeTypeBranches,
   NodeTypeContributor,
   NodeTypeHead,
-} from '@flocko-motion/ranke';
+} from '@rankegraph/ranke';
 import { labelOf } from '../claims.ts';
 import type { DrawnClaim } from '../claims.ts';
 import { NAMES, OCCASIONS, ORGS, PLACES, SUBTYPES, THINGS } from './model.ts';

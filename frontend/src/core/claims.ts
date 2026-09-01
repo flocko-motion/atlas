@@ -2,14 +2,14 @@
  * package: core / claims
  * type:    data
  * job:     hold a claim the way a drawing needs it — the library's Claim, plus what it lacks
- * limits:  the pairing and the label; the claim itself is the library's (-> @flocko-motion/ranke)
+ * limits:  the pairing and the label; the claim itself is the library's (-> @rankegraph/ranke)
  *
  * The library's `Claim` and nothing here restates it. Beside it sits drawing state — an index a
  * layout sorts on, a branch a generator stamped, a caption — which describes a picture rather
  * than a claim, and so sits beside the type rather than inside a copy of it.
  */
 
-import type { Claim } from '@flocko-motion/ranke';
+import type { Claim } from '@rankegraph/ranke';
 
 /** DrawnClaim is one claim as a view holds it — the shape both sources answer in. */
 export interface DrawnClaim {

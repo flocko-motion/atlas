@@ -1059,7 +1059,7 @@ components:
           type: string
         type:
           type: string
-          description: Adapter type (e.g. memory, filesystem, s3, postgres, neo4j).
+          description: Adapter type (e.g. memory, filesystem, s3, redis, neo4j).
 
     StorageLayerList:
       type: object

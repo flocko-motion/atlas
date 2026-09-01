@@ -6,8 +6,8 @@
  * limits:  headless; no React, no DOM — rendering the tree is the UI's (-> ui)
  */
 
-import { CborReader, inspectClaim } from '@flocko-motion/ranke';
-import type { Deviation, InspectedSlot } from '@flocko-motion/ranke';
+import { CborReader, inspectClaim } from '@rankegraph/ranke';
+import type { Deviation, InspectedSlot } from '@rankegraph/ranke';
 
 /** One decoded CBOR value — a slot's own value, or something nested inside it. */
 export type CborNode =

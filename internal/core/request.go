@@ -15,10 +15,10 @@ import (
 	"io"
 	"time"
 
-	"github.com/flocko-motion/ranke-go"
+	"github.com/rankegraph/ranke-go"
 
-	"github.com/flocko-motion/rankedb/adapters/auth"
-	"github.com/flocko-motion/rankedb/internal/core/access"
+	"github.com/rankegraph/ranke-db/adapters/auth"
+	"github.com/rankegraph/ranke-db/internal/core/access"
 )
 
 // The reserved pseudo-branches, re-exported from access so a request targets them

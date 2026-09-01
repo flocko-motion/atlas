@@ -177,7 +177,7 @@ export interface Health {
 
 export interface StorageLayer {
   name: string;
-  /** Adapter type (e.g. memory, filesystem, s3, postgres, neo4j). */
+  /** Adapter type (e.g. memory, filesystem, s3, redis, neo4j). */
   type: string;
 }
 

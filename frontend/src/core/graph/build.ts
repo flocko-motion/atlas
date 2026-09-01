@@ -16,7 +16,7 @@ import {
   contentSize,
   inlineBytes,
   matchTypeList,
-} from '@flocko-motion/ranke';
+} from '@rankegraph/ranke';
 import type { DrawnClaim } from '../claims.ts';
 import { rememberContent } from '../content.ts';
 import { hashString } from '../hash.ts';

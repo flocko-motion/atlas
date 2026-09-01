@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
-	ranke "github.com/flocko-motion/ranke-go"
+	ranke "github.com/rankegraph/ranke-go"
 
-	"github.com/flocko-motion/rankedb/internal/core/access"
+	"github.com/rankegraph/ranke-db/internal/core/access"
 )
 
 // newContributor mints a client-side contributor: its own key, its own signed

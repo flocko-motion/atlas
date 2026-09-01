@@ -14,9 +14,9 @@ import (
 	"testing"
 	"time"
 
-	ranke "github.com/flocko-motion/ranke-go"
+	ranke "github.com/rankegraph/ranke-go"
 
-	"github.com/flocko-motion/rankedb/openapi"
+	"github.com/rankegraph/ranke-db/openapi"
 )
 
 // TestListBranchesNeedsNoBranchName is the route's reason to exist: a client told nothing

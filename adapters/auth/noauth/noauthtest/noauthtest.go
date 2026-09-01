@@ -7,7 +7,7 @@ package noauthtest
 import (
 	"testing"
 
-	"github.com/flocko-motion/rankedb/config/scope"
+	"github.com/rankegraph/ranke-db/config/scope"
 )
 
 // Setup returns a noauth config that authenticates every credential as account, the

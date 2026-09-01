@@ -1794,7 +1794,7 @@ and what it already held.
 |Name|Type|Required|Restrictions|Description|
 |---|---|---|---|---|
 |name|string|true|none|none|
-|type|string|true|none|Adapter type (e.g. memory, filesystem, s3, postgres, neo4j).|
+|type|string|true|none|Adapter type (e.g. memory, filesystem, s3, redis, neo4j).|
 
 <h2 id="tocS_StorageLayerList">StorageLayerList</h2>
 <!-- backwards compatibility -->

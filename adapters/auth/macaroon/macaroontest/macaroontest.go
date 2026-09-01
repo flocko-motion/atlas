@@ -10,7 +10,7 @@ import (
 
 	joemacaroon "gopkg.in/macaroon.v2"
 
-	"github.com/flocko-motion/rankedb/config/scope"
+	"github.com/rankegraph/ranke-db/config/scope"
 )
 
 // RootKey is the shared secret Setup and every fixture built through Mint sign

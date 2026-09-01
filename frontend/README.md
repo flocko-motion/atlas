@@ -41,7 +41,7 @@ layering above:
 
 | From | Comes | So this repo declares |
 |---|---|---|
-| `@flocko-motion/ranke` | `Claim`, `Edge`, the node classes, the content declaration, the sequence readers (claims, ids, raw records), the type-glob matcher, the RankeQL `Query` | no claim type, no vocabulary, no framing rule |
+| `@rankegraph/ranke` | `Claim`, `Edge`, the node classes, the content declaration, the sequence readers (claims, ids, raw records), the type-glob matcher, the RankeQL `Query` | no claim type, no vocabulary, no framing rule |
 | `openapi/openapi.gen.ts` | every route, every request and response type | no path string, no wire field name |
 
 What the explorer *does* hold is drawing state the ADT has no reason to define — the
@@ -167,7 +167,7 @@ tests use for podman-backed counterparts. A software rasteriser would have measu
 SwiftShader rather than a GPU, so nothing was faked in its place.
 
 **The container is capped at 2 GiB**, which is worth knowing because it briefly bound: at
-`@flocko-motion/ranke` 0.2.1 a claim cost 8 KB of heap, so 100k of them were 770 MiB, the
+ranke-ts 0.2.1 a claim cost 8 KB of heap, so 100k of them were 770 MiB, the
 granularity sweep was OOM-killed at its third archive, and the 300k run could not finish at all.
 0.3.0 brought that to 1.8 KB — 171 MiB at 100k, 509 MiB at 300k — and both runs fit again, so
 the numbers below are measured at the shape they always were. `results/graph-bench-300k.json`
@@ -213,7 +213,7 @@ returns. Deterministic: same `--seed`, same archive.
 That costs **~0.12 ms per claim** against ~0.01 ms for the object literals it replaced — 8 400
 claims a second, so 10k in a little over a second and 100k in twelve.
 
-It cost 2.5× that until `@flocko-motion/ranke` 0.3.0, and how it came down is the useful part.
+It cost 2.5× that until ranke-ts 0.3.0, and how it came down is the useful part.
 Taking a four-edge claim apart at 0.2.1 showed 243 µs, of which the cryptography was 8: each
 record was encoded to compute its id, encoded again inside `encodeNode` to hash the node,
 encoded a *third* time by `encodeClaim` for the stored bytes, and then parsed back by
