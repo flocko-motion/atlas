@@ -87,7 +87,7 @@ BROKKR_INSTALL_SH := https://raw.githubusercontent.com/flocko-motion/sindri/mast
 .PHONY: all help check check-tools generate verify lint tidy build smoke test dev seed \
         ranke-go-version upgrade release major minor patch breaking feature fix \
         docs docs-papers docs-current docs-release docs-check docs-pdf docs-bundle docs-clean print-typst-version \
-        pull-rql-schema check-rql-schema check-generated release-gate check-clean-tree
+        pull-rql-schema check-rql-schema check-generated release-gate check-clean-tree check-release-bump
 
 BIN := bin/ranke-db
 GEN := bin/generator
@@ -361,7 +361,14 @@ release-gate: check-rql-schema check-generated ## Run the pre-release contract c
 check-clean-tree:
 	@[ -z "$$(git status --porcelain)" ] || { echo "working tree is dirty — commit or stash before releasing" >&2; exit 1; }
 
-release: check-clean-tree release-gate ## Release: clean → merge to default via PR → tag merged tip → push (bump: major|minor|patch, aliases breaking|feature|fix)
+# Same reasoning as check-clean-tree: a missing or misspelled bump word is a free,
+# instant check, and release-gate is not — scripts/release.sh's own case statement
+# still validates it too, but only after release-gate already ran.
+check-release-bump:
+	@[ -n "$(filter major minor patch breaking feature fix,$(MAKECMDGOALS))" ] || \
+		{ echo "usage: make release <major|breaking | minor|feature | patch|fix>" >&2; exit 1; }
+
+release: check-clean-tree check-release-bump release-gate ## Release: clean → merge to default via PR → tag merged tip → push (bump: major|minor|patch, aliases breaking|feature|fix)
 	@./scripts/release.sh $(filter major minor patch breaking feature fix,$(MAKECMDGOALS))
 
 major minor patch breaking feature fix:
