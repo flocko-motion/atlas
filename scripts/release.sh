@@ -21,12 +21,6 @@ case "$bump" in
 		;;
 esac
 
-# 1. Clean tree — a release must capture a committed state.
-if [ -n "$(git status --porcelain)" ]; then
-	echo "working tree is dirty — commit or stash before releasing" >&2
-	exit 1
-fi
-
 git fetch --tags --force origin >/dev/null 2>&1 || true
 default="$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null | sed 's@^origin/@@')"
 default="${default:-main}"
@@ -36,7 +30,7 @@ start="$(git rev-parse --abbrev-ref HEAD)"
 trap 'git checkout --quiet "$start" 2>/dev/null || true' EXIT
 
 if [ "$start" != "$default" ]; then
-	# 2. Feature branch: push, open a PR, merge into default — so the tag lands on merged code.
+	# 1. Feature branch: push, open a PR, merge into default — so the tag lands on merged code.
 	if ! command -v gh >/dev/null; then
 		echo "on '$start' — releasing needs it merged to '$default'. Install gh (https://cli.github.com) or merge manually, then re-run." >&2
 		exit 1
@@ -74,7 +68,7 @@ else
 	target="HEAD"
 fi
 
-# 3. Bump the latest release tag (semver only), tag the merged tip, push it.
+# 2. Bump the latest release tag (semver only), tag the merged tip, push it.
 # `|| true`: swallows grep's no-match exit under pipefail, so v0.0.0 applies on release 1.
 latest="$(git tag --list 'v*' --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n1 || true)"
 latest="${latest:-v0.0.0}"
@@ -100,7 +94,7 @@ fi
 
 git push origin "$next"
 
-# 4. Wait for the tag-triggered workflow, so a failed build/publish surfaces here.
+# 3. Wait for the tag-triggered workflow, so a failed build/publish surfaces here.
 #    Match by SHA (headBranch is unset for tags) and an id above the pre-push mark.
 if command -v gh >/dev/null; then
 	sha="$(git rev-parse "$target")"

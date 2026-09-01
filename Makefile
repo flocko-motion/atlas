@@ -87,7 +87,7 @@ BROKKR_INSTALL_SH := https://raw.githubusercontent.com/flocko-motion/sindri/mast
 .PHONY: all help check check-tools generate verify lint tidy build smoke test dev seed \
         ranke-go-version upgrade release major minor patch breaking feature fix \
         docs docs-papers docs-current docs-release docs-check docs-pdf docs-bundle docs-clean print-typst-version \
-        pull-rql-schema check-rql-schema check-generated release-gate
+        pull-rql-schema check-rql-schema check-generated release-gate check-clean-tree
 
 BIN := bin/ranke-db
 GEN := bin/generator
@@ -356,7 +356,12 @@ check-generated: ## Fail if `make generate` would change anything (spec edited w
 
 release-gate: check-rql-schema check-generated ## Run the pre-release contract checks without releasing
 
-release: release-gate ## Release: clean → merge to default via PR → tag merged tip → push (bump: major|minor|patch, aliases breaking|feature|fix)
+# check-clean-tree first, ahead of release-gate: a dirty tree is a free, instant
+# check, and release-gate is not — failing on it should not cost a build first.
+check-clean-tree:
+	@[ -z "$$(git status --porcelain)" ] || { echo "working tree is dirty — commit or stash before releasing" >&2; exit 1; }
+
+release: check-clean-tree release-gate ## Release: clean → merge to default via PR → tag merged tip → push (bump: major|minor|patch, aliases breaking|feature|fix)
 	@./scripts/release.sh $(filter major minor patch breaking feature fix,$(MAKECMDGOALS))
 
 major minor patch breaking feature fix:
